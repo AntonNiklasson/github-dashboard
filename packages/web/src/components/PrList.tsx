@@ -32,22 +32,25 @@ export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, rec
 								repo={pr.repo}
 								number={pr.number}
 								updatedAt={pr.updatedAt}
-								draft={false}
+								author={pr.author}
+								authorAvatar={pr.authorAvatar}
+								draft={pr.draft}
 								merged={pr.merged}
-								ciStatus="unknown"
-								inMergeQueue={false}
-								autoMerge={false}
-								headBranch=""
-								baseBranch=""
-								reviews={{ approved: [], changesRequested: [] }}
-								additions={0}
-										deletions={0}
-										commits={0}
-										commentCount={0}
-										focused={focused}
-										instanceId={pr.instanceId}
-										instanceLabel={pr.instanceLabel}
-									/>
+								ciStatus={pr.ciStatus}
+								inMergeQueue={pr.inMergeQueue}
+								autoMerge={pr.autoMerge}
+								headBranch={pr.headBranch}
+								baseBranch={pr.baseBranch}
+								reviews={pr.reviews}
+								additions={pr.additions}
+								deletions={pr.deletions}
+								commits={pr.commits}
+								commentCount={pr.commentCount}
+								mergeable={pr.mergeable}
+								focused={focused}
+								instanceId={pr.instanceId}
+								instanceLabel={pr.instanceLabel}
+							/>
 						</FocusLi>
 					);
 				})}

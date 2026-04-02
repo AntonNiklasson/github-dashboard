@@ -15,7 +15,7 @@ export interface PR {
 	author: string;
 	authorAvatar: string;
 	draft: boolean;
-	merged: boolean;
+	merged?: boolean;
 	ciStatus: string;
 	inMergeQueue: boolean;
 	autoMerge: boolean;
@@ -27,6 +27,7 @@ export interface PR {
 	commits: number;
 	commentCount: number;
 	labels: string[];
+	mergeable?: boolean | null;
 	instanceId?: string;
 	instanceLabel?: string;
 }
