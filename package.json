@@ -1,0 +1,22 @@
+{
+  "name": "github-dashboard",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"pnpm --filter @github-dashboard/server dev\" \"pnpm --filter @github-dashboard/web dev\"",
+    "build": "pnpm --filter @github-dashboard/server build && pnpm --filter @github-dashboard/web build",
+    "lint": "oxlint",
+    "fmt": "oxfmt --write .",
+    "typecheck": "tsgo --project packages/server/tsconfig.json && tsgo --project packages/web/tsconfig.json"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "oxfmt": "^0.7.0",
+    "oxlint": "^0.16.10",
+    "typescript": "^6.0.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
