@@ -109,9 +109,9 @@ export function PrCard({
 				<div className="flex shrink-0 items-center pr-4">
 					<PrStateIcon draft={draft} merged={merged} loading={togglingDraft} inMergeQueue={inMergeQueue} />
 				</div>
-				<div className="min-w-0 flex-1">
+				<div className="min-w-0 flex-1 overflow-hidden">
 					<div className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
-						<span><span className="hidden @lg:block">{repo.split("/")[0]}/</span>{repo.split("/")[1]}#{number}</span>
+						<span className="shrink-0"><span className="hidden @lg:block">{repo.split("/")[0]}/</span>{repo.split("/")[1]}#{number}</span>
 						<span className="flex-1" />
 						{author && <span className="text-muted-foreground/50">@{author}</span>}
 						{headBranch && (
