@@ -15,6 +15,7 @@ interface Props {
 	number: number;
 	updatedAt: string;
 	draft: boolean;
+	merged?: boolean;
 	ciStatus: string;
 	inMergeQueue?: boolean;
 	autoMerge?: boolean;
@@ -43,6 +44,7 @@ export function PrCard({
 	number,
 	updatedAt: _updatedAt,
 	draft,
+	merged,
 	ciStatus,
 	inMergeQueue,
 	autoMerge,
@@ -103,10 +105,12 @@ export function PrCard({
 		>
 			{reviews.approved.length > 0 && <ApprovedStamp />}
 			{reviews.changesRequested.length > 0 && reviews.approved.length === 0 && <ReviewBadge reviews={reviews} />}
-			<div className="flex items-center gap-4">
-				<PrStateIcon draft={draft} loading={togglingDraft} inMergeQueue={inMergeQueue} />
+			<div className="flex">
+				<div className="flex shrink-0 items-center pr-4">
+					<PrStateIcon draft={draft} merged={merged} loading={togglingDraft} inMergeQueue={inMergeQueue} />
+				</div>
 				<div className="min-w-0 flex-1">
-					<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+					<div className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
 						<span><span className="hidden @lg:block">{repo.split("/")[0]}/</span>{repo.split("/")[1]}#{number}</span>
 						<span className="flex-1" />
 						{author && <span className="text-muted-foreground/50">@{author}</span>}
@@ -141,6 +145,7 @@ export function PrCard({
 						</a>
 					)}
 					<div className="mt-1.5 flex flex-col gap-1.5 text-xs text-muted-foreground">
+						{!merged && (
 						<div className="flex items-center gap-2">
 							<StatusBadge status={ciStatus} />
 							<span className="font-mono">
@@ -153,6 +158,7 @@ export function PrCard({
 								{commits}
 							</span>
 						</div>
+						)}
 						<div className="flex items-center gap-2">
 							{autoMerge && (
 								<span className="flex items-center gap-1 rounded bg-green-100 px-1 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">

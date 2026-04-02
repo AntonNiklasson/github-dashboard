@@ -1,12 +1,21 @@
-import { Loader2, GitMerge, GitPullRequest } from "lucide-react";
+import { Loader2, GitMerge, GitPullRequest, CircleX } from "lucide-react";
 
-export function PrStateIcon({ draft, loading, inMergeQueue }: { draft: boolean; loading?: boolean; inMergeQueue?: boolean }) {
+export function PrStateIcon({ draft, loading, inMergeQueue, merged }: { draft: boolean; loading?: boolean; inMergeQueue?: boolean; merged?: boolean }) {
 	if (loading) {
 		return <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />;
 	}
 
 	if (inMergeQueue) {
 		return <GitMerge className="h-4 w-4 shrink-0 text-amber-500" />;
+	}
+
+	if (merged) {
+		return <GitPullRequest className="h-4 w-4 shrink-0 text-purple-500" />;
+	}
+
+	// Closed but not merged - only when explicitly passed as false
+	if (merged === false) {
+		return <CircleX className="h-4 w-4 shrink-0 text-red-500" />;
 	}
 
 	if (draft) {

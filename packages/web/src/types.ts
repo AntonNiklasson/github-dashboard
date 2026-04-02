@@ -15,6 +15,7 @@ export interface PR {
 	author: string;
 	authorAvatar: string;
 	draft: boolean;
+	merged: boolean;
 	ciStatus: string;
 	inMergeQueue: boolean;
 	autoMerge: boolean;
@@ -41,6 +42,7 @@ export interface ReviewRequest {
 	author: string;
 	authorAvatar: string;
 	draft: boolean;
+	merged: boolean;
 	ciStatus: string;
 	inMergeQueue: boolean;
 	autoMerge: boolean;
@@ -77,6 +79,10 @@ export interface RecentPR {
 	repo: string;
 	updatedAt: string;
 	merged: boolean;
+	headBranch?: string;
+	additions?: number;
+	deletions?: number;
+	commits?: number;
 	instanceId?: string;
 	instanceLabel?: string;
 }

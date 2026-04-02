@@ -131,6 +131,7 @@ export async function fetchPrs(instanceId: string) {
 				author: item.user?.login ?? "unknown",
 				authorAvatar: item.user?.avatar_url ?? "",
 				draft: item.draft ?? false,
+				// Not applicable for open PRs
 				ciStatus,
 				inMergeQueue: mqStatus?.inMergeQueue ?? false,
 				autoMerge: mqStatus?.autoMerge ?? false,
@@ -167,18 +168,35 @@ export async function fetchRecentPrs(instanceId: string) {
 		per_page: 20,
 	});
 
-	return data.items.map((item) => {
-		const [owner, repo] = item.repository_url.split("/").slice(-2);
-		return {
-			id: item.id,
-			number: item.number,
-			title: item.title,
-			url: item.html_url,
-			repo: `${owner}/${repo}`,
-			updatedAt: item.updated_at,
-			merged: item.pull_request?.merged_at != null,
-		};
-	});
+	// Fetch detailed PR data for each result
+	const prs = await Promise.all(
+		data.items.map(async (item) => {
+			const [owner, repo] = item.repository_url.split("/").slice(-2);
+			const prNumber = item.number;
+
+			const [prRes] = await Promise.all([
+				client.pulls.get({ owner, repo, pull_number: prNumber }).catch(() => null),
+			]);
+
+			const prData = prRes?.data;
+
+			return {
+				id: item.id,
+				number: item.number,
+				title: item.title,
+				url: item.html_url,
+				repo: `${owner}/${repo}`,
+				updatedAt: item.updated_at,
+				merged: item.pull_request?.merged_at != null,
+				headBranch: prData?.head.ref ?? "",
+				additions: prData?.additions ?? 0,
+				deletions: prData?.deletions ?? 0,
+				commits: prData?.commits ?? 0,
+			};
+		}),
+	);
+
+	return prs;
 }
 
 export async function fetchReviews(instanceId: string) {
@@ -224,6 +242,7 @@ export async function fetchReviews(instanceId: string) {
 				author: item.user?.login ?? "unknown",
 				authorAvatar: item.user?.avatar_url ?? "",
 				draft: item.draft ?? false,
+				// Not applicable for open PRs
 				ciStatus,
 				inMergeQueue: mqStatus?.inMergeQueue ?? false,
 				autoMerge: mqStatus?.autoMerge ?? false,

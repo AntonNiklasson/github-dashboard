@@ -1,0 +1,4 @@
+#!/bin/sh
+cd "$(git rev-parse --show-toplevel)"
+pnpm exec oxlint || exit 1
+pnpm --filter @github-dashboard/web exec vitest run || exit 1
