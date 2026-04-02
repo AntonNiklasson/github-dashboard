@@ -1,6 +1,6 @@
 # GitHub Dashboard
 
-A local-first dashboard for managing your GitHub PRs, reviews, and notifications.
+A for managing your GitHub PRs, reviews, and notifications.
 
 ## Features
 
@@ -20,15 +20,22 @@ A local-first dashboard for managing your GitHub PRs, reviews, and notifications
 
 | Key | Action |
 |-----|--------|
-| `j` / `↓` | Next item |
-| `k` / `↑` | Previous item |
-| `h` / `←` | Previous column |
-| `l` / `→` | Next column |
-| `Enter` | Open PR in browser |
-| `d` | Toggle draft |
-| `t` | Edit title |
-| `o` | Open in GitHub |
-| `m` | Toggle auto-merge |
+| `j` / `k` | Move down / up |
+| `h` / `l` | Move between columns |
+| `1` / `2` / `3` | Jump to column |
+| `g g` | Jump to top |
+| `g G` | Jump to bottom |
+| `Enter` | Open detail panel |
+| `.` | Open action menu |
+| `y` | Open copy menu |
+| `o` | Open PR in browser |
+| `r` | Open repo |
+| `d` | Toggle draft (in menu) |
+| `t` | Edit title (in menu) |
+| `m` | Toggle auto-merge (in menu) |
+| `a` | Approve PR (in menu) |
+| `c` | Close PR (in menu) |
+| `,` | Settings |
 | `?` | Show shortcuts |
 
 ## Tech Stack
