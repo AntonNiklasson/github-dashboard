@@ -20,6 +20,9 @@ export interface ConfigSchema {
 		baseUrl: string;
 		token: string;
 	};
+	linear?: {
+		apiKey: string;
+	};
 	port?: number;
 }
 

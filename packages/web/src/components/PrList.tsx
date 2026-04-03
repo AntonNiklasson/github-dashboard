@@ -1,4 +1,6 @@
-import type { PR, RecentPR } from "../types";
+import { useMemo } from "react";
+import { useLinearIssues, useLinearStatus } from "../hooks";
+import type { LinearIssue, PR, RecentPR } from "../types";
 import { FocusLi } from "./FocusLi";
 import { PrCard } from "./PrCard";
 
@@ -13,6 +15,25 @@ interface Props {
 }
 
 export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, recentPrs, editingPrNumber, onSaveTitle }: Props) {
+	// Collect all branch names for Linear issue resolution
+	const { data: linearStatus } = useLinearStatus();
+	const branches = useMemo(() => {
+		const all: string[] = [];
+		for (const pr of prs) {
+			if (pr.headBranch) all.push(pr.headBranch);
+		}
+		if (recentPrs) {
+			for (const pr of recentPrs) {
+				if (pr.headBranch) all.push(pr.headBranch);
+			}
+		}
+		return all;
+	}, [prs, recentPrs]);
+
+	const { data: linearIssueMap } = useLinearIssues(
+		linearStatus?.configured ? branches : [],
+	);
+
 	if (prs.length === 0 && (!recentPrs || recentPrs.length === 0)) {
 		return <p className="py-4 text-center text-sm text-muted-foreground">No open PRs</p>;
 	}
@@ -50,6 +71,7 @@ export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, rec
 								focused={focused}
 								instanceId={pr.instanceId}
 								instanceLabel={pr.instanceLabel}
+								linearIssues={pr.headBranch ? linearIssueMap?.[pr.headBranch] : undefined}
 							/>
 						</FocusLi>
 					);
@@ -89,6 +111,7 @@ export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, rec
 										focused={focused}
 										instanceId={pr.instanceId}
 										instanceLabel={pr.instanceLabel}
+										linearIssues={pr.headBranch ? linearIssueMap?.[pr.headBranch] : undefined}
 									/>
 								</FocusLi>
 							);

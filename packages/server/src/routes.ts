@@ -4,6 +4,7 @@ import { getCached, setCached } from "./cache.js";
 import { type ConfigSchema, configExists, getInstances, readConfig, resolveInstances, writeConfig } from "./config.js";
 import { fetchNotifications, fetchPrs, fetchRecentPrs, fetchReviews } from "./fetchers.js";
 import { clearClients, getClient, getInstance } from "./github-client.js";
+import { extractLinearIssueIds, fetchLinearIssues, isLinearConfigured } from "./linear.js";
 
 const api = new Hono();
 
@@ -38,6 +39,9 @@ api.get("/config", (c) => {
 	if (masked.enterprise?.token) {
 		masked.enterprise = { ...masked.enterprise, token: maskToken(masked.enterprise.token) };
 	}
+	if (masked.linear?.apiKey) {
+		masked.linear = { ...masked.linear, apiKey: maskToken(masked.linear.apiKey) };
+	}
 	return c.json({ exists: true, config: masked });
 });
 
@@ -51,6 +55,9 @@ api.put("/config", async (c) => {
 	}
 	if (incoming.enterprise && incoming.enterprise.token === "" && existing?.enterprise?.token) {
 		incoming.enterprise.token = existing.enterprise.token;
+	}
+	if (incoming.linear && incoming.linear.apiKey === "" && existing?.linear?.apiKey) {
+		incoming.linear.apiKey = existing.linear.apiKey;
 	}
 
 	// Validate tokens before saving
@@ -409,6 +416,57 @@ api.get("/:instanceId/users/:username/prs", async (c) => {
 	});
 
 	return c.json(prs);
+});
+
+// Linear integration
+api.get("/linear/status", (c) => {
+	return c.json({ configured: isLinearConfigured() });
+});
+
+api.post("/linear/issues", async (c) => {
+	if (!isLinearConfigured()) {
+		return c.json({ issues: [] });
+	}
+
+	const { branches } = await c.req.json<{ branches: string[] }>();
+	if (!branches?.length) {
+		return c.json({ issues: {} });
+	}
+
+	// Extract all unique identifiers from all branches
+	const allIdentifiers = new Set<string>();
+	const branchIdentifiers = new Map<string, string[]>();
+
+	for (const branch of branches) {
+		const ids = extractLinearIssueIds(branch);
+		branchIdentifiers.set(branch, ids);
+		for (const id of ids) allIdentifiers.add(id);
+	}
+
+	if (allIdentifiers.size === 0) {
+		return c.json({ issues: {} });
+	}
+
+	try {
+		const issues = await fetchLinearIssues([...allIdentifiers]);
+		const issueMap = Object.fromEntries(issues.map((i) => [i.identifier, i]));
+
+		// Build result: branch → issues
+		const result: Record<string, typeof issues> = {};
+		for (const [branch, ids] of branchIdentifiers) {
+			const branchIssues = ids
+				.map((id) => issueMap[id])
+				.filter(Boolean);
+			if (branchIssues.length > 0) {
+				result[branch] = branchIssues;
+			}
+		}
+
+		return c.json({ issues: result });
+	} catch (err) {
+		console.error("Linear issues fetch failed:", err instanceof Error ? err.message : err);
+		return c.json({ issues: {} });
+	}
 });
 
 export { api };

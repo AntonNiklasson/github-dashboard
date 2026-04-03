@@ -42,6 +42,8 @@ export function ConfigForm({ initial, onSave, saving }: ConfigFormProps) {
 	const [gheLabel, setGheLabel] = useState(initial?.enterprise?.label ?? "");
 	const [gheBaseUrl, setGheBaseUrl] = useState(initial?.enterprise?.baseUrl ?? "");
 	const [gheToken, setGheToken] = useState("");
+	const [linearEnabled, setLinearEnabled] = useState(!!initial?.linear);
+	const [linearApiKey, setLinearApiKey] = useState("");
 	const [port, setPort] = useState(String(initial?.port ?? 7100));
 	const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
@@ -61,6 +63,12 @@ export function ConfigForm({ initial, onSave, saving }: ConfigFormProps) {
 				label: gheLabel || "GHE",
 				baseUrl: gheBaseUrl,
 				token: gheToken,
+			};
+		}
+
+		if (linearEnabled) {
+			config.linear = {
+				apiKey: linearApiKey,
 			};
 		}
 
@@ -140,6 +148,37 @@ export function ConfigForm({ initial, onSave, saving }: ConfigFormProps) {
 								aria-describedby={fieldErrors.gheToken ? "ghe-token-error" : undefined}
 							/>
 							<FieldError message={fieldErrors.gheToken} />
+						</div>
+					</div>
+				)}
+			</fieldset>
+
+			<fieldset className="space-y-3">
+				<label className="flex items-center gap-2 text-sm font-semibold text-foreground">
+					<input
+						type="checkbox"
+						checked={linearEnabled}
+						onChange={(e) => setLinearEnabled(e.target.checked)}
+						className="rounded"
+					/>
+					Linear
+				</label>
+
+				{linearEnabled && (
+					<div className="space-y-3">
+						<div className="space-y-1">
+							<Label htmlFor="linear-api-key">API key</Label>
+							<Input
+								id="linear-api-key"
+								type="password"
+								placeholder={initial?.linear?.apiKey ? initial.linear.apiKey : "lin_api_..."}
+								value={linearApiKey}
+								onChange={(e) => setLinearApiKey(e.target.value)}
+								required={linearEnabled && !initial?.linear?.apiKey}
+							/>
+							<p className="text-xs text-muted-foreground">
+								Create one at Linear &rarr; Settings &rarr; API &rarr; Personal API keys
+							</p>
 						</div>
 					</div>
 				)}

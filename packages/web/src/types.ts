@@ -97,3 +97,17 @@ export interface SearchPR {
 	updatedAt: string;
 	state?: string;
 }
+
+export interface LinearIssue {
+	id: string;
+	identifier: string;
+	title: string;
+	url: string;
+	state: {
+		name: string;
+		color: string;
+		type: string;
+	};
+	priority: number;
+	priorityLabel: string;
+}

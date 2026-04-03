@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { getInstanceColor } from "../instance-colors";
+import type { LinearIssue } from "../types";
 import { ApprovedStamp } from "./ApprovedStamp";
 import { PrStateIcon } from "./PrStateIcon";
 import { ReviewBadge } from "./ReviewBadge";
@@ -35,6 +36,7 @@ interface Props {
 	editing?: boolean;
 	onSaveTitle?: (title: string) => void;
 	mergeable?: boolean | null;
+	linearIssues?: LinearIssue[];
 }
 
 export function PrCard({
@@ -64,6 +66,7 @@ export function PrCard({
 	editing,
 	onSaveTitle,
 	mergeable,
+	linearIssues,
 }: Props) {
 	const [editTitle, setEditTitle] = useState(title);
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -172,6 +175,26 @@ export function PrCard({
 									conflict
 								</span>
 							)}
+							{linearIssues?.map((issue) => (
+								<a
+									key={issue.id}
+									href={issue.url}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium transition-colors hover:opacity-80"
+									style={{
+										backgroundColor: `${issue.state.color}18`,
+										color: issue.state.color,
+									}}
+									title={`${issue.identifier}: ${issue.title} (${issue.state.name})`}
+									onClick={(e) => e.stopPropagation()}
+								>
+									<svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor">
+										<path d="M8 1a7 7 0 110 14A7 7 0 018 1zm0 1.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11z" />
+									</svg>
+									{issue.identifier}
+								</a>
+							))}
 						</div>
 					</div>
 				</div>

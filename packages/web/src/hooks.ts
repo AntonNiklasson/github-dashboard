@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type { Instance, Notification, PR, RecentPR, ReviewRequest } from "./types";
+import type { Instance, LinearIssue, Notification, PR, RecentPR, ReviewRequest } from "./types";
 
 const POLL_INTERVAL = 10_000; // 10s
 
@@ -183,6 +183,25 @@ export function useAllNotifications(instances: Instance[]) {
 	const refetchAll = () => queries.forEach((q) => q.refetch());
 
 	return { data, isLoading, isFetching, error, refetchAll };
+}
+
+export function useLinearStatus() {
+	return useQuery({
+		queryKey: ["linear-status"],
+		queryFn: api.linearStatus,
+		staleTime: 60_000,
+	});
+}
+
+export function useLinearIssues(branches: string[]) {
+	return useQuery({
+		queryKey: ["linear-issues", branches.sort().join(",")],
+		queryFn: () => api.linearIssues(branches),
+		enabled: branches.length > 0,
+		refetchInterval: 60_000, // Linear data changes less frequently
+		staleTime: 30_000,
+		select: (data) => data.issues,
+	});
 }
 
 export function useSearchPrs(instanceId: string, query: string) {

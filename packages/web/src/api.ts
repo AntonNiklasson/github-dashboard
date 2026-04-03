@@ -1,5 +1,6 @@
 import type {
 	Instance,
+	LinearIssue,
 	Notification,
 	PR,
 	RecentPR,
@@ -21,6 +22,9 @@ export interface ConfigData {
 		label: string;
 		baseUrl: string;
 		token: string;
+	};
+	linear?: {
+		apiKey: string;
 	};
 	port?: number;
 }
@@ -139,5 +143,15 @@ export const api = {
 		);
 		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
 		return res.json();
+	},
+	linearStatus: () => fetchJson<{ configured: boolean }>("/api/linear/status"),
+	linearIssues: async (branches: string[]) => {
+		const res = await fetch("/api/linear/issues", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ branches }),
+		});
+		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+		return res.json() as Promise<{ issues: Record<string, LinearIssue[]> }>;
 	},
 };

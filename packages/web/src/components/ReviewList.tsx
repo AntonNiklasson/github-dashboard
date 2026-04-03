@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { useLinearIssues, useLinearStatus } from "../hooks";
 import type { ReviewRequest } from "../types";
 import { FocusLi } from "./FocusLi";
 import { PrCard } from "./PrCard";
@@ -9,6 +11,15 @@ interface Props {
 }
 
 export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
+	const { data: linearStatus } = useLinearStatus();
+	const branches = useMemo(
+		() => reviews.map((pr) => pr.headBranch).filter(Boolean),
+		[reviews],
+	);
+	const { data: linearIssueMap } = useLinearIssues(
+		linearStatus?.configured ? branches : [],
+	);
+
 	if (reviews.length === 0) {
 		return (
 			<p className="py-4 text-center text-sm text-muted-foreground">
@@ -23,7 +34,11 @@ export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
 				const focused = isFocusedSection && focusIndex === i;
 				return (
 					<FocusLi key={pr.id} focused={focused}>
-						<PrCard {...pr} focused={focused} />
+						<PrCard
+							{...pr}
+							focused={focused}
+							linearIssues={pr.headBranch ? linearIssueMap?.[pr.headBranch] : undefined}
+						/>
 					</FocusLi>
 				);
 			})}
