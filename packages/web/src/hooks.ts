@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type { Instance, LinearIssue, Notification, PR, RecentPR, ReviewRequest } from "./types";
+import type { Instance, Notification, PR, RecentPR, ReviewRequest } from "./types";
 
 const POLL_INTERVAL = 10_000; // 10s
 

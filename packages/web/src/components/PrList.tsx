@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useLinearIssues, useLinearStatus } from "../hooks";
-import type { LinearIssue, PR, RecentPR } from "../types";
+import type { PR, RecentPR } from "../types";
 import { FocusLi } from "./FocusLi";
 import { PrCard } from "./PrCard";
 
