@@ -12,12 +12,12 @@ interface Props {
 
 export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
 	const { data: linearStatus } = useLinearStatus();
-	const branches = useMemo(
-		() => reviews.map((pr) => pr.headBranch).filter(Boolean),
+	const linearPrs = useMemo(
+		() => reviews.map((pr) => ({ key: `${pr.repo}#${pr.number}`, branch: pr.headBranch, title: pr.title })),
 		[reviews],
 	);
 	const { data: linearIssueMap } = useLinearIssues(
-		linearStatus?.configured ? branches : [],
+		linearStatus?.configured ? linearPrs : [],
 	);
 
 	if (reviews.length === 0) {
@@ -37,7 +37,7 @@ export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
 						<PrCard
 							{...pr}
 							focused={focused}
-							linearIssues={pr.headBranch ? linearIssueMap?.[pr.headBranch] : undefined}
+							linearIssues={linearIssueMap?.[`${pr.repo}#${pr.number}`]}
 						/>
 					</FocusLi>
 				);

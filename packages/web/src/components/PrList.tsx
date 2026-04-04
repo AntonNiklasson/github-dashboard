@@ -15,23 +15,23 @@ interface Props {
 }
 
 export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, recentPrs, editingPrNumber, onSaveTitle }: Props) {
-	// Collect all branch names for Linear issue resolution
+	// Collect PR data for Linear issue resolution (extracts IDs from both branch and title)
 	const { data: linearStatus } = useLinearStatus();
-	const branches = useMemo(() => {
-		const all: string[] = [];
+	const linearPrs = useMemo(() => {
+		const all: { key: string; branch?: string; title?: string }[] = [];
 		for (const pr of prs) {
-			if (pr.headBranch) all.push(pr.headBranch);
+			all.push({ key: `${pr.repo}#${pr.number}`, branch: pr.headBranch, title: pr.title });
 		}
 		if (recentPrs) {
 			for (const pr of recentPrs) {
-				if (pr.headBranch) all.push(pr.headBranch);
+				all.push({ key: `${pr.repo}#${pr.number}`, branch: pr.headBranch, title: pr.title });
 			}
 		}
 		return all;
 	}, [prs, recentPrs]);
 
 	const { data: linearIssueMap } = useLinearIssues(
-		linearStatus?.configured ? branches : [],
+		linearStatus?.configured ? linearPrs : [],
 	);
 
 	if (prs.length === 0 && (!recentPrs || recentPrs.length === 0)) {
@@ -71,7 +71,7 @@ export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, rec
 								focused={focused}
 								instanceId={pr.instanceId}
 								instanceLabel={pr.instanceLabel}
-								linearIssues={pr.headBranch ? linearIssueMap?.[pr.headBranch] : undefined}
+								linearIssues={linearIssueMap?.[`${pr.repo}#${pr.number}`]}
 							/>
 						</FocusLi>
 					);
@@ -111,7 +111,7 @@ export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, rec
 										focused={focused}
 										instanceId={pr.instanceId}
 										instanceLabel={pr.instanceLabel}
-										linearIssues={pr.headBranch ? linearIssueMap?.[pr.headBranch] : undefined}
+										linearIssues={linearIssueMap?.[`${pr.repo}#${pr.number}`]}
 									/>
 								</FocusLi>
 							);

@@ -193,11 +193,12 @@ export function useLinearStatus() {
 	});
 }
 
-export function useLinearIssues(branches: string[]) {
+export function useLinearIssues(prs: { key: string; branch?: string; title?: string }[]) {
+	const cacheKey = prs.map((p) => p.key).sort().join(",");
 	return useQuery({
-		queryKey: ["linear-issues", branches.sort().join(",")],
-		queryFn: () => api.linearIssues(branches),
-		enabled: branches.length > 0,
+		queryKey: ["linear-issues", cacheKey],
+		queryFn: () => api.linearIssues(prs),
+		enabled: prs.length > 0,
 		refetchInterval: 60_000, // Linear data changes less frequently
 		staleTime: 30_000,
 		select: (data) => data.issues,

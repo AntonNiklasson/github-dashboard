@@ -36,7 +36,7 @@ import {
 	useReviewRequests,
 } from "./hooks";
 import { getInstanceColor } from "./instance-colors";
-import type { Instance, Notification, PR, RecentPR, ReviewRequest } from "./types";
+import type { Instance, LinearIssue, Notification, PR, RecentPR, ReviewRequest } from "./types";
 
 type Tab = "all" | string;
 
@@ -379,6 +379,26 @@ function getActionsForItem(
 				}
 			},
 		});
+	}
+
+	// Look up Linear issues from React Query cache
+	if (item.repo && item.number) {
+		const prKey = `${item.repo}#${item.number}`;
+		const linearQueries = queryClient.getQueriesData<Record<string, LinearIssue[]>>({ queryKey: ["linear-issues"] });
+		for (const [, data] of linearQueries) {
+			const issues = data?.[prKey];
+			if (issues?.length) {
+				const issue = issues[0];
+				actions.push({
+					label: `Open ${issue.identifier} in Linear`,
+					key: "i",
+					onSelect: () => {
+						window.open(issue.url, "_blank");
+					},
+				});
+				break;
+			}
+		}
 	}
 
 	return actions;

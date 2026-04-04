@@ -425,22 +425,46 @@ api.get("/linear/status", (c) => {
 
 api.post("/linear/issues", async (c) => {
 	if (!isLinearConfigured()) {
-		return c.json({ issues: [] });
-	}
-
-	const { branches } = await c.req.json<{ branches: string[] }>();
-	if (!branches?.length) {
 		return c.json({ issues: {} });
 	}
 
-	// Extract all unique identifiers from all branches
-	const allIdentifiers = new Set<string>();
-	const branchIdentifiers = new Map<string, string[]>();
+	const body = await c.req.json<{
+		branches?: string[];
+		prs?: { key: string; branch?: string; title?: string }[];
+	}>();
 
-	for (const branch of branches) {
-		const ids = extractLinearIssueIds(branch);
-		branchIdentifiers.set(branch, ids);
-		for (const id of ids) allIdentifiers.add(id);
+	// Support both the old `branches` format and the new `prs` format
+	const entries: { key: string; sources: string[] }[] = [];
+
+	if (body.prs?.length) {
+		for (const pr of body.prs) {
+			const sources: string[] = [];
+			if (pr.branch) sources.push(pr.branch);
+			if (pr.title) sources.push(pr.title);
+			if (sources.length > 0) entries.push({ key: pr.key, sources });
+		}
+	} else if (body.branches?.length) {
+		for (const branch of body.branches) {
+			entries.push({ key: branch, sources: [branch] });
+		}
+	}
+
+	if (entries.length === 0) {
+		return c.json({ issues: {} });
+	}
+
+	// Extract all unique identifiers from all sources
+	const allIdentifiers = new Set<string>();
+	const entryIdentifiers = new Map<string, string[]>();
+
+	for (const entry of entries) {
+		const ids = new Set<string>();
+		for (const source of entry.sources) {
+			for (const id of extractLinearIssueIds(source)) ids.add(id);
+		}
+		const idList = [...ids];
+		entryIdentifiers.set(entry.key, idList);
+		for (const id of idList) allIdentifiers.add(id);
 	}
 
 	if (allIdentifiers.size === 0) {
@@ -451,14 +475,14 @@ api.post("/linear/issues", async (c) => {
 		const issues = await fetchLinearIssues([...allIdentifiers]);
 		const issueMap = Object.fromEntries(issues.map((i) => [i.identifier, i]));
 
-		// Build result: branch → issues
+		// Build result: key → issues
 		const result: Record<string, typeof issues> = {};
-		for (const [branch, ids] of branchIdentifiers) {
-			const branchIssues = ids
+		for (const [key, ids] of entryIdentifiers) {
+			const matched = ids
 				.map((id) => issueMap[id])
 				.filter(Boolean);
-			if (branchIssues.length > 0) {
-				result[branch] = branchIssues;
+			if (matched.length > 0) {
+				result[key] = matched;
 			}
 		}
 

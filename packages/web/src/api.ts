@@ -145,11 +145,11 @@ export const api = {
 		return res.json();
 	},
 	linearStatus: () => fetchJson<{ configured: boolean }>("/api/linear/status"),
-	linearIssues: async (branches: string[]) => {
+	linearIssues: async (prs: { key: string; branch?: string; title?: string }[]) => {
 		const res = await fetch("/api/linear/issues", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ branches }),
+			body: JSON.stringify({ prs }),
 		});
 		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
 		return res.json() as Promise<{ issues: Record<string, LinearIssue[]> }>;
