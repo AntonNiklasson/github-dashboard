@@ -4,7 +4,7 @@ export function Skeleton({ count = 3 }: { count?: number }) {
 			{Array.from({ length: count }, (_, i) => (
 				<div
 					key={i}
-					className="h-16 animate-pulse rounded-lg bg-gray-100"
+					className="h-16 animate-pulse rounded-lg bg-muted"
 				/>
 			))}
 		</div>
