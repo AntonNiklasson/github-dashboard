@@ -106,12 +106,14 @@ export function PrCard({
 			{reviews.approved.length > 0 && <ApprovedStamp />}
 			{reviews.changesRequested.length > 0 && reviews.approved.length === 0 && <ReviewBadge reviews={reviews} />}
 			<div className="flex">
-				<div className="flex shrink-0 items-center pr-4">
+				<div className="flex shrink-0 flex-col items-center justify-center gap-1 pr-4">
+					<span className="text-[10px] text-muted-foreground">{number}</span>
 					<PrStateIcon draft={draft} merged={merged} loading={togglingDraft} inMergeQueue={inMergeQueue} />
 				</div>
-				<div className="min-w-0 flex-1 overflow-hidden">
-					<div className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
-						<span className="shrink-0"><span className="hidden @lg:block">{repo.split("/")[0]}/</span>{repo.split("/")[1]}#{number}</span>
+				<div className="flex-1 overflow-hidden">
+					<div className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+						<span className="shrink-0">{repo}</span>
+						<span className="shrink-0">#{number}</span>
 						<span className="flex-1" />
 						{author && <span className="text-muted-foreground/50">@{author}</span>}
 						{headBranch && (
