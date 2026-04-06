@@ -6,13 +6,13 @@ interface Props {
 	prs: PR[];
 	focusIndex: number;
 	isFocusedSection: boolean;
-	togglingDraftId?: number;
+	_togglingDraftId?: number;
 	recentPrs?: RecentPR[];
 	editingPrNumber?: number;
 	onSaveTitle?: (prNumber: number, title: string) => void;
 }
 
-export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, recentPrs, editingPrNumber, onSaveTitle }: Props) {
+export function PrList({ prs, focusIndex, isFocusedSection, _togglingDraftId, recentPrs, editingPrNumber, onSaveTitle }: Props) {
 	if (prs.length === 0 && (!recentPrs || recentPrs.length === 0)) {
 		return <p className="py-4 text-center text-sm text-muted-foreground">No open PRs</p>;
 	}
@@ -50,6 +50,8 @@ export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, rec
 								focused={focused}
 								instanceId={pr.instanceId}
 								instanceLabel={pr.instanceLabel}
+								editing={editingPrNumber === pr.number}
+								onSaveTitle={(title) => onSaveTitle?.(pr.number, title)}
 							/>
 						</FocusLi>
 					);
@@ -89,6 +91,8 @@ export function PrList({ prs, focusIndex, isFocusedSection, togglingDraftId, rec
 										focused={focused}
 										instanceId={pr.instanceId}
 										instanceLabel={pr.instanceLabel}
+										editing={editingPrNumber === pr.number}
+										onSaveTitle={(title) => onSaveTitle?.(pr.number, title)}
 									/>
 								</FocusLi>
 							);

@@ -174,9 +174,7 @@ export async function fetchRecentPrs(instanceId: string) {
 			const [owner, repo] = item.repository_url.split("/").slice(-2);
 			const prNumber = item.number;
 
-			const [prRes] = await Promise.all([
-				client.pulls.get({ owner, repo, pull_number: prNumber }).catch(() => null),
-			]);
+			const prRes = await client.pulls.get({ owner, repo, pull_number: prNumber }).catch(() => null);
 
 			const prData = prRes?.data;
 
