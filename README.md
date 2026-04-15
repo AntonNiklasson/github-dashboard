@@ -1,58 +1,87 @@
 # GitHub Dashboard
 
-A for managing your GitHub PRs, reviews, and notifications.
+A keyboard-driven dashboard for staying on top of your GitHub pull requests, reviews, and notifications. Supports multiple GitHub instances (github.com + GitHub Enterprise) side by side.
 
 ## Features
 
-- View your open PRs across multiple GitHub instances (github.com + GitHub Enterprise)
-- Track PRs awaiting your review
-- See recently closed/merged PRs
-- Quick actions: toggle draft, enable auto-merge, update titles
-- Keyboard-driven navigation
+- **Your PRs** — see all your open PRs with CI status, review state, labels, and merge queue info
+- **Review requests** — PRs waiting for your review, with approval/dismiss actions
+- **Notifications** — participating notifications, dismissable inline
+- **Recently closed** — PRs you merged or closed today
+- **Multi-instance** — connect github.com and a GitHub Enterprise instance, switch between them or view all at once
+- **PR actions** — toggle draft, enable auto-merge, approve, close, rerun CI, edit title
+- **Detail panel** — expand any PR to see files changed, commits, checks, and comments
+- **Copy menu** — quickly copy PR URL, branch name, title, or a markdown link
+- **Slack integration** — share a PR to a Slack channel via incoming webhook
+- **Dark mode** — system, light, or dark theme
+- **Onboarding UI** — configure tokens from the browser on first run
 
-## Setup
-
-1. Clone the repo
-2. Copy `config.yaml.example` to `config.yaml` and add your GitHub tokens
-3. Run `pnpm install && pnpm dev`
-
-## Keyboard Shortcuts
+## Keyboard shortcuts
 
 | Key | Action |
-|-----|--------|
+|---|---|
 | `j` / `k` | Move down / up |
 | `h` / `l` | Move between columns |
 | `1` / `2` / `3` | Jump to column |
-| `g g` | Jump to top |
-| `g G` | Jump to bottom |
-| `Enter` | Open detail panel |
-| `.` | Open action menu |
-| `y` | Open copy menu |
+| `g g` / `g G` | Jump to top / bottom |
+| `Tab` | Switch instance tab |
+| `Enter` / `Space` | Open detail panel |
 | `o` | Open PR in browser |
 | `r` | Open repo |
-| `d` | Toggle draft (in menu) |
-| `t` | Edit title (in menu) |
-| `m` | Toggle auto-merge (in menu) |
-| `a` | Approve PR (in menu) |
-| `c` | Close PR (in menu) |
+| `.` | Action menu |
+| `y` | Copy menu |
+| `d` | Toggle draft |
+| `m` | Toggle auto-merge |
+| `a` | Approve PR |
+| `c` | Close PR |
+| `e` | Dismiss review / notification |
 | `,` | Settings |
-| `?` | Show shortcuts |
+| `?` | Show shortcut help |
 
-## Tech Stack
-
-- **Frontend**: React, Vite, Tailwind CSS
-- **Backend**: Node.js (Hono), Octokit
-- **Testing**: Vitest
-
-## Development
+## Setup
 
 ```bash
-pnpm dev          # Start dev servers
-pnpm build        # Build for production
-pnpm lint         # Run linter
-pnpm test         # Run tests
+pnpm install
+cp config.yaml.example config.yaml
+# edit config.yaml with your token(s)
+pnpm dev
 ```
 
-## License
+The server starts on port 7100 by default (configurable in `config.yaml`). Alternatively, skip editing the file and configure everything through the onboarding UI in the browser.
 
-MIT
+## Configuration
+
+All configuration lives in `config.yaml`:
+
+```yaml
+port: 7100
+
+github:
+  token: ghp_...
+  slackWebhookUrl: https://hooks.slack.com/services/... # optional
+
+enterprise:
+  label: GHE
+  baseUrl: https://ghe.example.com/api/v3
+  token: ghp_...
+  slackWebhookUrl: https://hooks.slack.com/services/... # optional
+```
+
+- **github** — github.com personal access token (needs `repo`, `notifications` scopes)
+- **enterprise** — optional GitHub Enterprise instance with its own token and base URL
+- **slackWebhookUrl** — optional per-instance Slack incoming webhook for sharing PRs
+- **port** — server port (default 7100)
+
+Tokens can also be updated from the settings modal in the UI.
+
+## Dashboard ideas
+
+This works well as an always-on dashboard. A few ways to set that up:
+
+- **Browser tab** — pin `http://localhost:7100` as a permanent tab
+- **Separate browser window** — keep it on a secondary monitor; most browsers let you hide the address bar in a PWA-style window
+- **iframe / new tab page** — embed it in a custom new-tab extension
+- **Tauri / Electron** — wrap it as a native window (Tauri migration is on the roadmap)
+
+Data syncs every 30 seconds in the background, so it stays up to date without manual refreshing.
+
