@@ -16,11 +16,13 @@ async function fetchJson<T>(url: string): Promise<T> {
 export interface ConfigData {
 	github?: {
 		token: string;
+		slackWebhookUrl?: string;
 	};
 	enterprise?: {
 		label: string;
 		baseUrl: string;
 		token: string;
+		slackWebhookUrl?: string;
 	};
 	port?: number;
 }
@@ -135,6 +137,24 @@ export const api = {
 		const [owner, name] = repo.split("/");
 		const res = await fetch(
 			`/api/${instanceId}/prs/${owner}/${name}/${prNumber}/approve`,
+			{ method: "POST" },
+		);
+		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+		return res.json();
+	},
+	rerunCi: async (instanceId: string, repo: string, prNumber: number) => {
+		const [owner, name] = repo.split("/");
+		const res = await fetch(
+			`/api/${instanceId}/prs/${owner}/${name}/${prNumber}/rerun-ci`,
+			{ method: "POST" },
+		);
+		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+		return res.json();
+	},
+	shareToSlack: async (instanceId: string, repo: string, prNumber: number) => {
+		const [owner, name] = repo.split("/");
+		const res = await fetch(
+			`/api/${instanceId}/prs/${owner}/${name}/${prNumber}/share-slack`,
 			{ method: "POST" },
 		);
 		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

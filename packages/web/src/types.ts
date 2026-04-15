@@ -2,6 +2,7 @@ export interface Instance {
 	id: string;
 	label: string;
 	username: string;
+	hasSlackWebhook?: boolean;
 }
 
 export interface PR {

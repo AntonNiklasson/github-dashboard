@@ -19,7 +19,6 @@ import { ReviewList } from "./components/ReviewList";
 import { SectionHeader } from "./components/SectionHeader";
 import { SettingsModal } from "./components/SettingsModal";
 import { ShortcutHelp } from "./components/ShortcutHelp";
-import { ThemeSelect } from "./components/ThemeSelect";
 import { Skeleton } from "./components/Skeleton";
 import {
 	type Section,
@@ -37,6 +36,7 @@ import {
 } from "./hooks";
 import { getInstanceColor } from "./instance-colors";
 import type { Instance, Notification, PR, RecentPR, ReviewRequest } from "./types";
+import { applyTheme, themeAtom } from "./theme";
 
 type Tab = "all" | string;
 
@@ -51,6 +51,8 @@ export function App() {
 	const { data: instances, isLoading, error } = useInstances();
 	const [activeTab, setActiveTab] = useAtom(activeTabAtom);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [theme] = useAtom(themeAtom);
+	useEffect(() => applyTheme(theme), [theme]);
 	useEffect(() => {
 		const hideCursorOnKeyboard = () => {
 			if (!document.querySelector('[data-has-moved="true"]')) return;
@@ -178,7 +180,6 @@ export function App() {
 						</kbd>
 					</div>
 					<div className="ml-auto flex items-center gap-2">
-						<ThemeSelect />
 						<Button
 							size="sm"
 							variant="ghost"
@@ -206,7 +207,6 @@ export function App() {
 				open={settingsOpen}
 				onOpenChange={setSettingsOpen}
 				config={configRes?.config}
-				instances={instances ?? []}
 				onSaved={() => {
 					queryClient.invalidateQueries({ queryKey: ["config"] });
 					queryClient.invalidateQueries({ queryKey: ["instances"] });
@@ -250,6 +250,7 @@ function getActionsForItem(
 	queryClient: ReturnType<typeof useQueryClient>,
 	onDone: () => void,
 	setEditingPrNumber?: (prNumber: number) => void,
+	instances?: Instance[],
 ): Action[] {
 	const actions: Action[] = [
 		{
@@ -308,6 +309,18 @@ function getActionsForItem(
 				},
 			});
 		}
+
+		actions.push({
+			label: "Rerun CI",
+			key: "x",
+			onSelect: async () => {
+				try {
+					await api.rerunCi(item.instanceId!, item.repo!, item.number!);
+				} catch (err) {
+					console.error("Failed to rerun CI:", err);
+				}
+			},
+		});
 	}
 
 	if (item.repo && item.url) {
@@ -379,6 +392,20 @@ function getActionsForItem(
 				}
 			},
 		});
+	}
+
+	if (item.repo && item.number && item.instanceId && instances) {
+		const inst = instances.find((i) => i.id === item.instanceId);
+		if (inst?.hasSlackWebhook) {
+			actions.push({
+				label: "Share to Slack",
+				key: "s",
+				onSelect: async () => {
+					await api.shareToSlack(item.instanceId!, item.repo!, item.number!);
+					toast("Shared to Slack");
+				},
+			});
+		}
 	}
 
 	return actions;
@@ -495,16 +522,11 @@ function AllDashboard({ instances }: { instances: Instance[] }) {
 				e.preventDefault();
 			} else if (e.key === ".") {
 				const item = getFocusedItem(activeSection, focusIndex, prsRef.current, reviewsRef.current, notificationsRef.current, instances);
-				if (item) {
-					// Add slight delay to allow fast typists to bypass modal
-					actionMenuTimerRef.current = window.setTimeout(() => openActionMenu(item), 300);
-				}
+				if (item) openActionMenu(item);
 				e.preventDefault();
 			} else if (e.key === "y") {
 				const item = getFocusedItem(activeSection, focusIndex, prsRef.current, reviewsRef.current, notificationsRef.current, instances);
-				if (item) {
-					actionMenuTimerRef.current = window.setTimeout(() => openCopyMenu(item), 300);
-				}
+				if (item) openCopyMenu(item);
 				e.preventDefault();
 			} else if (e.key === "r" && (activeSection === "prs" || activeSection === "reviews")) {
 				const item = getFocusedItem(activeSection, focusIndex, prsRef.current, reviewsRef.current, notificationsRef.current, instances);
@@ -616,7 +638,7 @@ function AllDashboard({ instances }: { instances: Instance[] }) {
 						prs={prs.data} 
 						focusIndex={nav.focusIndex} 
 						isFocusedSection={nav.activeSection === "prs"} 
-						togglingDraftId={togglingDraftId ?? undefined} 
+						_togglingDraftId={togglingDraftId ?? undefined} 
 						recentPrs={recentPrs.data}
 						editingPrNumber={editingPrNumber ?? undefined}
 						onSaveTitle={async (prNumber, title) => {
@@ -669,7 +691,7 @@ function AllDashboard({ instances }: { instances: Instance[] }) {
 					actions={getActionsForItem(actionMenu, queryClient, () => {
 						reviews.refetchAll();
 						prs.refetchAll();
-					}, setEditingPrNumber)}
+					}, setEditingPrNumber, instances)}
 					onClose={closeActionMenu}
 				/>
 			)}
@@ -691,6 +713,7 @@ function AllDashboard({ instances }: { instances: Instance[] }) {
 
 function Dashboard({ instanceId, authorFilter }: { instanceId: string; authorFilter?: string }) {
 	const queryClient = useQueryClient();
+	const { data: instances } = useInstances();
 	const prs = authorFilter ? useColleaguePrs(instanceId, authorFilter) : useAuthoredPrs(instanceId);
 	const recentPrs = useRecentPrs(instanceId);
 	const reviews = useReviewRequests(instanceId);
@@ -800,15 +823,11 @@ function Dashboard({ instanceId, authorFilter }: { instanceId: string; authorFil
 				e.preventDefault();
 			} else if (e.key === ".") {
 				const item = getFocusedItem(activeSection, focusIndex, prsRef.current ?? [], reviewsRef.current, notificationsRef.current ?? [], [{ id: instanceId, label: "", username: "" }]);
-				if (item) {
-					actionMenuTimerRef.current = window.setTimeout(() => openActionMenu(item), 300);
-				}
+				if (item) openActionMenu(item);
 				e.preventDefault();
 			} else if (e.key === "y") {
 				const item = getFocusedItem(activeSection, focusIndex, prsRef.current ?? [], reviewsRef.current, notificationsRef.current ?? [], [{ id: instanceId, label: "", username: "" }]);
-				if (item) {
-					actionMenuTimerRef.current = window.setTimeout(() => openCopyMenu(item), 300);
-				}
+				if (item) openCopyMenu(item);
 				e.preventDefault();
 			} else if (e.key === "r" && (activeSection === "prs" || activeSection === "reviews")) {
 				const item = getFocusedItem(activeSection, focusIndex, prsRef.current ?? [], reviewsRef.current, notificationsRef.current ?? [], [{ id: instanceId, label: "", username: "" }]);
@@ -919,7 +938,7 @@ function Dashboard({ instanceId, authorFilter }: { instanceId: string; authorFil
 						prs={prs.data ?? []} 
 						focusIndex={nav.focusIndex} 
 						isFocusedSection={nav.activeSection === "prs"} 
-						togglingDraftId={togglingDraftId ?? undefined} 
+						_togglingDraftId={togglingDraftId ?? undefined} 
 						recentPrs={recentPrs.data}
 						editingPrNumber={editingPrNumber ?? undefined}
 						onSaveTitle={async (prNumber, title) => {
@@ -970,7 +989,7 @@ function Dashboard({ instanceId, authorFilter }: { instanceId: string; authorFil
 					actions={getActionsForItem(actionMenu, queryClient, () => {
 						queryClient.invalidateQueries({ queryKey: ["reviews", instanceId] });
 						queryClient.invalidateQueries({ queryKey: ["prs", instanceId] });
-					}, setEditingPrNumber)}
+					}, setEditingPrNumber, instances)}
 					onClose={closeActionMenu}
 				/>
 			)}
