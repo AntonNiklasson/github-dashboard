@@ -11,6 +11,7 @@ export interface CopyTarget {
 	instanceId: string;
 	additions: number;
 	deletions: number;
+	headBranch?: string;
 }
 
 interface CopyItem {
@@ -31,6 +32,7 @@ export function CopyMenu({ target, onClose }: Props) {
 	const items: CopyItem[] = [
 		{ label: "PR number", key: "n", value: `#${target.number}` },
 		{ label: "URL", key: "u", value: target.url },
+		...(target.headBranch ? [{ label: "Branch name", key: "b", value: target.headBranch }] : []),
 		{
 			label: "Review request",
 			key: "r",

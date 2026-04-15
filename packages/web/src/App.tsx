@@ -452,7 +452,7 @@ function AllDashboard({ instances }: { instances: Instance[] }) {
 	const openCopyMenu = (item: FocusedItem) => {
 		if (!item.repo || !item.number || !item.instanceId) return;
 		nav.setPaused(true);
-		setCopyMenu({ url: item.url, title: item.title, repo: item.repo, number: item.number, instanceId: item.instanceId, additions: item.additions ?? 0, deletions: item.deletions ?? 0 });
+		setCopyMenu({ url: item.url, title: item.title, repo: item.repo, number: item.number, instanceId: item.instanceId, additions: item.additions ?? 0, deletions: item.deletions ?? 0, headBranch: item.headBranch });
 	};
 	const closeCopyMenu = () => { nav.setPaused(false); setCopyMenu(null); };
 	const openPanel = (item: FocusedItem) => {
@@ -753,7 +753,7 @@ function Dashboard({ instanceId, authorFilter }: { instanceId: string; authorFil
 	const openCopyMenu = (item: FocusedItem) => {
 		if (!item.repo || !item.number) return;
 		nav.setPaused(true);
-		setCopyMenu({ url: item.url, title: item.title, repo: item.repo, number: item.number, instanceId: instanceId, additions: item.additions ?? 0, deletions: item.deletions ?? 0 });
+		setCopyMenu({ url: item.url, title: item.title, repo: item.repo, number: item.number, instanceId: instanceId, additions: item.additions ?? 0, deletions: item.deletions ?? 0, headBranch: item.headBranch });
 	};
 	const closeCopyMenu = () => { nav.setPaused(false); setCopyMenu(null); };
 	const openPanel = (item: FocusedItem) => {
