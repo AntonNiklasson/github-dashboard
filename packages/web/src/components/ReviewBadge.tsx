@@ -1,3 +1,5 @@
+import { MessageSquareWarning } from "lucide-react";
+
 interface Props {
 	reviews: { approved: string[]; changesRequested: string[] };
 }
@@ -10,8 +12,9 @@ export function ReviewBadge({ reviews }: Props) {
 	}
 
 	return (
-		<div className="absolute top-1 right-1 rounded-md px-1.5 py-0.5 opacity-70">
-			<span className="block text-center text-[10px] font-black uppercase leading-tight tracking-wider text-red-700 dark:text-red-400">Changes<br/>requested</span>
+		<div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 dark:bg-red-900/30">
+			<MessageSquareWarning className="h-3 w-3 text-red-700 dark:text-red-400" />
+			<span className="text-[10px] font-medium text-red-700 dark:text-red-400">Changes requested</span>
 		</div>
 	);
 }

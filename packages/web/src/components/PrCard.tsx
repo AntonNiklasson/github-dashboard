@@ -5,7 +5,7 @@ import { PrStateIcon } from "./PrStateIcon";
 import { ReviewBadge } from "./ReviewBadge";
 import { StatusBadge } from "./StatusBadge";
 import { useState, useRef, useEffect } from "react";
-import { GitBranch, GitCommit, AlertCircle, Zap } from "lucide-react";
+import { GitBranch, GitCommit, TriangleAlert, Zap, Target, MessageSquare } from "lucide-react";
 import { truncateBranchName } from "../utils/branch";
 
 interface Props {
@@ -54,7 +54,7 @@ export function PrCard({
 	additions,
 	deletions,
 	commits,
-	commentCount: _commentCount,
+	commentCount,
 	focused,
 	togglingDraft,
 	instanceId,
@@ -106,29 +106,26 @@ export function PrCard({
 			{reviews.approved.length > 0 && <ApprovedStamp />}
 			{reviews.changesRequested.length > 0 && reviews.approved.length === 0 && <ReviewBadge reviews={reviews} />}
 			<div className="flex">
-				<div className="flex shrink-0 flex-col items-center justify-center gap-1 pr-4">
-					<span className="text-[10px] text-muted-foreground">{number}</span>
+				<div className="flex shrink-0 flex-col items-center justify-center gap-2 pr-4">
+					<span className="text-[10px] text-muted-foreground/70">{number}</span>
 					<PrStateIcon draft={draft} merged={merged} loading={togglingDraft} inMergeQueue={inMergeQueue} />
 				</div>
 				<div className="flex-1 overflow-hidden">
 					<div className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
 						<span className="shrink-0">{repo}</span>
-						<span className="shrink-0">#{number}</span>
-						<span className="flex-1" />
 						{author && <span className="text-muted-foreground/50">@{author}</span>}
+						<span className="flex-1" />
 						{headBranch && (
-							<>
-								<span className="ml-0.5" />
-								<span className="flex items-center gap-1 font-mono text-[10px] whitespace-nowrap">
-									<GitBranch className="h-3 w-3" />
-									{truncateBranchName(headBranch)}
-								</span>
-							</>
-						)}
-					</div>
-					<div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-						{baseBranch && baseBranch !== "main" && baseBranch !== "master" && (
-							<span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">→ {baseBranch}</span>
+							<span className="flex items-center gap-1 font-mono text-[10px] whitespace-nowrap">
+								<GitBranch className="h-3 w-3" />
+								{truncateBranchName(headBranch)}
+								{baseBranch && baseBranch !== "main" && baseBranch !== "master" && (
+									<span className="ml-0.5 flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+										<Target className="h-3 w-3" />
+										{baseBranch}
+									</span>
+								)}
+							</span>
 						)}
 					</div>
 					{editing ? (
@@ -148,17 +145,23 @@ export function PrCard({
 					)}
 					<div className="mt-1.5 flex flex-col gap-1.5 text-xs text-muted-foreground">
 						{!merged && (
-						<div className="flex items-center gap-2">
-							<StatusBadge status={ciStatus} />
+						<div className={`flex items-center gap-2 ${ciStatus === "unknown" ? "justify-start" : ""}`}>
+							{ciStatus !== "unknown" && <StatusBadge status={ciStatus} />}
 							<span className="font-mono">
 								<span className="text-green-600">+{additions}</span>
 								<span>/</span>
 								<span className="text-red-600">-{deletions}</span>
 							</span>
 							<span className="flex items-center gap-0.5">
-								<GitCommit className="h-3.5 w-3.5" />
+								<GitCommit className="h-3 w-3" />
 								{commits}
 							</span>
+							{commentCount > 0 && (
+								<span className="ml-1 flex items-center gap-1">
+									<MessageSquare className="h-3 w-3" />
+									{commentCount}
+								</span>
+							)}
 						</div>
 						)}
 						<div className="flex items-center gap-2">
@@ -169,8 +172,8 @@ export function PrCard({
 								</span>
 							)}
 							{mergeable === false && (
-								<span className="flex items-center gap-1 rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
-									<AlertCircle className="h-3 w-3" />
+								<span className="flex items-center gap-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+									<TriangleAlert className="h-3 w-3" />
 									conflict
 								</span>
 							)}
