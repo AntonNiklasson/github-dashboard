@@ -36,6 +36,17 @@ function HelpTooltip({ text }: { text: string }) {
   );
 }
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <div className="space-y-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 interface FieldErrors {
   ghToken?: string;
   gheToken?: string;
@@ -95,8 +106,7 @@ export function ConfigForm({ initial, onSave, saving }: ConfigFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <fieldset className="space-y-3">
-        <legend className="text-sm font-semibold text-foreground">Appearance</legend>
+      <Section title="Appearance">
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">Theme</span>
           <select
@@ -110,52 +120,53 @@ export function ConfigForm({ initial, onSave, saving }: ConfigFormProps) {
             <option value="dark">Dark</option>
           </select>
         </div>
-      </fieldset>
+      </Section>
 
-      <fieldset className="space-y-3">
-        <legend className="text-sm font-semibold text-foreground">GitHub.com</legend>
-        <div className="space-y-1">
-          <Label htmlFor="gh-token">Personal access token</Label>
-          <Input
-            id="gh-token"
-            type="password"
-            placeholder={initial?.github?.token ? initial.github.token : "ghp_..."}
-            value={ghToken}
-            onChange={(e) => setGhToken(e.target.value)}
-            required={!initial?.github?.token}
-            aria-invalid={!!fieldErrors.ghToken}
-            aria-describedby={fieldErrors.ghToken ? "gh-token-error" : undefined}
-          />
-          <FieldError message={fieldErrors.ghToken} />
-        </div>
-        <div className="space-y-1">
-          <div className="flex items-center gap-1.5">
-            <Label htmlFor="gh-slack-webhook">Slack webhook URL</Label>
-            <HelpTooltip text={"Create an Incoming Webhook in Slack:\n1. Go to api.slack.com/apps\n2. Create New App → From scratch\n3. Incoming Webhooks → toggle on\n4. Add New Webhook to Workspace\n5. Pick a channel and copy the URL"} />
+      <Section title="GitHub.com">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="gh-token">Personal access token</Label>
+            <Input
+              id="gh-token"
+              type="password"
+              placeholder={initial?.github?.token ? initial.github.token : "ghp_..."}
+              value={ghToken}
+              onChange={(e) => setGhToken(e.target.value)}
+              required={!initial?.github?.token}
+              aria-invalid={!!fieldErrors.ghToken}
+              aria-describedby={fieldErrors.ghToken ? "gh-token-error" : undefined}
+            />
+            <FieldError message={fieldErrors.ghToken} />
           </div>
-          <Input
-            id="gh-slack-webhook"
-            type="password"
-            placeholder={initial?.github?.slackWebhookUrl ? initial.github.slackWebhookUrl : "https://hooks.slack.com/services/..."}
-            value={ghSlackWebhook}
-            onChange={(e) => setGhSlackWebhook(e.target.value)}
-          />
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="gh-slack-webhook">Slack webhook URL</Label>
+              <HelpTooltip text={"Create an Incoming Webhook in Slack:\n1. Go to api.slack.com/apps\n2. Create New App → From scratch\n3. Incoming Webhooks → toggle on\n4. Add New Webhook to Workspace\n5. Pick a channel and copy the URL"} />
+            </div>
+            <Input
+              id="gh-slack-webhook"
+              type="password"
+              placeholder={initial?.github?.slackWebhookUrl ? initial.github.slackWebhookUrl : "https://hooks.slack.com/services/..."}
+              value={ghSlackWebhook}
+              onChange={(e) => setGhSlackWebhook(e.target.value)}
+            />
+          </div>
         </div>
-      </fieldset>
+      </Section>
 
-      <fieldset className="space-y-3">
-        <label className="flex items-center gap-2 text-sm font-semibold text-foreground">
+      <Section title="GitHub Enterprise">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"
             checked={gheEnabled}
             onChange={(e) => setGheEnabled(e.target.checked)}
             className="rounded"
           />
-          GitHub Enterprise
+          Enable GitHub Enterprise
         </label>
 
         {gheEnabled && (
-          <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="ghe-label">Label</Label>
               <Input
@@ -206,21 +217,22 @@ export function ConfigForm({ initial, onSave, saving }: ConfigFormProps) {
             </div>
           </div>
         )}
-      </fieldset>
+      </Section>
 
-      <fieldset className="space-y-3">
-        <legend className="text-sm font-semibold text-foreground">Server</legend>
-        <div className="space-y-1">
-          <Label htmlFor="port">Port</Label>
-          <Input
-            id="port"
-            type="number"
-            placeholder="7100"
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-          />
+      <Section title="Server">
+        <div className="sm:w-1/2">
+          <div className="space-y-1">
+            <Label htmlFor="port">Port</Label>
+            <Input
+              id="port"
+              type="number"
+              placeholder="7100"
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            />
+          </div>
         </div>
-      </fieldset>
+      </Section>
 
       <Button type="submit" disabled={saving} className="w-full">
         {saving ? "Saving..." : "Save"}
