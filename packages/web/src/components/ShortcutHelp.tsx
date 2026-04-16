@@ -9,12 +9,12 @@ const sections: { title: string; shortcuts: [string, string][] }[] = [
 	{
 		title: "Navigation",
 		shortcuts: [
-			["j / k", "Move down / up"],
-			["h / l", "Move between columns"],
-			["1 / 2 / 3", "Jump to column"],
+			["j / k or \u2193 / \u2191", "Move down / up"],
+			["h / l or \u2190 / \u2192", "Move between columns"],
 			["g g", "Jump to top"],
 			["g G", "Jump to bottom"],
 			["Tab", "Switch instance tab"],
+			["\u2318K", "Command palette"],
 		],
 	},
 	{

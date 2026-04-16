@@ -20,11 +20,11 @@ A keyboard-driven dashboard for staying on top of your GitHub pull requests, rev
 
 | Key | Action |
 |---|---|
-| `j` / `k` | Move down / up |
-| `h` / `l` | Move between columns |
-| `1` / `2` / `3` | Jump to column |
+| `j` / `k` or `↓` / `↑` | Move down / up |
+| `h` / `l` or `←` / `→` | Move between columns |
 | `g g` / `g G` | Jump to top / bottom |
 | `Tab` | Switch instance tab |
+| `Cmd+K` | Command palette |
 | `Enter` / `Space` | Open detail panel |
 | `o` | Open PR in browser |
 | `r` | Open repo |
