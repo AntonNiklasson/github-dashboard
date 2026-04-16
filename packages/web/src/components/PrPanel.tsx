@@ -13,6 +13,7 @@ interface PanelPr {
 	additions: number;
 	deletions: number;
 	reviews: { approved: string[]; changesRequested: string[] };
+	reviewDecision?: string | null;
 	instanceId: string;
 }
 
@@ -142,7 +143,7 @@ function OverviewTab({
 	return (
 		<div className="space-y-5">
 			{/* Reviews */}
-			{(pr.reviews.approved.length > 0 || pr.reviews.changesRequested.length > 0) && (
+			{(pr.reviews.approved.length > 0 || pr.reviews.changesRequested.length > 0 || pr.reviewDecision) && (
 				<section>
 					<h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Reviews</h3>
 					<div className="space-y-1">
@@ -163,6 +164,16 @@ function OverviewTab({
 								<span>{user}</span>
 							</div>
 						))}
+						{pr.reviews.approved.length > 0 && pr.reviewDecision === "REVIEW_REQUIRED" && (
+							<div className="mt-2 flex items-center gap-2 rounded bg-blue-100 px-2 py-1 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+								<svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+									<path d="M12 9v4" />
+									<path d="M12 17h.01" />
+									<path d="M3.6 15.4 10.6 3.6a1.6 1.6 0 0 1 2.8 0l7 11.8A1.6 1.6 0 0 1 19 18H5a1.6 1.6 0 0 1-1.4-2.6Z" />
+								</svg>
+								<span>Code owner review still required</span>
+							</div>
+						)}
 					</div>
 				</section>
 			)}

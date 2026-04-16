@@ -23,6 +23,7 @@ export interface PR {
 	headBranch: string;
 	baseBranch: string;
 	reviews: { approved: string[]; changesRequested: string[] };
+	reviewDecision?: string | null;
 	additions: number;
 	deletions: number;
 	commits: number;
@@ -51,6 +52,7 @@ export interface ReviewRequest {
 	headBranch: string;
 	baseBranch: string;
 	reviews: { approved: string[]; changesRequested: string[] };
+	reviewDecision?: string | null;
 	additions: number;
 	deletions: number;
 	commits: number;

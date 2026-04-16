@@ -42,6 +42,7 @@ export function PrList({ prs, focusIndex, isFocusedSection, _togglingDraftId, re
 								headBranch={pr.headBranch}
 								baseBranch={pr.baseBranch}
 								reviews={pr.reviews}
+								reviewDecision={pr.reviewDecision}
 								additions={pr.additions}
 								deletions={pr.deletions}
 								commits={pr.commits}

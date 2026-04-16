@@ -6,6 +6,7 @@ type Review = { state: string; user: { login: string } | null };
 interface MergeQueueInfo {
 	inMergeQueue: boolean;
 	autoMerge: boolean;
+	reviewDecision: string | null;
 }
 
 async function fetchMergeQueueStatus(
@@ -17,11 +18,11 @@ async function fetchMergeQueueStatus(
 
 	// Build a batched GraphQL query
 	const aliases = items.map((item, i) => {
-		return `pr${i}: node(id: "${item.node_id}") { ... on PullRequest { id mergeQueueEntry { id } autoMergeRequest { enabledAt } } }`;
+		return `pr${i}: node(id: "${item.node_id}") { ... on PullRequest { id mergeQueueEntry { id } autoMergeRequest { enabledAt } reviewDecision } }`;
 	});
 
 	try {
-		const response = await client.graphql<Record<string, { id: string; mergeQueueEntry: { id: string } | null; autoMergeRequest: { enabledAt: string } | null } | null>>(
+		const response = await client.graphql<Record<string, { id: string; mergeQueueEntry: { id: string } | null; autoMergeRequest: { enabledAt: string } | null; reviewDecision: string | null } | null>>(
 			`query { ${aliases.join("\n")} }`,
 		);
 
@@ -30,6 +31,7 @@ async function fetchMergeQueueStatus(
 			result.set(items[i].node_id, {
 				inMergeQueue: pr?.mergeQueueEntry != null,
 				autoMerge: pr?.autoMergeRequest != null,
+				reviewDecision: pr?.reviewDecision ?? null,
 			});
 		}
 	} catch {
@@ -138,6 +140,7 @@ export async function fetchPrs(instanceId: string) {
 				headBranch: prData?.head.ref ?? "",
 				baseBranch: prData?.base.ref ?? "main",
 				reviews: summarizeReviews(reviews),
+				reviewDecision: mqStatus?.reviewDecision ?? null,
 				additions: prData?.additions ?? 0,
 				deletions: prData?.deletions ?? 0,
 				commits: prData?.commits ?? 0,
@@ -247,6 +250,7 @@ export async function fetchReviews(instanceId: string) {
 				headBranch: prData?.head.ref ?? "",
 				baseBranch: prData?.base.ref ?? "main",
 				reviews: summarizeReviews(reviews),
+				reviewDecision: mqStatus?.reviewDecision ?? null,
 				additions: prData?.additions ?? 0,
 				deletions: prData?.deletions ?? 0,
 				commits: prData?.commits ?? 0,

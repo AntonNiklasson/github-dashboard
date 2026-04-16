@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { getInstanceColor } from "../instance-colors";
 import { ApprovedStamp } from "./ApprovedStamp";
+import { CodeOwnerReviewBadge } from "./CodeOwnerReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
 import { ReviewBadge } from "./ReviewBadge";
 import { StatusBadge } from "./StatusBadge";
@@ -22,6 +23,7 @@ interface Props {
 	headBranch?: string;
 	baseBranch?: string;
 	reviews: { approved: string[]; changesRequested: string[] };
+	reviewDecision?: string | null;
 	additions: number;
 	deletions: number;
 	commits: number;
@@ -51,6 +53,7 @@ export function PrCard({
 	headBranch,
 	baseBranch,
 	reviews,
+	reviewDecision,
 	additions,
 	deletions,
 	commits,
@@ -103,8 +106,11 @@ export function PrCard({
 			}`}
 			style={instanceId ? { borderLeft: `4px solid ${getInstanceColor(instanceId)}` } : undefined}
 		>
-			{reviews.approved.length > 0 && <ApprovedStamp />}
-			{reviews.changesRequested.length > 0 && reviews.approved.length === 0 && <ReviewBadge reviews={reviews} />}
+			<div className="absolute bottom-2 right-2 flex flex-col items-end gap-1">
+				{(reviewDecision === "APPROVED" || reviewDecision === "REVIEW_REQUIRED" || (reviewDecision == null && reviews.approved.length > 0)) && reviews.approved.length > 0 && <ApprovedStamp />}
+				{reviews.approved.length > 0 && reviewDecision === "REVIEW_REQUIRED" && <CodeOwnerReviewBadge />}
+				{(reviewDecision === "CHANGES_REQUESTED" || (reviewDecision == null && reviews.changesRequested.length > 0 && reviews.approved.length === 0)) && <ReviewBadge reviews={reviews} />}
+			</div>
 			<div className="flex">
 				<div className="flex shrink-0 flex-col items-center justify-center gap-2 pr-4">
 					<span className="text-[10px] text-muted-foreground/70">{number}</span>

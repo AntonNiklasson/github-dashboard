@@ -12,7 +12,7 @@ export function ReviewBadge({ reviews }: Props) {
 	}
 
 	return (
-		<div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 dark:bg-red-900/30">
+		<div className="flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 dark:bg-red-900/30">
 			<MessageSquareWarning className="h-3 w-3 text-red-700 dark:text-red-400" />
 			<span className="text-[10px] font-medium text-red-700 dark:text-red-400">Changes requested</span>
 		</div>
