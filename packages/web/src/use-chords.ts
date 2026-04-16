@@ -23,8 +23,13 @@ export function useChords(groups: KeyGroup[], paused: boolean) {
 	const handleKey = useCallback((key: string): boolean => {
 		if (paused) return false;
 
-		// If a prefix is active, the WhichKey component handles the next key
-		if (activeGroup) return true;
+		// If a prefix is active, try to execute the binding immediately
+		if (activeGroup) {
+			const binding = activeGroup.bindings.find((b) => b.key === key);
+			cancel();
+			if (binding) binding.action();
+			return true;
+		}
 
 		// Check if this key is a prefix
 		const group = groupsRef.current.find((g) => g.prefix === key);
