@@ -50,7 +50,7 @@ export function App() {
 	const queryClient = useQueryClient();
 	const { data: instances, isLoading, error } = useInstances();
 	const [activeTab, setActiveTab] = useAtom(activeTabAtom);
-	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(true); // TODO: hardcoded open for dev
 	const [theme] = useAtom(themeAtom);
 	useEffect(() => applyTheme(theme), [theme]);
 	useEffect(() => {
