@@ -285,7 +285,8 @@ function getActionsForItem(
 			label: `View ${item.author}'s PRs`,
 			key: "f",
 			onSelect: () => {
-				window.open(`https://github.com/${item.repo}/pulls?q=author%3A${item.author}+is%3Aopen+sort%3Aupdated-desc`, "_blank");
+				const base = item.url.replace(/\/pull\/\d+.*$/, "");
+					window.open(`${base}/pulls?q=author%3A${item.author}+is%3Aopen+sort%3Aupdated-desc`, "_blank");
 			},
 		});
 	}
@@ -356,7 +357,8 @@ function getActionsForItem(
 			label: `View ${item.author}'s PRs`,
 			key: "f",
 			onSelect: () => {
-				window.open(`https://github.com/${item.repo}/pulls?q=author%3A${item.author}+is%3Aopen+sort%3Aupdated-desc`, "_blank");
+				const base = item.url.replace(/\/pull\/\d+.*$/, "");
+					window.open(`${base}/pulls?q=author%3A${item.author}+is%3Aopen+sort%3Aupdated-desc`, "_blank");
 			},
 		});
 	}
