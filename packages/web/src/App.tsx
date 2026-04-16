@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { api, type ConfigResponse } from "./api";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
 import { useChords } from "./use-chords";
-import { type Action, ActionMenu } from "./components/ActionMenu";
+import { type Action, ActionMenu, CommentDialog } from "./components/ActionMenu";
 import { type CopyTarget, CopyMenu } from "./components/CopyMenu";
 import { PrPanel } from "./components/PrPanel";
 import { type KeyGroup, WhichKey } from "./components/WhichKey";
@@ -245,12 +245,19 @@ interface PanelData {
 	instanceId: string;
 }
 
+interface CommentingPr {
+	instanceId: string;
+	repo: string;
+	number: number;
+}
+
 function getActionsForItem(
 	item: FocusedItem,
 	queryClient: ReturnType<typeof useQueryClient>,
 	onDone: () => void,
 	setEditingPrNumber?: (prNumber: number) => void,
 	instances?: Instance[],
+	setCommentingPr?: (pr: CommentingPr) => void,
 ): Action[] {
 	const actions: Action[] = [
 		{
@@ -306,6 +313,16 @@ function getActionsForItem(
 				key: "t",
 				onSelect: () => {
 					setEditingPrNumber(item.number!);
+				},
+			});
+		}
+
+		if (setCommentingPr) {
+			actions.push({
+				label: "Post comment",
+				key: "p",
+				onSelect: () => {
+					setCommentingPr({ instanceId: item.instanceId!, repo: item.repo!, number: item.number! });
 				},
 			});
 		}
@@ -437,16 +454,18 @@ function AllDashboard({ instances }: { instances: Instance[] }) {
 	const [panelPr, setPanelPr] = useState<PanelData | null>(null);
 	const [togglingDraftId, setTogglingDraftId] = useState<number | null>(null);
 	const [editingPrNumber, setEditingPrNumber] = useState<number | null>(null);
+	const [commentingPr, setCommentingPr] = useState<CommentingPr | null>(null);
+	const [commentLoading, setCommentLoading] = useState(false);
 	const actionMenuTimerRef = useRef<number | null>(null);
 
 	const overlayOpenRef = useRef(false);
-	const updateOverlay = () => { overlayOpenRef.current = !!(actionMenu || copyMenu || panelPr || editingPrNumber); };
-	useEffect(updateOverlay, [actionMenu, copyMenu, panelPr, editingPrNumber]);
+	const updateOverlay = () => { overlayOpenRef.current = !!(actionMenu || copyMenu || panelPr || editingPrNumber || commentingPr); };
+	useEffect(updateOverlay, [actionMenu, copyMenu, panelPr, editingPrNumber, commentingPr]);
 
 	const openActionMenu = (item: FocusedItem) => { nav.setPaused(true); setActionMenu(item); };
-	const closeActionMenu = () => { 
-		nav.setPaused(false); 
-		setActionMenu(null); 
+	const closeActionMenu = () => {
+		nav.setPaused(false);
+		setActionMenu(null);
 		if (actionMenuTimerRef.current) clearTimeout(actionMenuTimerRef.current);
 	};
 	const openCopyMenu = (item: FocusedItem) => {
@@ -691,7 +710,7 @@ function AllDashboard({ instances }: { instances: Instance[] }) {
 					actions={getActionsForItem(actionMenu, queryClient, () => {
 						reviews.refetchAll();
 						prs.refetchAll();
-					}, setEditingPrNumber, instances)}
+					}, setEditingPrNumber, instances, setCommentingPr)}
 					onClose={closeActionMenu}
 				/>
 			)}
@@ -699,6 +718,26 @@ function AllDashboard({ instances }: { instances: Instance[] }) {
 			{copyMenu && <CopyMenu target={copyMenu} onClose={closeCopyMenu} />}
 
 			{panelPr && <PrPanel pr={panelPr} onClose={closePanel} />}
+
+			{commentingPr && (
+				<CommentDialog
+					loading={commentLoading}
+					onSubmit={async (body) => {
+						setCommentLoading(true);
+						try {
+							await api.postComment(commentingPr.instanceId, commentingPr.repo, commentingPr.number, body);
+							toast("Comment posted");
+							setCommentingPr(null);
+							nav.setPaused(false);
+						} catch {
+							toast("Failed to post comment");
+						} finally {
+							setCommentLoading(false);
+						}
+					}}
+					onClose={() => { setCommentingPr(null); nav.setPaused(false); }}
+				/>
+			)}
 
 			{chords.showPopup && chords.activeGroup && (
 				<WhichKey group={chords.activeGroup} onClose={chords.cancel} />
@@ -738,16 +777,18 @@ function Dashboard({ instanceId, authorFilter }: { instanceId: string; authorFil
 	const [panelPr, setPanelPr] = useState<PanelData | null>(null);
 	const [togglingDraftId, setTogglingDraftId] = useState<number | null>(null);
 	const [editingPrNumber, setEditingPrNumber] = useState<number | null>(null);
+	const [commentingPr, setCommentingPr] = useState<CommentingPr | null>(null);
+	const [commentLoading, setCommentLoading] = useState(false);
 	const actionMenuTimerRef = useRef<number | null>(null);
 
 	const overlayOpenRef = useRef(false);
-	const updateOverlay = () => { overlayOpenRef.current = !!(actionMenu || copyMenu || panelPr || editingPrNumber); };
-	useEffect(updateOverlay, [actionMenu, copyMenu, panelPr, editingPrNumber]);
+	const updateOverlay = () => { overlayOpenRef.current = !!(actionMenu || copyMenu || panelPr || editingPrNumber || commentingPr); };
+	useEffect(updateOverlay, [actionMenu, copyMenu, panelPr, editingPrNumber, commentingPr]);
 
 	const openActionMenu = (item: FocusedItem) => { nav.setPaused(true); setActionMenu(item); };
-	const closeActionMenu = () => { 
-		nav.setPaused(false); 
-		setActionMenu(null); 
+	const closeActionMenu = () => {
+		nav.setPaused(false);
+		setActionMenu(null);
 		if (actionMenuTimerRef.current) clearTimeout(actionMenuTimerRef.current);
 	};
 	const openCopyMenu = (item: FocusedItem) => {
@@ -989,7 +1030,7 @@ function Dashboard({ instanceId, authorFilter }: { instanceId: string; authorFil
 					actions={getActionsForItem(actionMenu, queryClient, () => {
 						queryClient.invalidateQueries({ queryKey: ["reviews", instanceId] });
 						queryClient.invalidateQueries({ queryKey: ["prs", instanceId] });
-					}, setEditingPrNumber, instances)}
+					}, setEditingPrNumber, instances, setCommentingPr)}
 					onClose={closeActionMenu}
 				/>
 			)}
@@ -997,6 +1038,26 @@ function Dashboard({ instanceId, authorFilter }: { instanceId: string; authorFil
 			{copyMenu && <CopyMenu target={copyMenu} onClose={closeCopyMenu} />}
 
 			{panelPr && <PrPanel pr={panelPr} onClose={closePanel} />}
+
+			{commentingPr && (
+				<CommentDialog
+					loading={commentLoading}
+					onSubmit={async (body) => {
+						setCommentLoading(true);
+						try {
+							await api.postComment(commentingPr.instanceId, commentingPr.repo, commentingPr.number, body);
+							toast("Comment posted");
+							setCommentingPr(null);
+							nav.setPaused(false);
+						} catch {
+							toast("Failed to post comment");
+						} finally {
+							setCommentLoading(false);
+						}
+					}}
+					onClose={() => { setCommentingPr(null); nav.setPaused(false); }}
+				/>
+			)}
 
 			{chordsSingle.showPopup && chordsSingle.activeGroup && (
 				<WhichKey group={chordsSingle.activeGroup} onClose={chordsSingle.cancel} />

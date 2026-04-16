@@ -339,6 +339,18 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/share-slack", async (c) => {
 	return c.json({ ok: true });
 });
 
+// Post a comment on a PR
+api.post("/:instanceId/prs/:owner/:repo/:prNumber/comment", async (c) => {
+	const { instanceId, owner, repo, prNumber } = c.req.param();
+	const { body } = await c.req.json<{ body: string }>();
+	const client = await getClient(instanceId);
+	const num = Number(prNumber);
+
+	await client.issues.createComment({ owner, repo, issue_number: num, body });
+
+	return c.json({ ok: true });
+});
+
 // PR metadata for panel + copy menu
 api.get("/:instanceId/prs/:owner/:repo/:prNumber/meta", async (c) => {
 	const { instanceId, owner, repo, prNumber } = c.req.param();

@@ -154,6 +154,69 @@ export function ActionMenu({ actions, onClose }: Props) {
 	);
 }
 
+interface CommentDialogProps {
+	onSubmit: (body: string) => void;
+	onClose: () => void;
+	loading?: boolean;
+}
+
+export function CommentDialog({ onSubmit, onClose, loading }: CommentDialogProps) {
+	const [value, setValue] = useState("");
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+	useEffect(() => {
+		textareaRef.current?.focus();
+	}, []);
+
+	useEffect(() => {
+		const handler = (e: KeyboardEvent) => {
+			if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+				e.preventDefault();
+				if (value.trim()) onSubmit(value);
+			} else if (e.key === "Escape") {
+				e.preventDefault();
+				onClose();
+			}
+		};
+
+		window.addEventListener("keydown", handler);
+		return () => window.removeEventListener("keydown", handler);
+	}, [value, onSubmit, onClose]);
+
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+			onClick={onClose}
+		>
+			<Card
+				className="w-full max-w-md p-4"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<p className="mb-2 text-sm font-medium">Post comment</p>
+				<textarea
+					ref={textareaRef}
+					value={value}
+					onChange={(e) => setValue(e.target.value)}
+					rows={4}
+					className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
+					placeholder="Write a comment..."
+				/>
+				<div className="mt-3 flex items-center justify-between">
+					<span className="text-xs text-muted-foreground">⌘+Enter to submit</span>
+					<div className="flex gap-2">
+						<Button size="sm" variant="secondary" onClick={onClose}>
+							Cancel
+						</Button>
+						<Button size="sm" disabled={!value.trim() || loading} onClick={() => value.trim() && onSubmit(value)}>
+							{loading ? "Posting..." : "Post"}
+						</Button>
+					</div>
+				</div>
+			</Card>
+		</div>
+	);
+}
+
 interface EditTitleDialogProps {
 	title: string;
 	onSave: (newTitle: string) => void;

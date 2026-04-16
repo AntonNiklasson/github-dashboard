@@ -160,4 +160,13 @@ export const api = {
 		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
 		return res.json();
 	},
+	postComment: async (instanceId: string, repo: string, prNumber: number, body: string) => {
+		const [owner, name] = repo.split("/");
+		const res = await fetch(
+			`/api/${instanceId}/prs/${owner}/${name}/${prNumber}/comment`,
+			{ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }) },
+		);
+		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+		return res.json();
+	},
 };
