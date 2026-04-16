@@ -320,7 +320,7 @@ function getActionsForItem(
 		if (setCommentingPr) {
 			actions.push({
 				label: "Post comment",
-				key: "p",
+				key: "c",
 				onSelect: () => {
 					setCommentingPr({ instanceId: item.instanceId!, repo: item.repo!, number: item.number! });
 				},
@@ -329,7 +329,7 @@ function getActionsForItem(
 
 		actions.push({
 			label: "Rerun CI",
-			key: "x",
+			key: "i",
 			onSelect: async () => {
 				try {
 					await api.rerunCi(item.instanceId!, item.repo!, item.number!);
@@ -391,7 +391,7 @@ function getActionsForItem(
 		});
 		actions.push({
 			label: "Close",
-			key: "c",
+			key: "x",
 			confirm: "Are you sure you want to close this PR?",
 			onSelect: async () => {
 				// Optimistic: remove from open PRs, add to recent
