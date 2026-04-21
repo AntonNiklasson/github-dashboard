@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc"
+    "build": "tsgo",
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.1",

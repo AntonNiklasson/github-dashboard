@@ -7,15 +7,16 @@
     "build": "pnpm --filter @github-dashboard/server build && pnpm --filter @github-dashboard/web build",
     "lint": "oxlint",
     "fmt": "oxfmt --write .",
-    "typecheck": "tsgo --project packages/server/tsconfig.json && tsgo --project packages/web/tsconfig.json",
+    "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @github-dashboard/web test",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@typescript/native-preview": "7.0.0-dev.20260420.1",
     "concurrently": "^9.1.2",
+    "husky": "^9.1.7",
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.10",
-    "husky": "^9.1.7",
     "typescript": "^6.0.2"
   },
   "pnpm": {

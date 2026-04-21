@@ -12,7 +12,7 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "types": ["node", "react", "react-dom"]
+    "types": ["react", "react-dom"]
   },
   "include": ["src/**/*"],
   "exclude": ["src/**/*.css"]
