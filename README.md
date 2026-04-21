@@ -11,8 +11,7 @@ A keyboard-driven dashboard for staying on top of your GitHub pull requests, rev
 - **Multi-instance** — connect github.com and a GitHub Enterprise instance, switch between them or view all at once
 - **PR actions** — toggle draft, enable auto-merge, approve, close, rerun CI, edit title
 - **Detail panel** — expand any PR to see files changed, commits, checks, and comments
-- **Copy menu** — quickly copy PR URL, branch name, title, or a markdown link
-- **Slack integration** — share a PR to a Slack channel via incoming webhook
+- **Copy menu** — quickly copy PR URL, branch name, title, a markdown link, or a Slack-formatted message
 - **Dark mode** — system, light, or dark theme
 - **Onboarding UI** — configure tokens from the browser on first run
 
@@ -24,7 +23,6 @@ A keyboard-driven dashboard for staying on top of your GitHub pull requests, rev
 | `h` / `l` or `←` / `→` | Move between columns |
 | `g g` / `g G` | Jump to top / bottom |
 | `Tab` | Switch instance tab |
-| `Cmd+K` | Command palette |
 | `Enter` / `Space` | Open detail panel |
 | `o` | Open PR in browser |
 | `r` | Open repo |
@@ -58,18 +56,15 @@ port: 7100
 
 github:
   token: ghp_...
-  slackWebhookUrl: https://hooks.slack.com/services/... # optional
 
 enterprise:
   label: GHE
   baseUrl: https://ghe.example.com/api/v3
   token: ghp_...
-  slackWebhookUrl: https://hooks.slack.com/services/... # optional
 ```
 
 - **github** — github.com personal access token (needs `repo`, `notifications` scopes)
 - **enterprise** — optional GitHub Enterprise instance with its own token and base URL
-- **slackWebhookUrl** — optional per-instance Slack incoming webhook for sharing PRs
 - **port** — server port (default 7100)
 
 Tokens can also be updated from the settings modal in the UI.
