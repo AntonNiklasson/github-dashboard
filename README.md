@@ -18,7 +18,6 @@ Act on a PR from your keyboard without leaving the dashboard:
 |---|---|
 | `j` / `k` or `↓` / `↑` | Move down / up |
 | `h` / `l` or `←` / `→` | Move between columns |
-| `g g` / `g G` | Jump to top / bottom |
 | `Tab` | Switch instance tab |
 | `Enter` / `Space` | Open detail panel |
 | `o` | Open PR in browser |
