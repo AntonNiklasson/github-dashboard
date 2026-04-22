@@ -1,16 +1,12 @@
 import { useState, useEffect } from "react";
 import { useAtom } from "jotai";
 import { toast } from "sonner";
-import { HelpCircle, Settings, Globe, Building2 } from "lucide-react";
+import { Settings, Globe, Building2 } from "lucide-react";
 import { api, type ConfigData, ConfigValidationError } from "../api";
 import { type Theme, applyTheme, themeAtom } from "../theme";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-	Dialog,
-	DialogContent,
-	DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 type Tab = "general" | "github" | "enterprise";
 
@@ -35,25 +31,9 @@ function FieldError({ message }: { message?: string }) {
 	return <p className="text-sm text-red-600">{message}</p>;
 }
 
-function HelpTooltip({ text }: { text: string }) {
-	return (
-		<span className="group relative inline-flex">
-			<HelpCircle className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
-			<span className="pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-1.5 w-64 -translate-x-1/2 rounded-md bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md border group-hover:pointer-events-auto group-hover:visible whitespace-pre-line">
-				{text}
-			</span>
-		</span>
-	);
-}
-
-const slackHelpText = "Create an Incoming Webhook in Slack:\n1. Go to api.slack.com/apps\n2. Create New App → From scratch\n3. Incoming Webhooks → toggle on\n4. Add New Webhook to Workspace\n5. Pick a channel and copy the URL";
-
 // --- tab panels ---
 
-function GeneralTab({ port, setPort }: {
-	port: string;
-	setPort: (v: string) => void;
-}) {
+function GeneralTab({ port, setPort }: { port: string; setPort: (v: string) => void }) {
 	const [theme, setTheme] = useAtom(themeAtom);
 	useEffect(() => applyTheme(theme), [theme]);
 
@@ -92,12 +72,15 @@ function GeneralTab({ port, setPort }: {
 	);
 }
 
-function GitHubTab({ initial, ghToken, setGhToken, ghSlackWebhook, setGhSlackWebhook, fieldErrors }: {
+function GitHubTab({
+	initial,
+	ghToken,
+	setGhToken,
+	fieldErrors,
+}: {
 	initial?: ConfigData;
 	ghToken: string;
 	setGhToken: (v: string) => void;
-	ghSlackWebhook: string;
-	setGhSlackWebhook: (v: string) => void;
 	fieldErrors: FieldErrors;
 }) {
 	return (
@@ -116,24 +99,22 @@ function GitHubTab({ initial, ghToken, setGhToken, ghSlackWebhook, setGhSlackWeb
 				/>
 				<FieldError message={fieldErrors.ghToken} />
 			</div>
-			<div className="space-y-1">
-				<div className="flex items-center gap-1.5">
-					<Label htmlFor="gh-slack-webhook">Slack webhook URL</Label>
-					<HelpTooltip text={slackHelpText} />
-				</div>
-				<Input
-					id="gh-slack-webhook"
-					type="password"
-					placeholder={initial?.github?.slackWebhookUrl ? initial.github.slackWebhookUrl : "https://hooks.slack.com/services/..."}
-					value={ghSlackWebhook}
-					onChange={(e) => setGhSlackWebhook(e.target.value)}
-				/>
-			</div>
 		</div>
 	);
 }
 
-function EnterpriseTab({ initial, gheEnabled, setGheEnabled, gheLabel, setGheLabel, gheBaseUrl, setGheBaseUrl, gheToken, setGheToken, gheSlackWebhook, setGheSlackWebhook, fieldErrors }: {
+function EnterpriseTab({
+	initial,
+	gheEnabled,
+	setGheEnabled,
+	gheLabel,
+	setGheLabel,
+	gheBaseUrl,
+	setGheBaseUrl,
+	gheToken,
+	setGheToken,
+	fieldErrors,
+}: {
 	initial?: ConfigData;
 	gheEnabled: boolean;
 	setGheEnabled: (v: boolean) => void;
@@ -143,8 +124,6 @@ function EnterpriseTab({ initial, gheEnabled, setGheEnabled, gheLabel, setGheLab
 	setGheBaseUrl: (v: string) => void;
 	gheToken: string;
 	setGheToken: (v: string) => void;
-	gheSlackWebhook: string;
-	setGheSlackWebhook: (v: string) => void;
 	fieldErrors: FieldErrors;
 }) {
 	return (
@@ -198,19 +177,6 @@ function EnterpriseTab({ initial, gheEnabled, setGheEnabled, gheLabel, setGheLab
 						/>
 						<FieldError message={fieldErrors.gheToken} />
 					</div>
-					<div className="space-y-1">
-						<div className="flex items-center gap-1.5">
-							<Label htmlFor="ghe-slack-webhook">Slack webhook URL</Label>
-							<HelpTooltip text={slackHelpText} />
-						</div>
-						<Input
-							id="ghe-slack-webhook"
-							type="password"
-							placeholder={initial?.enterprise?.slackWebhookUrl ? initial.enterprise.slackWebhookUrl : "https://hooks.slack.com/services/..."}
-							value={gheSlackWebhook}
-							onChange={(e) => setGheSlackWebhook(e.target.value)}
-						/>
-					</div>
 				</div>
 			)}
 		</div>
@@ -242,17 +208,20 @@ interface SettingsModalProps {
 	onSaved: () => void;
 }
 
-export function SettingsModal({ open, onOpenChange, config: initial, onSaved }: SettingsModalProps) {
+export function SettingsModal({
+	open,
+	onOpenChange,
+	config: initial,
+	onSaved,
+}: SettingsModalProps) {
 	const [saving, setSaving] = useState(false);
 	const [activeTab, setActiveTab] = useState<Tab>("general");
 
 	const [ghToken, setGhToken] = useState("");
-	const [ghSlackWebhook, setGhSlackWebhook] = useState("");
 	const [gheEnabled, setGheEnabled] = useState(!!initial?.enterprise);
 	const [gheLabel, setGheLabel] = useState(initial?.enterprise?.label ?? "");
 	const [gheBaseUrl, setGheBaseUrl] = useState(initial?.enterprise?.baseUrl ?? "");
 	const [gheToken, setGheToken] = useState("");
-	const [gheSlackWebhook, setGheSlackWebhook] = useState("");
 	const [port, setPort] = useState(String(initial?.port ?? 7100));
 	const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
@@ -264,7 +233,6 @@ export function SettingsModal({ open, onOpenChange, config: initial, onSaved }: 
 		const config: ConfigData = {
 			github: {
 				token: ghToken,
-				slackWebhookUrl: ghSlackWebhook,
 			},
 			port: Number(port) || 7100,
 		};
@@ -274,7 +242,6 @@ export function SettingsModal({ open, onOpenChange, config: initial, onSaved }: 
 				label: gheLabel || "GHE",
 				baseUrl: gheBaseUrl,
 				token: gheToken,
-				slackWebhookUrl: gheSlackWebhook,
 			};
 		}
 
@@ -319,16 +286,12 @@ export function SettingsModal({ open, onOpenChange, config: initial, onSaved }: 
 					{/* content */}
 					<div className="flex flex-1 flex-col">
 						<div className="flex-1 p-6">
-							{activeTab === "general" && (
-								<GeneralTab port={port} setPort={setPort} />
-							)}
+							{activeTab === "general" && <GeneralTab port={port} setPort={setPort} />}
 							{activeTab === "github" && (
 								<GitHubTab
 									initial={initial}
 									ghToken={ghToken}
 									setGhToken={setGhToken}
-									ghSlackWebhook={ghSlackWebhook}
-									setGhSlackWebhook={setGhSlackWebhook}
 									fieldErrors={fieldErrors}
 								/>
 							)}
@@ -343,8 +306,6 @@ export function SettingsModal({ open, onOpenChange, config: initial, onSaved }: 
 									setGheBaseUrl={setGheBaseUrl}
 									gheToken={gheToken}
 									setGheToken={setGheToken}
-									gheSlackWebhook={gheSlackWebhook}
-									setGheSlackWebhook={setGheSlackWebhook}
 									fieldErrors={fieldErrors}
 								/>
 							)}

@@ -9,19 +9,16 @@ export interface GitHubInstance {
 	baseUrl: string;
 	token: string;
 	username: string;
-	slackWebhookUrl?: string;
 }
 
 export interface ConfigSchema {
 	github?: {
 		token: string;
-		slackWebhookUrl?: string;
 	};
 	enterprise?: {
 		label: string;
 		baseUrl: string;
 		token: string;
-		slackWebhookUrl?: string;
 	};
 	port?: number;
 }
@@ -72,7 +69,6 @@ export async function resolveInstances(): Promise<GitHubInstance[]> {
 			baseUrl: "https://api.github.com",
 			token: config.github.token,
 			username,
-			slackWebhookUrl: config.github.slackWebhookUrl,
 		});
 	}
 
@@ -84,7 +80,6 @@ export async function resolveInstances(): Promise<GitHubInstance[]> {
 			baseUrl: config.enterprise.baseUrl,
 			token: config.enterprise.token,
 			username,
-			slackWebhookUrl: config.enterprise.slackWebhookUrl,
 		});
 	}
 

@@ -1,7 +1,14 @@
 import { Hono } from "hono";
 import { Octokit } from "@octokit/rest";
 import { getCached, setCached } from "./cache.js";
-import { type ConfigSchema, configExists, getInstances, readConfig, resolveInstances, writeConfig } from "./config.js";
+import {
+	type ConfigSchema,
+	configExists,
+	getInstances,
+	readConfig,
+	resolveInstances,
+	writeConfig,
+} from "./config.js";
 import { fetchNotifications, fetchPrs, fetchRecentPrs, fetchReviews } from "./fetchers.js";
 import { clearClients, getClient, getInstance } from "./github-client.js";
 
@@ -35,14 +42,8 @@ api.get("/config", (c) => {
 	if (masked.github?.token) {
 		masked.github = { ...masked.github, token: maskToken(masked.github.token) };
 	}
-	if (masked.github?.slackWebhookUrl) {
-		masked.github = { ...masked.github, slackWebhookUrl: maskToken(masked.github.slackWebhookUrl) };
-	}
 	if (masked.enterprise?.token) {
 		masked.enterprise = { ...masked.enterprise, token: maskToken(masked.enterprise.token) };
-	}
-	if (masked.enterprise?.slackWebhookUrl) {
-		masked.enterprise = { ...masked.enterprise, slackWebhookUrl: maskToken(masked.enterprise.slackWebhookUrl) };
 	}
 	return c.json({ exists: true, config: masked });
 });
@@ -51,18 +52,12 @@ api.put("/config", async (c) => {
 	const incoming = await c.req.json<ConfigSchema>();
 	const existing = readConfig();
 
-	// Empty token/webhook string means keep existing
+	// Empty token string means keep existing
 	if (incoming.github && incoming.github.token === "" && existing?.github?.token) {
 		incoming.github.token = existing.github.token;
 	}
-	if (incoming.github && incoming.github.slackWebhookUrl === "" && existing?.github?.slackWebhookUrl) {
-		incoming.github.slackWebhookUrl = existing.github.slackWebhookUrl;
-	}
 	if (incoming.enterprise && incoming.enterprise.token === "" && existing?.enterprise?.token) {
 		incoming.enterprise.token = existing.enterprise.token;
-	}
-	if (incoming.enterprise && incoming.enterprise.slackWebhookUrl === "" && existing?.enterprise?.slackWebhookUrl) {
-		incoming.enterprise.slackWebhookUrl = existing.enterprise.slackWebhookUrl;
 	}
 
 	// Validate tokens before saving
@@ -70,7 +65,10 @@ api.put("/config", async (c) => {
 
 	if (incoming.github?.token) {
 		try {
-			const client = new Octokit({ auth: incoming.github.token, baseUrl: "https://api.github.com" });
+			const client = new Octokit({
+				auth: incoming.github.token,
+				baseUrl: "https://api.github.com",
+			});
 			await client.users.getAuthenticated();
 		} catch {
 			errors.push("GitHub.com token is invalid");
@@ -79,7 +77,10 @@ api.put("/config", async (c) => {
 
 	if (incoming.enterprise?.token && incoming.enterprise?.baseUrl) {
 		try {
-			const client = new Octokit({ auth: incoming.enterprise.token, baseUrl: incoming.enterprise.baseUrl });
+			const client = new Octokit({
+				auth: incoming.enterprise.token,
+				baseUrl: incoming.enterprise.baseUrl,
+			});
 			await client.users.getAuthenticated();
 		} catch {
 			errors.push("GitHub Enterprise token is invalid");
@@ -109,9 +110,7 @@ api.put("/config", async (c) => {
 // List configured instances (no tokens)
 api.get("/instances", async (c) => {
 	const instances = await getInstances();
-	return c.json(
-		instances.map((i) => ({ id: i.id, label: i.label, username: i.username, hasSlackWebhook: !!i.slackWebhookUrl })),
-	);
+	return c.json(instances.map((i) => ({ id: i.id, label: i.label, username: i.username })));
 });
 
 // Authored PRs with CI + review status
@@ -126,7 +125,11 @@ api.get("/:instanceId/prs", async (c) => {
 api.get("/:instanceId/recent-prs", async (c) => {
 	const { instanceId } = c.req.param();
 	const fresh = c.req.query("fresh") === "1";
-	const data = await cachedOrFetch(`${instanceId}:recent-prs`, () => fetchRecentPrs(instanceId), fresh);
+	const data = await cachedOrFetch(
+		`${instanceId}:recent-prs`,
+		() => fetchRecentPrs(instanceId),
+		fresh,
+	);
 	return c.json(data);
 });
 
@@ -142,7 +145,11 @@ api.get("/:instanceId/reviews", async (c) => {
 api.get("/:instanceId/notifications", async (c) => {
 	const { instanceId } = c.req.param();
 	const fresh = c.req.query("fresh") === "1";
-	const data = await cachedOrFetch(`${instanceId}:notifications`, () => fetchNotifications(instanceId), fresh);
+	const data = await cachedOrFetch(
+		`${instanceId}:notifications`,
+		() => fetchNotifications(instanceId),
+		fresh,
+	);
 	return c.json(data);
 });
 
@@ -156,7 +163,10 @@ api.delete("/:instanceId/notifications/:threadId", async (c) => {
 	// Optimistically remove from cache so it disappears immediately
 	const cached = getCached<{ id: string }[]>(`${instanceId}:notifications`);
 	if (cached) {
-		setCached(`${instanceId}:notifications`, cached.filter((n) => n.id !== threadId));
+		setCached(
+			`${instanceId}:notifications`,
+			cached.filter((n) => n.id !== threadId),
+		);
 	}
 
 	return c.json({ ok: true });
@@ -230,7 +240,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/close", async (c) => {
 api.patch("/:instanceId/prs/:owner/:repo/:prNumber", async (c) => {
 	const { instanceId, owner, repo, prNumber } = c.req.param();
 	const { title } = await c.req.json().catch(() => ({ title: null }));
-	
+
 	if (!title) {
 		return c.json({ error: "Title is required" }, 400);
 	}
@@ -277,12 +287,14 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/rerun-ci", async (c) => {
 
 	const { data: pr } = await client.pulls.get({ owner, repo, pull_number: num });
 
-	const runsRes = await client.actions.listWorkflowRunsForRepo({
-		owner,
-		repo,
-		head_sha: pr.head.sha,
-		per_page: 1,
-	}).catch(() => null);
+	const runsRes = await client.actions
+		.listWorkflowRunsForRepo({
+			owner,
+			repo,
+			head_sha: pr.head.sha,
+			per_page: 1,
+		})
+		.catch(() => null);
 
 	const latestRun = runsRes?.data.workflow_runs[0];
 
@@ -291,50 +303,6 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/rerun-ci", async (c) => {
 	}
 
 	await client.actions.reRunWorkflow({ owner, repo, run_id: latestRun.id });
-
-	return c.json({ ok: true });
-});
-
-// Share PR to Slack
-api.post("/:instanceId/prs/:owner/:repo/:prNumber/share-slack", async (c) => {
-	const { instanceId, owner, repo, prNumber } = c.req.param();
-	const instance = await getInstance(instanceId);
-
-	if (!instance.slackWebhookUrl) {
-		return c.json({ error: "No Slack webhook configured for this instance" }, 400);
-	}
-
-	const client = await getClient(instanceId);
-	const num = Number(prNumber);
-	const { data: pr } = await client.pulls.get({ owner, repo, pull_number: num });
-
-	const prUrl = pr.html_url;
-	const title = pr.title;
-	const author = pr.user?.login ?? "unknown";
-	const additions = pr.additions;
-	const deletions = pr.deletions;
-	const commits = pr.commits;
-
-	const res = await fetch(instance.slackWebhookUrl, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			blocks: [
-				{
-					type: "section",
-					text: {
-						type: "mrkdwn",
-						text: `*Review requested:* <${prUrl}|${title}>\n\`${owner}/${repo}#${prNumber}\` by ${author} — _+${additions} / -${deletions}_ · ${commits} commit${commits === 1 ? "" : "s"}`,
-					},
-				},
-			],
-		}),
-	});
-
-	if (!res.ok) {
-		const body = await res.text();
-		return c.json({ error: `Slack API error: ${res.status} ${body}` }, 502);
-	}
 
 	return c.json({ ok: true });
 });
@@ -368,13 +336,21 @@ api.get("/:instanceId/prs/:owner/:repo/:prNumber/meta", async (c) => {
 			.catch(() => null),
 	]);
 
-	const checksByName = new Map<string, { name: string; status: string; conclusion: string | null }>();
+	const checksByName = new Map<
+		string,
+		{ name: string; status: string; conclusion: string | null }
+	>();
 
 	for (const s of statusesRes?.data.statuses ?? []) {
 		checksByName.set(s.context, {
 			name: s.context,
 			status: "completed",
-			conclusion: s.state === "success" ? "success" : s.state === "failure" || s.state === "error" ? "failure" : null,
+			conclusion:
+				s.state === "success"
+					? "success"
+					: s.state === "failure" || s.state === "error"
+						? "failure"
+						: null,
 		});
 	}
 

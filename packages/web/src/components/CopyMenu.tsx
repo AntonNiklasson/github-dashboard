@@ -111,9 +111,7 @@ export function CopyMenu({ target, onClose }: Props) {
 			onClick={onClose}
 		>
 			<Card className="w-full max-w-xs p-2" onClick={(e) => e.stopPropagation()}>
-				<div className="px-3 py-2 text-xs font-medium text-muted-foreground">
-					Copy to clipboard
-				</div>
+				<div className="px-3 py-2 text-xs font-medium text-muted-foreground">Copy to clipboard</div>
 				<ul>
 					{items.map((item, i) => (
 						<li key={item.key}>
