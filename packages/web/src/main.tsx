@@ -6,19 +6,19 @@ import { App } from "./App";
 import "./index.css";
 
 const queryClient = new QueryClient({
-	defaultOptions: {
-		queries: {
-			retry: 1,
-			refetchOnWindowFocus: true,
-		},
-	},
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: true,
+    },
+  },
 });
 
 createRoot(document.getElementById("root")!).render(
-	<StrictMode>
-		<QueryClientProvider client={queryClient}>
-			<App />
-			<Toaster position="top-left" />
-		</QueryClientProvider>
-	</StrictMode>,
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <App />
+      <Toaster position="top-left" />
+    </QueryClientProvider>
+  </StrictMode>,
 );
