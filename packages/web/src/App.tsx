@@ -251,6 +251,7 @@ interface FocusedItem {
 	notificationId?: string;
 	author?: string;
 	headBranch?: string;
+	readOnly?: boolean;
 }
 
 interface PanelData {
@@ -313,7 +314,7 @@ function getActionsForItem(
 		});
 	}
 
-	if (item.section === "prs" && item.repo && item.number && item.instanceId) {
+	if (item.section === "prs" && item.repo && item.number && item.instanceId && !item.readOnly) {
 		actions.push({
 			label: item.autoMerge ? "Disable auto-merge" : "Enable auto-merge",
 			key: "m",
@@ -370,7 +371,8 @@ function getActionsForItem(
 		(item.section === "prs" || item.section === "reviews") &&
 		item.repo &&
 		item.number &&
-		item.instanceId
+		item.instanceId &&
+		!item.readOnly
 	) {
 		actions.push({
 			label: "Approve",
@@ -583,11 +585,13 @@ function Dashboard({ source }: { source: DashboardSource }) {
 
 	const navRef = useRef(nav);
 	const prsRef = useRef(prs.data);
+	const recentPrsRef = useRef(recentPrs.data);
 	const reviewsRef = useRef(filteredReviews);
 	const notificationsRef = useRef(notifications.data);
 	const instancesRef = useRef(instances);
 	navRef.current = nav;
 	prsRef.current = prs.data;
+	recentPrsRef.current = recentPrs.data;
 	reviewsRef.current = filteredReviews;
 	notificationsRef.current = notifications.data;
 	instancesRef.current = instances;
@@ -597,6 +601,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
 			navRef.current.activeSection,
 			navRef.current.focusIndex,
 			prsRef.current,
+			recentPrsRef.current,
 			reviewsRef.current,
 			notificationsRef.current,
 			instancesRef.current,
@@ -605,7 +610,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
 		Math.max(
 			0,
 			({
-				prs: prsRef.current.length,
+				prs: prsRef.current.length + recentPrsRef.current.length,
 				reviews: reviewsRef.current.length,
 				notifications: notificationsRef.current.length,
 			}[navRef.current.activeSection] ?? 0) - 1,
@@ -683,7 +688,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
 					e.preventDefault();
 				}
 			} else if (e.key === "m" && activeSection === "prs") {
-				if (item?.repo && item.number && item.instanceId) {
+				if (item?.repo && item.number && item.instanceId && !item.readOnly) {
 					e.preventDefault();
 					queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
 						old?.map((pr) =>
@@ -698,7 +703,13 @@ function Dashboard({ source }: { source: DashboardSource }) {
 					});
 				}
 			} else if (e.key === "a" && (activeSection === "prs" || activeSection === "reviews")) {
-				if (item?.repo && item.number && item.instanceId && confirm("Approve this PR?")) {
+				if (
+					item?.repo &&
+					item.number &&
+					item.instanceId &&
+					!item.readOnly &&
+					confirm("Approve this PR?")
+				) {
 					e.preventDefault();
 					api.approvePr(item.instanceId, item.repo, item.number).then(() => {
 						queryClient.invalidateQueries({ queryKey: ["prs"] });
@@ -707,7 +718,13 @@ function Dashboard({ source }: { source: DashboardSource }) {
 					});
 				}
 			} else if (e.key === "c" && (activeSection === "prs" || activeSection === "reviews")) {
-				if (item?.repo && item.number && item.instanceId && confirm("Close this PR?")) {
+				if (
+					item?.repo &&
+					item.number &&
+					item.instanceId &&
+					!item.readOnly &&
+					confirm("Close this PR?")
+				) {
 					e.preventDefault();
 					queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
 						old?.filter((pr) => !(pr.number === item.number && pr.repo === item.repo)),
@@ -731,7 +748,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
 				}
 			} else if (e.key === "d" && activeSection === "prs") {
 				const pr = prsRef.current[focusIndex];
-				if (pr && item?.repo && item.number && item.instanceId) {
+				if (pr && item?.repo && item.number && item.instanceId && !item.readOnly) {
 					e.preventDefault();
 					const newDraft = !pr.draft;
 					setTogglingDraftId(pr.id);
@@ -933,6 +950,7 @@ function getFocusedItem(
 	section: Section,
 	idx: number,
 	prs: PR[],
+	recentPrs: RecentPR[],
 	reviews: ReviewRequest[],
 	notifications: Notification[],
 	instances: Instance[],
@@ -954,6 +972,23 @@ function getFocusedItem(
 			autoMerge: p.autoMerge,
 			author: p.author,
 			headBranch: p.headBranch,
+		};
+	}
+	if (section === "prs" && recentPrs[idx - prs.length]) {
+		const p = recentPrs[idx - prs.length];
+		const inst = instances.find((i) => i.label === p.instanceLabel) ?? instances[0];
+		return {
+			url: p.url,
+			title: p.title,
+			section,
+			repo: p.repo,
+			number: p.number,
+			instanceId: inst?.id,
+			additions: p.additions,
+			deletions: p.deletions,
+			reviews: { approved: [], changesRequested: [] },
+			headBranch: p.headBranch,
+			readOnly: true,
 		};
 	}
 	if (section === "reviews" && reviews[idx]) {
