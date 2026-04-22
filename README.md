@@ -2,18 +2,15 @@
 
 A keyboard-driven dashboard for staying on top of your GitHub pull requests, reviews, and notifications. Supports multiple GitHub instances (github.com + GitHub Enterprise) side by side.
 
-## Features
+Act on a PR from your keyboard without leaving the dashboard:
 
-- **Your PRs** — see all your open PRs with CI status, review state, labels, and merge queue info
-- **Review requests** — PRs waiting for your review, with approval/dismiss actions
-- **Notifications** — participating notifications, dismissable inline
-- **Recently closed** — PRs you merged or closed today
-- **Multi-instance** — connect github.com and a GitHub Enterprise instance, switch between them or view all at once
-- **PR actions** — toggle draft, enable auto-merge, approve, close, rerun CI, edit title
-- **Detail panel** — expand any PR to see files changed, commits, checks, and comments
-- **Copy menu** — quickly copy PR URL, branch name, title, a markdown link, or a Slack-formatted message
-- **Dark mode** — system, light, or dark theme
-- **Onboarding UI** — configure tokens from the browser on first run
+- Toggle draft state
+- Rerun failed CI jobs
+- Change PR titles
+- Approve and close PRs
+- ...and more!
+
+![Dashboard screenshot](./demo.png)
 
 ## Keyboard shortcuts
 
@@ -69,14 +66,27 @@ enterprise:
 
 Tokens can also be updated from the settings modal in the UI.
 
-## Dashboard ideas
+## Architecture
 
-This works well as an always-on dashboard. A few ways to set that up:
+```mermaid
+%%{init: {'sequence': {'mirrorActors': false}}}%%
+sequenceDiagram
+    participant Browser
+    participant Server
+    participant GH as github.com
+    participant GHE as GitHub Enterprise
 
-- **Browser tab** — pin `http://localhost:7100` as a permanent tab
-- **Separate browser window** — keep it on a secondary monitor; most browsers let you hide the address bar in a PWA-style window
-- **iframe / new tab page** — embed it in a custom new-tab extension
-- **Tauri / Electron** — wrap it as a native window (Tauri migration is on the roadmap)
+    loop every 10s
+        Browser->>Server: GET /api/*
+        Server-->>Browser: cached data
+    end
 
-Data syncs every 30 seconds in the background, so it stays up to date without manual refreshing.
+    loop every 30s
+        Server->>GH: fetch PRs / reviews / notifications
+        GH-->>Server: update cache
+        Server->>GHE: fetch PRs / reviews / notifications
+        GHE-->>Server: update cache
+    end
+```
 
+The server keeps a disk-backed cache of the last sync and serves the browser from that, so the UI stays snappy and the API is hit at a predictable cadence regardless of how many tabs are open.

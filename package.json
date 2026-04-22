@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.29.3",
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"pnpm --filter @github-dashboard/server dev\" \"pnpm --filter @github-dashboard/web dev\"",
+    "demo": "DEMO=1 pnpm dev",
     "build": "pnpm --filter @github-dashboard/server build && pnpm --filter @github-dashboard/web build",
     "lint": "oxlint",
     "fmt": "oxfmt --write .",

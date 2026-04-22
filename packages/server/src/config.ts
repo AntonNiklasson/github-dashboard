@@ -53,6 +53,26 @@ async function fetchUsername(token: string, baseUrl: string): Promise<string> {
 }
 
 export async function resolveInstances(): Promise<GitHubInstance[]> {
+	if (process.env.DEMO === "1") {
+		cachedInstances = [
+			{
+				id: "github",
+				label: "github.com",
+				baseUrl: "https://api.github.com",
+				token: "",
+				username: "octocat",
+			},
+			{
+				id: "ghe",
+				label: "GHE",
+				baseUrl: "https://ghe.example.com/api/v3",
+				token: "",
+				username: "octocat",
+			},
+		];
+		return cachedInstances;
+	}
+
 	const config = readConfig();
 	if (!config) {
 		cachedInstances = [];
@@ -95,6 +115,7 @@ export async function getInstances(): Promise<GitHubInstance[]> {
 }
 
 export function getPort(): number {
+	if (process.env.PORT) return Number(process.env.PORT);
 	const config = readConfig();
 	return config?.port ?? 7100;
 }

@@ -17,10 +17,15 @@ const port = getPort();
 console.log(`Server running on http://localhost:${port}`);
 serve({ fetch: app.fetch, port });
 
-// Resolve usernames from tokens, then start syncing
-resolveInstances()
-	.then(() => startSync())
-	.catch((err) => {
-		console.error("Failed to resolve instances:", err instanceof Error ? err.message : err);
-		startSync();
-	});
+if (process.env.DEMO === "1") {
+	console.log("DEMO mode: serving fixtures from .cache-demo, sync disabled");
+	resolveInstances();
+} else {
+	// Resolve usernames from tokens, then start syncing
+	resolveInstances()
+		.then(() => startSync())
+		.catch((err) => {
+			console.error("Failed to resolve instances:", err instanceof Error ? err.message : err);
+			startSync();
+		});
+}

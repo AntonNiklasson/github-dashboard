@@ -32,6 +32,16 @@ function maskToken(token: string): string {
 
 // Config endpoints
 api.get("/config", (c) => {
+	if (process.env.DEMO === "1") {
+		return c.json({
+			exists: true,
+			config: {
+				github: { token: "****demo" },
+				enterprise: { label: "GHE", baseUrl: "https://ghe.example.com/api/v3", token: "****demo" },
+				port: 7100,
+			},
+		});
+	}
 	if (!configExists()) {
 		return c.json({ exists: false });
 	}

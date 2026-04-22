@@ -14,7 +14,6 @@ const sections: { title: string; shortcuts: [string, string][] }[] = [
 			["g g", "Jump to top"],
 			["g G", "Jump to bottom"],
 			["Tab", "Switch instance tab"],
-			["\u2318K", "Command palette"],
 		],
 	},
 	{

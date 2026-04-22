@@ -1,7 +1,11 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-const CACHE_DIR = resolve(import.meta.dirname, "../../../.cache");
+const DEMO = process.env.DEMO === "1";
+const CACHE_DIR = resolve(
+	import.meta.dirname,
+	DEMO ? "../../../.cache-demo" : "../../../.cache",
+);
 const CACHE_FILE = resolve(CACHE_DIR, "data.json");
 
 interface CacheEntry {
@@ -27,6 +31,7 @@ export function loadCache() {
 }
 
 function persistCache() {
+	if (DEMO) return;
 	try {
 		mkdirSync(CACHE_DIR, { recursive: true });
 		const obj: Record<string, CacheEntry> = {};
