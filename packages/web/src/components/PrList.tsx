@@ -1,12 +1,14 @@
 import type { PR, RecentPR } from "../types";
 import { FocusLi } from "./FocusLi";
 import { PrCard } from "./PrCard";
+import { toMergeStatus } from "./PrStateIcon";
+import { Text } from "./Text";
 
 interface Props {
   prs: PR[];
   focusIndex: number;
   isFocusedSection: boolean;
-  _togglingDraftId?: number;
+  togglingDraftId?: number;
   recentPrs?: RecentPR[];
   editingPrNumber?: number;
   onSaveTitle?: (prNumber: number, title: string) => void;
@@ -16,15 +18,15 @@ export function PrList({
   prs,
   focusIndex,
   isFocusedSection,
-  _togglingDraftId,
+  togglingDraftId,
   recentPrs,
   editingPrNumber,
   onSaveTitle,
 }: Props) {
   if (prs.length === 0 && (!recentPrs || recentPrs.length === 0)) {
     return (
-      <p className="py-4 text-center text-sm text-muted-foreground">
-        No open PRs
+      <p className="py-4 text-center text-muted-foreground">
+        <Text>No open PRs</Text>
       </p>
     );
   }
@@ -43,13 +45,13 @@ export function PrList({
                 url={pr.url}
                 repo={pr.repo}
                 number={pr.number}
+                createdAt={pr.createdAt}
                 updatedAt={pr.updatedAt}
                 author={pr.author}
                 authorAvatar={pr.authorAvatar}
-                draft={pr.draft}
-                merged={pr.merged}
+                mergeStatus={toMergeStatus(pr)}
+                loading={togglingDraftId === pr.id}
                 ciStatus={pr.ciStatus}
-                inMergeQueue={pr.inMergeQueue}
                 autoMerge={pr.autoMerge}
                 headBranch={pr.headBranch}
                 baseBranch={pr.baseBranch}
@@ -59,7 +61,7 @@ export function PrList({
                 deletions={pr.deletions}
                 commits={pr.commits}
                 commentCount={pr.commentCount}
-                mergeable={pr.mergeable}
+                conflict={pr.mergeable === false}
                 focused={focused}
                 instanceId={pr.instanceId}
                 instanceLabel={pr.instanceLabel}
@@ -73,9 +75,9 @@ export function PrList({
 
       {recentPrs && recentPrs.length > 0 && (
         <>
-          <div className="my-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-12 mb-3 flex items-center gap-2 text-muted-foreground">
             <div className="h-px flex-1 bg-border" />
-            <span>Last 7 days</span>
+            <Text size="small">Last 7 days</Text>
             <div className="h-px flex-1 bg-border" />
           </div>
           <ul className="space-y-2">
@@ -90,10 +92,8 @@ export function PrList({
                     repo={pr.repo}
                     number={pr.number}
                     updatedAt={pr.updatedAt}
-                    draft={false}
-                    merged={pr.merged}
+                    mergeStatus={pr.merged ? "merged" : "closed"}
                     ciStatus="unknown"
-                    inMergeQueue={false}
                     autoMerge={false}
                     headBranch={pr.headBranch ?? ""}
                     baseBranch=""

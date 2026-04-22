@@ -1,6 +1,6 @@
 const DEFAULT_COLORS: Record<string, string> = {
-  "github.com": "#8b5cf6",
-  ghe: "#f97316",
+  "github.com": "#10b981",
+  ghe: "#f59e0b",
 };
 
 const defaultAssignments = new Map<string, string>();

@@ -1,4 +1,5 @@
 import type { Section } from "../hooks";
+import { Text } from "./Text";
 
 interface Props {
   section: Section;
@@ -12,17 +13,24 @@ interface Props {
 export function SectionHeader({ label, count, isFetching, onClick }: Props) {
   return (
     <div
-      className="flex cursor-pointer items-center justify-between pb-2"
+      className="flex cursor-pointer items-center justify-between"
       onClick={onClick}
     >
-      <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold">{label}</h2>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+      <div className="flex items-baseline gap-2">
+        <Text
+          size="small"
+          bold
+          variant="secondary"
+          className="uppercase tracking-tight"
+        >
+          {label}
+        </Text>
+        <Text size="small" variant="tertiary" className="tabular-nums">
           {count}
-        </span>
+        </Text>
       </div>
       {isFetching && (
-        <span className="h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
       )}
     </div>
   );

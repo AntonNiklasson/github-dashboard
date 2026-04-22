@@ -1,6 +1,8 @@
 import type { ReviewRequest } from "../types";
 import { FocusLi } from "./FocusLi";
 import { PrCard } from "./PrCard";
+import { toMergeStatus } from "./PrStateIcon";
+import { Text } from "./Text";
 
 interface Props {
   reviews: ReviewRequest[];
@@ -11,8 +13,8 @@ interface Props {
 export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
   if (reviews.length === 0) {
     return (
-      <p className="py-4 text-center text-sm text-muted-foreground">
-        No pending reviews
+      <p className="py-4 text-center text-muted-foreground">
+        <Text>No pending reviews</Text>
       </p>
     );
   }
@@ -23,7 +25,12 @@ export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
         const focused = isFocusedSection && focusIndex === i;
         return (
           <FocusLi key={pr.id} focused={focused}>
-            <PrCard {...pr} focused={focused} />
+            <PrCard
+              {...pr}
+              mergeStatus={toMergeStatus(pr)}
+              conflict={pr.mergeable === false}
+              focused={focused}
+            />
           </FocusLi>
         );
       })}

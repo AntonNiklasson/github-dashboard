@@ -1,31 +1,33 @@
 import { Card } from "@/components/ui/card";
 import { getInstanceColor } from "../instance-colors";
-import { ApprovedStamp } from "./ApprovedStamp";
-import { CodeOwnerReviewBadge } from "./CodeOwnerReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
-import { ReviewBadge } from "./ReviewBadge";
-import { StatusBadge } from "./StatusBadge";
+import { StatusBadge, toCiStatus } from "./StatusBadge";
 import { useState, useRef, useEffect } from "react";
 import {
+  ArrowRight,
   GitBranch,
   GitCommit,
-  TriangleAlert,
-  Zap,
-  Target,
   MessageSquare,
+  Rocket,
+  TriangleAlert,
 } from "lucide-react";
-import { truncateBranchName } from "../utils/branch";
+import { MiddleTruncate } from "./MiddleTruncate";
+import { Pill } from "./Pill";
+import type { MergeStatus } from "./PrStateIcon";
+import { ReviewStamp } from "./ReviewStamp";
+import { Text } from "./Text";
+import { TimeAgo } from "./TimeAgo";
+import { truncateMiddle } from "../utils/truncate";
 
 interface Props {
   title: string;
   url: string;
   repo: string;
   number: number;
+  createdAt?: string;
   updatedAt: string;
-  draft: boolean;
-  merged?: boolean;
+  mergeStatus: MergeStatus;
   ciStatus: string;
-  inMergeQueue?: boolean;
   autoMerge?: boolean;
   headBranch?: string;
   baseBranch?: string;
@@ -36,14 +38,14 @@ interface Props {
   commits: number;
   commentCount: number;
   focused: boolean;
-  togglingDraft?: boolean;
+  loading?: boolean;
   instanceId?: string;
   instanceLabel?: string;
   author?: string;
   authorAvatar?: string;
   editing?: boolean;
   onSaveTitle?: (title: string) => void;
-  mergeable?: boolean | null;
+  conflict?: boolean;
 }
 
 export function PrCard({
@@ -51,11 +53,10 @@ export function PrCard({
   url,
   repo,
   number,
-  updatedAt: _updatedAt,
-  draft,
-  merged,
+  createdAt,
+  updatedAt,
+  mergeStatus,
   ciStatus,
-  inMergeQueue,
   autoMerge,
   headBranch,
   baseBranch,
@@ -66,15 +67,16 @@ export function PrCard({
   commits,
   commentCount,
   focused,
-  togglingDraft,
+  loading,
   instanceId,
   instanceLabel: _instanceLabel,
   author,
   authorAvatar: _authorAvatar,
   editing,
   onSaveTitle,
-  mergeable,
+  conflict,
 }: Props) {
+  const merged = mergeStatus === "merged";
   const [editTitle, setEditTitle] = useState(title);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -109,58 +111,65 @@ export function PrCard({
   return (
     <Card
       className={`@container/card relative px-4 py-3.5 transition-colors hover:bg-accent ${
-        focused ? "outline-3 outline-blue-500 shadow-md shadow-blue-500/25" : ""
+        focused && !editing
+          ? "outline-3 outline-blue-500 shadow-md shadow-blue-500/25"
+          : ""
       }`}
-      style={
-        instanceId
-          ? { borderLeft: `4px solid ${getInstanceColor(instanceId)}` }
-          : undefined
-      }
     >
-      <div className="absolute bottom-2 right-2 flex flex-col items-end gap-1">
-        {(reviewDecision === "APPROVED" ||
-          reviewDecision === "REVIEW_REQUIRED" ||
-          (reviewDecision == null && reviews.approved.length > 0)) &&
-          reviews.approved.length > 0 && <ApprovedStamp />}
-        {reviews.approved.length > 0 &&
-          reviewDecision === "REVIEW_REQUIRED" && <CodeOwnerReviewBadge />}
-        {(reviewDecision === "CHANGES_REQUESTED" ||
-          (reviewDecision == null &&
-            reviews.changesRequested.length > 0 &&
-            reviews.approved.length === 0)) && (
-          <ReviewBadge reviews={reviews} />
+      <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+        {reviews.approved.length > 0 && (
+          <ReviewStamp kind="approved" count={reviews.approved.length} />
         )}
+        {reviews.changesRequested.length > 0 && (
+          <ReviewStamp
+            kind="changes-requested"
+            count={reviews.changesRequested.length}
+          />
+        )}
+        {reviewDecision === "REVIEW_REQUIRED" &&
+          reviews.approved.length > 0 && (
+            <ReviewStamp kind="missing-code-owner" />
+          )}
+      </div>
+      <div className="absolute bottom-2 right-2 flex flex-col items-end gap-0.5">
+        {createdAt && (
+          <span className="flex items-center gap-1">
+            <Text size="small" variant="tertiary">
+              opened
+            </Text>
+            <TimeAgo date={createdAt} />
+          </span>
+        )}
+        <span className="flex items-center gap-1">
+          <Text size="small" variant="tertiary">
+            pushed
+          </Text>
+          <TimeAgo date={updatedAt} />
+        </span>
       </div>
       <div className="flex">
-        <div className="flex shrink-0 flex-col items-center justify-center gap-2 pr-4">
-          <span className="text-[10px] text-muted-foreground/70">{number}</span>
-          <PrStateIcon
-            draft={draft}
-            merged={merged}
-            loading={togglingDraft}
-            inMergeQueue={inMergeQueue}
-          />
+        <div className="flex shrink-0 items-center justify-center pr-4">
+          <PrStateIcon status={mergeStatus} loading={loading} />
         </div>
-        <div className="flex-1 overflow-hidden">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
-            <span className="shrink-0">{repo}</span>
-            {author && (
-              <span className="text-muted-foreground/50">@{author}</span>
+        <div className="flex-1 overflow-hidden pr-32">
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            {instanceId && (
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: getInstanceColor(instanceId) }}
+                title={`Instance: ${instanceId}`}
+              />
             )}
-            <span className="flex-1" />
-            {headBranch && (
-              <span className="flex items-center gap-1 font-mono text-[10px] whitespace-nowrap">
-                <GitBranch className="h-3 w-3" />
-                {truncateBranchName(headBranch)}
-                {baseBranch &&
-                  baseBranch !== "main" &&
-                  baseBranch !== "master" && (
-                    <span className="ml-0.5 flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                      <Target className="h-3 w-3" />
-                      {baseBranch}
-                    </span>
-                  )}
-              </span>
+            <Text size="small" variant="secondary" className="truncate">
+              {repo}
+            </Text>
+            <Text size="small" variant="tertiary">
+              #{number}
+            </Text>
+            {author && (
+              <Text size="small" variant="tertiary" className="ml-1 truncate">
+                @{author}
+              </Text>
             )}
           </div>
           {editing ? (
@@ -171,51 +180,83 @@ export function PrCard({
               onChange={(e) => setEditTitle(e.target.value)}
               onKeyDown={handleKeyDown}
               onBlur={handleSave}
-              className="mt-1 w-full rounded border border-input bg-background px-2 py-1 text-sm font-medium"
+              className="mt-1 block w-full rounded-md border border-input bg-background px-2 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-inset focus:ring-ring"
             />
           ) : (
-            <a href={url} target="_blank" rel="noopener noreferrer">
-              <p className="mt-1 text-sm font-medium">{title}</p>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 block"
+            >
+              <Text bold>{title}</Text>
             </a>
           )}
-          <div className="mt-1.5 flex flex-col gap-1.5 text-xs text-muted-foreground">
-            {!merged && (
-              <div
-                className={`flex items-center gap-2 ${ciStatus === "unknown" ? "justify-start" : ""}`}
-              >
-                {ciStatus !== "unknown" && <StatusBadge status={ciStatus} />}
-                <span className="font-mono">
-                  <span className="text-green-600">+{additions}</span>
-                  <span>/</span>
-                  <span className="text-red-600">-{deletions}</span>
-                </span>
-                <span className="flex items-center gap-0.5">
-                  <GitCommit className="h-3 w-3" />
-                  {commits}
-                </span>
-                {commentCount > 0 && (
-                  <span className="ml-1 flex items-center gap-1">
-                    <MessageSquare className="h-3 w-3" />
-                    {commentCount}
-                  </span>
+          {headBranch && (
+            <div className="mt-1 flex items-center gap-1.5 font-mono text-muted-foreground">
+              <GitBranch className="h-3 w-3 shrink-0" />
+              <MiddleTruncate size="small" variant="secondary" max={45}>
+                {headBranch}
+              </MiddleTruncate>
+              {baseBranch &&
+                baseBranch !== "main" &&
+                baseBranch !== "master" && (
+                  <Pill icon={ArrowRight} tone="muted">
+                    <span title={baseBranch}>
+                      {truncateMiddle(baseBranch, 45)}
+                    </span>
+                  </Pill>
                 )}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              {autoMerge && (
-                <span className="flex items-center gap-1 rounded bg-green-100 px-1 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  <Zap className="h-3 w-3" />
-                  auto-merge
-                </span>
-              )}
-              {mergeable === false && (
-                <span className="flex items-center gap-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                  <TriangleAlert className="h-3 w-3" />
+            </div>
+          )}
+          {!merged && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-4 text-muted-foreground">
+              {conflict && (
+                <Pill icon={TriangleAlert} tone="red">
                   conflict
+                </Pill>
+              )}
+              <span className="flex items-center gap-0.5 font-mono">
+                <Text size="small" className="text-green-600">
+                  +{additions}
+                </Text>
+                <Text size="small">/</Text>
+                <Text size="small" className="text-red-600">
+                  -{deletions}
+                </Text>
+              </span>
+              <span className="flex items-center gap-1">
+                <GitCommit className="h-3 w-3" />
+                <Text size="small" variant="secondary">
+                  {commits}
+                </Text>
+              </span>
+              {commentCount > 0 && (
+                <span className="flex items-center gap-1">
+                  <MessageSquare className="h-3 w-3" />
+                  <Text size="small" variant="secondary">
+                    {commentCount}
+                  </Text>
                 </span>
               )}
             </div>
-          </div>
+          )}
+          {!merged &&
+            (() => {
+              const ci = toCiStatus(ciStatus);
+              const anyBadge = ci || autoMerge;
+              if (!anyBadge) return null;
+              return (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {ci && <StatusBadge status={ci} />}
+                  {autoMerge && (
+                    <Pill icon={Rocket} tone="green">
+                      auto-merge
+                    </Pill>
+                  )}
+                </div>
+              );
+            })()}
         </div>
       </div>
     </Card>

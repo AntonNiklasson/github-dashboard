@@ -11,6 +11,7 @@ export interface PR {
   body: string;
   url: string;
   repo: string;
+  createdAt?: string;
   updatedAt: string;
   author: string;
   authorAvatar: string;
@@ -40,6 +41,7 @@ export interface ReviewRequest {
   body: string;
   url: string;
   repo: string;
+  createdAt?: string;
   updatedAt: string;
   author: string;
   authorAvatar: string;
