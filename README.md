@@ -32,6 +32,14 @@ Act on a PR from your keyboard without leaving the dashboard:
 | `,` | Settings |
 | `?` | Show shortcut help |
 
+### Inside the detail panel
+
+| Key | Action |
+|---|---|
+| `h` / `l` or `←` / `→` | Switch tab (Overview / Comments / Files) |
+| `j` / `k` or `↓` / `↑` | Scroll |
+| `Esc` | Close panel |
+
 ## Setup
 
 ```bash

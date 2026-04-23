@@ -39,6 +39,14 @@ const sections: { title: string; shortcuts: [string, string][] }[] = [
     ],
   },
   {
+    title: "Detail panel",
+    shortcuts: [
+      ["h / l or \u2190 / \u2192", "Switch tab"],
+      ["j / k or \u2193 / \u2191", "Scroll"],
+      ["Esc", "Close panel"],
+    ],
+  },
+  {
     title: "Other",
     shortcuts: [
       [",", "Settings"],
