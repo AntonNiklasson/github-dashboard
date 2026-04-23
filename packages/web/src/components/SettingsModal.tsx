@@ -7,6 +7,7 @@ import { type Theme, applyTheme, themeAtom } from "../theme";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Text } from "./Text";
 
 type Tab = "general" | "github" | "enterprise";
 
@@ -30,18 +31,19 @@ function Label({
   children: React.ReactNode;
 }) {
   return (
-    <label
-      htmlFor={htmlFor}
-      className="block text-sm font-medium text-muted-foreground"
-    >
-      {children}
+    <label htmlFor={htmlFor} className="block text-muted-foreground">
+      <Text bold>{children}</Text>
     </label>
   );
 }
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
-  return <p className="text-sm text-red-600">{message}</p>;
+  return (
+    <p>
+      <Text className="text-red-600">{message}</Text>
+    </p>
+  );
 }
 
 // --- tab panels ---
@@ -59,9 +61,11 @@ function GeneralTab({
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-foreground">Appearance</h3>
+        <h3>
+          <Text bold>Appearance</Text>
+        </h3>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">Theme</span>
+          <Text variant="secondary">Theme</Text>
           <select
             value={theme}
             onChange={(e) => setTheme(e.target.value as Theme)}
@@ -75,7 +79,9 @@ function GeneralTab({
         </div>
       </div>
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-foreground">Server</h3>
+        <h3>
+          <Text bold>Server</Text>
+        </h3>
         <div className="max-w-xs space-y-1">
           <Label htmlFor="port">Port</Label>
           <Input
@@ -149,14 +155,14 @@ function EnterpriseTab({
 }) {
   return (
     <div className="space-y-4">
-      <label className="flex items-center gap-2 text-sm text-muted-foreground">
+      <label className="flex items-center gap-2 text-muted-foreground">
         <input
           type="checkbox"
           checked={gheEnabled}
           onChange={(e) => setGheEnabled(e.target.checked)}
           className="rounded"
         />
-        Enable GitHub Enterprise
+        <Text>Enable GitHub Enterprise</Text>
       </label>
 
       {gheEnabled && (
@@ -300,14 +306,14 @@ export function SettingsModal({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm text-left transition-colors ${
+                className={`flex items-center gap-2 rounded-md px-3 py-2 text-left transition-colors ${
                   activeTab === tab.id
-                    ? "bg-accent text-accent-foreground font-medium"
+                    ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                 }`}
               >
                 {tab.icon}
-                {tab.label}
+                <Text bold={activeTab === tab.id}>{tab.label}</Text>
               </button>
             ))}
           </nav>
@@ -343,7 +349,7 @@ export function SettingsModal({
             </div>
             <div className="border-t p-4">
               <Button type="submit" disabled={saving} className="w-full">
-                {saving ? "Saving..." : "Save"}
+                <Text bold>{saving ? "Saving..." : "Save"}</Text>
               </Button>
             </div>
           </div>

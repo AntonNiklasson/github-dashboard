@@ -1,3 +1,5 @@
+import { Text } from "./Text";
+
 function timeAgo(date: string): string {
   const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
   if (seconds < 60) return "just now";
@@ -11,8 +13,8 @@ function timeAgo(date: string): string {
 
 export function TimeAgo({ date }: { date: string }) {
   return (
-    <span className="text-xs text-gray-500" title={date}>
+    <Text size="small" variant="secondary" title={date}>
       {timeAgo(date)}
-    </span>
+    </Text>
   );
 }

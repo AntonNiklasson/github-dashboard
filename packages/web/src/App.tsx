@@ -1,7 +1,9 @@
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, type ConfigResponse } from "./api";
@@ -14,6 +16,7 @@ import {
 } from "./components/ActionMenu";
 import { type CopyTarget, CopyMenu } from "./components/CopyMenu";
 import { PrPanel } from "./components/PrPanel";
+import { Text } from "./components/Text";
 import { type KeyGroup, WhichKey } from "./components/WhichKey";
 import { ErrorMessage } from "./components/ErrorMessage";
 import { NotificationList } from "./components/NotificationList";
@@ -51,6 +54,19 @@ import { applyTheme, themeAtom } from "./theme";
 type Tab = "all" | string;
 
 const activeTabAtom = atomWithStorage<Tab>("activeTab", "all");
+
+function splitGradient(colors: string[]): string {
+  if (colors.length === 0) return "transparent";
+  if (colors.length === 1) return colors[0];
+  if (colors.length === 2) {
+    return `linear-gradient(90deg, ${colors[0]} 50%, ${colors[1]} 50%)`;
+  }
+  const step = 100 / colors.length;
+  const stops = colors
+    .map((c, i) => `${c} ${i * step}% ${(i + 1) * step}%`)
+    .join(", ");
+  return `conic-gradient(from 180deg, ${stops})`;
+}
 
 export function App() {
   const { data: configRes, isLoading: configLoading } =
@@ -161,73 +177,50 @@ export function App() {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-background">
-      <header className="shrink-0 border-b bg-card px-6 py-3">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
+      <header className="shrink-0 border-b bg-card">
+        <div className="flex items-center gap-3 px-3 py-2">
+          <div
+            role="tablist"
+            className="inline-flex items-center gap-1 rounded-lg bg-[oklch(0.94_0_0)] p-1 dark:bg-[oklch(0.22_0_0)]"
+          >
             {tabs.map((tab) => {
-              const color =
-                tab.id !== "all" ? getInstanceColor(tab.id) : undefined;
+              const active = activeTab === tab.id;
+              const dotStyle =
+                tab.id === "all"
+                  ? {
+                      background: splitGradient(
+                        instanceTabs.map((t) => getInstanceColor(t.id)),
+                      ),
+                    }
+                  : { backgroundColor: getInstanceColor(tab.id) };
               return (
-                <Button
+                <button
                   key={tab.id}
-                  size="sm"
-                  variant={activeTab === tab.id ? "default" : "secondary"}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
                   onClick={() => setActiveTab(tab.id)}
-                  className="gap-1.5"
-                  style={
-                    activeTab !== tab.id && color
-                      ? { borderBottom: `2px solid ${color}` }
-                      : undefined
-                  }
-                >
-                  {tab.id === "all" ? (
-                    <svg
-                      className="h-3.5 w-3.5"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.6-8.6c.8-1.1 2-1.7 3.3-1.7H22" />
-                      <path d="M18 2l4 4-4 4" />
-                      <path d="M2 6h1.4c1.3 0 2.5.6 3.3 1.7l6.6 8.6c.8 1.1 2 1.7 3.3 1.7H22" />
-                      <path d="M18 14l4 4-4 4" />
-                    </svg>
-                  ) : (
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: color }}
-                    />
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    active
+                      ? "bg-background text-foreground shadow-sm dark:bg-[oklch(0.32_0_0)] dark:shadow-none"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
-                  {tab.label}
-                </Button>
+                >
+                  <span className="h-2.5 w-2.5 rounded-full" style={dotStyle} />
+                  <Text bold>{tab.label}</Text>
+                </button>
               );
             })}
-            <kbd className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-              ?
-            </kbd>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5">
             <Button
-              size="sm"
+              size="icon-sm"
               variant="ghost"
               onClick={() => setSettingsOpen(true)}
               title="Settings (,)"
             >
-              <svg
-                className="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
+              <Settings />
             </Button>
           </div>
         </div>
@@ -915,7 +908,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
             prs={prs.data}
             focusIndex={nav.focusIndex}
             isFocusedSection={nav.activeSection === "prs"}
-            _togglingDraftId={togglingDraftId ?? undefined}
+            togglingDraftId={togglingDraftId ?? undefined}
             recentPrs={recentPrs.data}
             editingPrNumber={editingPrNumber ?? undefined}
             onSaveTitle={async (prNumber, title) => {
@@ -1156,7 +1149,7 @@ function Column({
           onClick={onActivate}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-4 scroll-pt-12">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-4 scroll-pt-2 scroll-pb-2">
         {children}
       </div>
     </div>

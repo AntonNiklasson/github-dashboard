@@ -1,17 +1,34 @@
-import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle, Loader2, XCircle } from "lucide-react";
+import { Pill } from "./Pill";
 
-export function StatusBadge({ status }: { status: string }) {
-  if (status === "success") {
-    return <CheckCircle className="h-3 w-3 text-green-600" />;
+export type CiStatus = "success" | "failure" | "pending";
+
+export function toCiStatus(status: string): CiStatus | null {
+  if (status === "success") return "success";
+  if (status === "failure" || status === "error") return "failure";
+  if (status === "pending") return "pending";
+  return null;
+}
+
+export function StatusBadge({ status }: { status: CiStatus }) {
+  switch (status) {
+    case "success":
+      return (
+        <Pill icon={CheckCircle} tone="green">
+          passing
+        </Pill>
+      );
+    case "failure":
+      return (
+        <Pill icon={XCircle} tone="red">
+          failing
+        </Pill>
+      );
+    case "pending":
+      return (
+        <Pill icon={Loader2} iconClassName="animate-spin" tone="amber">
+          pending
+        </Pill>
+      );
   }
-
-  if (status === "failure" || status === "error") {
-    return <XCircle className="h-3 w-3 text-red-600" />;
-  }
-
-  if (status === "pending") {
-    return <Loader2 className="h-3 w-3 animate-spin text-yellow-500" />;
-  }
-
-  return <span className="h-4 w-4" />;
 }
