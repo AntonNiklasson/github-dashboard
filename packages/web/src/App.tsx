@@ -265,23 +265,14 @@ interface FocusedItem {
   additions?: number;
   deletions?: number;
   reviews?: { approved: string[]; changesRequested: string[] };
+  reviewDecision?: string | null;
   autoMerge?: boolean;
   notificationId?: string;
   author?: string;
   headBranch?: string;
+  baseBranch?: string;
+  commentCount?: number;
   readOnly?: boolean;
-}
-
-interface PanelData {
-  title: string;
-  body: string;
-  url: string;
-  repo: string;
-  number: number;
-  additions: number;
-  deletions: number;
-  reviews: { approved: string[]; changesRequested: string[] };
-  instanceId: string;
 }
 
 interface CommentingPr {
@@ -563,7 +554,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const nav = useKeyboardNav(sections, itemCounts);
   const [actionMenu, setActionMenu] = useState<FocusedItem | null>(null);
   const [copyMenu, setCopyMenu] = useState<CopyTarget | null>(null);
-  const [panelPr, setPanelPr] = useState<PanelData | null>(null);
+  const [panelItem, setPanelItem] = useState<FocusedItem | null>(null);
   const [togglingDraftId, setTogglingDraftId] = useState<number | null>(null);
   const [editingPrNumber, setEditingPrNumber] = useState<number | null>(null);
   const [commentingPr, setCommentingPr] = useState<CommentingPr | null>(null);
@@ -575,7 +566,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
     overlayOpenRef.current = !!(
       actionMenu ||
       copyMenu ||
-      panelPr ||
+      panelItem ||
       editingPrNumber ||
       commentingPr
     );
@@ -583,7 +574,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
   useEffect(updateOverlay, [
     actionMenu,
     copyMenu,
-    panelPr,
+    panelItem,
     editingPrNumber,
     commentingPr,
   ]);
@@ -593,8 +584,8 @@ function Dashboard({ source }: { source: DashboardSource }) {
     setActionMenu(item);
   };
   const closeActionMenu = () => {
-    nav.setPaused(false);
     setActionMenu(null);
+    if (!panelItem) nav.setPaused(false);
     if (actionMenuTimerRef.current) clearTimeout(actionMenuTimerRef.current);
   };
   const openCopyMenu = (item: FocusedItem) => {
@@ -618,21 +609,20 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const openPanel = (item: FocusedItem) => {
     if (!item.repo || !item.number || !item.instanceId || !item.reviews) return;
     nav.setPaused(true);
-    setPanelPr({
-      title: item.title,
-      body: item.body ?? "",
-      url: item.url,
-      repo: item.repo,
-      number: item.number,
-      additions: item.additions ?? 0,
-      deletions: item.deletions ?? 0,
-      reviews: item.reviews,
-      instanceId: item.instanceId,
+    setPanelItem(item);
+    const { instanceId, repo, number } = item;
+    queryClient.prefetchQuery({
+      queryKey: ["pr-meta", instanceId, repo, number],
+      queryFn: () => api.prMeta(instanceId, repo, number),
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["pr-comments", instanceId, repo, number],
+      queryFn: () => api.prComments(instanceId, repo, number),
     });
   };
   const closePanel = () => {
     nav.setPaused(false);
-    setPanelPr(null);
+    setPanelItem(null);
   };
 
   const navRef = useRef(nav);
@@ -703,7 +693,10 @@ function Dashboard({ source }: { source: DashboardSource }) {
     [nav],
   );
 
-  const chords = useChords(chordGroups, !!(actionMenu || copyMenu || panelPr));
+  const chords = useChords(
+    chordGroups,
+    !!(actionMenu || copyMenu || panelItem),
+  );
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -991,8 +984,14 @@ function Dashboard({ source }: { source: DashboardSource }) {
               queryClient.invalidateQueries({ queryKey: ["prs"] });
               queryClient.invalidateQueries({ queryKey: ["reviews"] });
             },
-            setEditingPrNumber,
-            setCommentingPr,
+            (num) => {
+              setEditingPrNumber(num);
+              if (panelItem) closePanel();
+            },
+            (pr) => {
+              setCommentingPr(pr);
+              if (panelItem) closePanel();
+            },
           )}
           onClose={closeActionMenu}
         />
@@ -1000,7 +999,33 @@ function Dashboard({ source }: { source: DashboardSource }) {
 
       {copyMenu && <CopyMenu target={copyMenu} onClose={closeCopyMenu} />}
 
-      {panelPr && <PrPanel pr={panelPr} onClose={closePanel} />}
+      {panelItem &&
+        panelItem.repo &&
+        panelItem.number &&
+        panelItem.instanceId &&
+        panelItem.reviews && (
+          <PrPanel
+            pr={{
+              title: panelItem.title,
+              body: panelItem.body ?? "",
+              url: panelItem.url,
+              repo: panelItem.repo,
+              number: panelItem.number,
+              additions: panelItem.additions ?? 0,
+              deletions: panelItem.deletions ?? 0,
+              reviews: panelItem.reviews,
+              reviewDecision: panelItem.reviewDecision,
+              headBranch: panelItem.headBranch,
+              baseBranch: panelItem.baseBranch,
+              commentCount: panelItem.commentCount,
+              author: panelItem.author,
+              instanceId: panelItem.instanceId,
+            }}
+            onOpenActionMenu={() => openActionMenu(panelItem)}
+            actionMenuOpen={!!actionMenu}
+            onClose={closePanel}
+          />
+        )}
 
       {commentingPr && (
         <CommentDialog
@@ -1016,7 +1041,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
               );
               toast("Comment posted");
               setCommentingPr(null);
-              nav.setPaused(false);
+              if (!panelItem) nav.setPaused(false);
             } catch {
               toast("Failed to post comment");
             } finally {
@@ -1025,7 +1050,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
           }}
           onClose={() => {
             setCommentingPr(null);
-            nav.setPaused(false);
+            if (!panelItem) nav.setPaused(false);
           }}
         />
       )}
@@ -1063,9 +1088,12 @@ function getFocusedItem(
       additions: p.additions,
       deletions: p.deletions,
       reviews: p.reviews,
+      reviewDecision: p.reviewDecision,
       autoMerge: p.autoMerge,
       author: p.author,
       headBranch: p.headBranch,
+      baseBranch: p.baseBranch,
+      commentCount: p.commentCount,
     };
   }
   if (section === "prs" && recentPrs[idx - prs.length]) {
@@ -1101,8 +1129,11 @@ function getFocusedItem(
       additions: r.additions,
       deletions: r.deletions,
       reviews: r.reviews,
+      reviewDecision: r.reviewDecision,
       author: r.author,
       headBranch: r.headBranch,
+      baseBranch: r.baseBranch,
+      commentCount: r.commentCount,
     };
   }
   if (section === "notifications" && notifications[idx]) {

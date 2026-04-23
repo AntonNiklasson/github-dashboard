@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, GitBranch, GitCommit } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
 import { api } from "../api";
+import { MarkdownBody } from "./MarkdownBody";
+import { ReviewStamp } from "./ReviewStamp";
+import { StatusBadge } from "./StatusBadge";
 import { TimeAgo } from "./TimeAgo";
 
 interface PanelPr {
@@ -14,11 +17,17 @@ interface PanelPr {
   deletions: number;
   reviews: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
+  headBranch?: string;
+  baseBranch?: string;
+  commentCount?: number;
+  author?: string;
   instanceId: string;
 }
 
 interface Props {
   pr: PanelPr;
+  onOpenActionMenu: () => void;
+  actionMenuOpen: boolean;
   onClose: () => void;
 }
 
@@ -29,9 +38,23 @@ const tabs: { id: Tab; label: string }[] = [
   { id: "files", label: "Files" },
 ];
 
-export function PrPanel({ pr, onClose }: Props) {
+const ANIM_MS = 200;
+
+export function PrPanel({
+  pr,
+  onOpenActionMenu,
+  actionMenuOpen,
+  onClose,
+}: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [closing, setClosing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const requestClose = () => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(onClose, ANIM_MS);
+  };
 
   const { data: meta, isLoading: metaLoading } = useQuery({
     queryKey: ["pr-meta", pr.instanceId, pr.repo, pr.number],
@@ -44,28 +67,47 @@ export function PrPanel({ pr, onClose }: Props) {
     enabled: activeTab === "comments",
   });
 
+  const tabCounts: Partial<Record<Tab, number>> = {
+    comments: pr.commentCount,
+    files: meta?.files.length,
+  };
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (actionMenuOpen) return;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopImmediatePropagation();
-        onClose();
-      } else if (e.key === "l" || e.key === "ArrowRight") {
+        requestClose();
+        return;
+      }
+      if (e.key === ".") {
+        e.preventDefault();
+        onOpenActionMenu();
+        return;
+      }
+      if (e.key === "l" || e.key === "ArrowRight") {
         e.preventDefault();
         setActiveTab((cur) => {
           const idx = tabs.findIndex((t) => t.id === cur);
           return tabs[(idx + 1) % tabs.length].id;
         });
-      } else if (e.key === "h" || e.key === "ArrowLeft") {
+        return;
+      }
+      if (e.key === "h" || e.key === "ArrowLeft") {
         e.preventDefault();
         setActiveTab((cur) => {
           const idx = tabs.findIndex((t) => t.id === cur);
           return tabs[(idx - 1 + tabs.length) % tabs.length].id;
         });
-      } else if (e.key === "j" || e.key === "ArrowDown") {
+        return;
+      }
+      if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
         scrollRef.current?.scrollBy({ top: 80 });
-      } else if (e.key === "k" || e.key === "ArrowUp") {
+        return;
+      }
+      if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
         scrollRef.current?.scrollBy({ top: -80 });
       }
@@ -73,11 +115,17 @@ export function PrPanel({ pr, onClose }: Props) {
     window.addEventListener("keydown", handler, { capture: true });
     return () =>
       window.removeEventListener("keydown", handler, { capture: true });
-  }, [onClose]);
+  }, [closing, actionMenuOpen]);
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      <div className="flex w-[40vw] shrink-0 flex-col border-r bg-background shadow-xl animate-in slide-in-from-left duration-200">
+      <div
+        className={`flex w-[60vw] max-w-[1100px] shrink-0 flex-col border-r bg-background shadow-xl ${
+          closing
+            ? "animate-out slide-out-to-left duration-200 ease-in"
+            : "animate-in slide-in-from-left duration-200 ease-out"
+        }`}
+      >
         {/* Header */}
         <div className="shrink-0 border-b bg-background px-5 py-3">
           <div className="flex items-center justify-between">
@@ -88,7 +136,7 @@ export function PrPanel({ pr, onClose }: Props) {
               </p>
             </div>
             <button
-              onClick={onClose}
+              onClick={requestClose}
               className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <svg
@@ -108,19 +156,33 @@ export function PrPanel({ pr, onClose }: Props) {
 
           {/* Tabs */}
           <div className="mt-3 flex gap-1">
-            {tabs.map((tab, _i) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                  activeTab === tab.id
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+            {tabs.map((tab) => {
+              const count = tabCounts[tab.id];
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    activeTab === tab.id
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {tab.label}
+                  {typeof count === "number" && count > 0 && (
+                    <span
+                      className={`ml-1.5 ${
+                        activeTab === tab.id
+                          ? "opacity-70"
+                          : "text-muted-foreground/70"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -133,14 +195,25 @@ export function PrPanel({ pr, onClose }: Props) {
             <OverviewTab pr={pr} meta={meta} isLoading={metaLoading} />
           )}
           {activeTab === "comments" && (
-            <CommentsTab comments={comments} isLoading={commentsLoading} />
+            <CommentsTab
+              pr={pr}
+              comments={comments}
+              isLoading={commentsLoading}
+            />
           )}
           {activeTab === "files" && (
             <FilesTab files={meta?.files} isLoading={metaLoading} />
           )}
         </div>
       </div>
-      <div className="flex-1 bg-black/20 dark:bg-black/50" onClick={onClose} />
+      <div
+        className={`flex-1 bg-black/20 dark:bg-black/50 ${
+          closing
+            ? "animate-out fade-out duration-200 ease-in"
+            : "animate-in fade-in duration-200 ease-out"
+        }`}
+        onClick={requestClose}
+      />
     </div>
   );
 }
@@ -154,111 +227,88 @@ function OverviewTab({
   meta: Awaited<ReturnType<typeof api.prMeta>> | undefined;
   isLoading: boolean;
 }) {
+  const approvedCount = pr.reviews.approved.length;
+  const changesCount = pr.reviews.changesRequested.length;
+  const missingCodeOwner =
+    approvedCount > 0 && pr.reviewDecision === "REVIEW_REQUIRED";
+  const hasReviewSignal =
+    approvedCount > 0 || changesCount > 0 || missingCodeOwner;
+
   return (
     <div className="space-y-5">
+      {/* Branches + Stats */}
+      <section className="rounded-md border bg-muted/30 px-3 py-2.5">
+        {(pr.headBranch || pr.baseBranch) && (
+          <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+            <GitBranch className="h-3 w-3 shrink-0" />
+            {pr.headBranch && (
+              <span className="truncate text-foreground">{pr.headBranch}</span>
+            )}
+            {pr.baseBranch && (
+              <>
+                <ArrowRight className="h-3 w-3 shrink-0" />
+                <span className="truncate">{pr.baseBranch}</span>
+              </>
+            )}
+          </div>
+        )}
+        <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-0.5 font-mono">
+            <span className="text-green-600">+{pr.additions}</span>
+            <span>/</span>
+            <span className="text-red-600">-{pr.deletions}</span>
+          </span>
+          {meta?.commits && (
+            <span className="flex items-center gap-1">
+              <GitCommit className="h-3 w-3" />
+              <span>
+                {meta.commits.length} commit
+                {meta.commits.length === 1 ? "" : "s"}
+              </span>
+            </span>
+          )}
+        </div>
+      </section>
+
       {/* Reviews */}
-      {(pr.reviews.approved.length > 0 ||
-        pr.reviews.changesRequested.length > 0 ||
-        pr.reviewDecision) && (
+      {hasReviewSignal && (
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Reviews
           </h3>
-          <div className="space-y-1">
-            {pr.reviews.approved.map((user) => (
-              <div key={user} className="flex items-center gap-2 text-sm">
-                <svg
-                  className="h-3.5 w-3.5 text-green-600"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M20 6L9 17l-5-5" />
-                </svg>
-                <span>{user}</span>
-              </div>
-            ))}
-            {pr.reviews.changesRequested.map((user) => (
-              <div key={user} className="flex items-center gap-2 text-sm">
-                <svg
-                  className="h-3.5 w-3.5 text-red-600"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 6L6 18" />
-                  <path d="M6 6l12 12" />
-                </svg>
-                <span>{user}</span>
-              </div>
-            ))}
-            {pr.reviews.approved.length > 0 &&
-              pr.reviewDecision === "REVIEW_REQUIRED" && (
-                <div className="mt-2 flex items-center gap-2 rounded bg-blue-100 px-2 py-1 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                  <svg
-                    className="h-3.5 w-3.5 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2.5}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 9v4" />
-                    <path d="M12 17h.01" />
-                    <path d="M3.6 15.4 10.6 3.6a1.6 1.6 0 0 1 2.8 0l7 11.8A1.6 1.6 0 0 1 19 18H5a1.6 1.6 0 0 1-1.4-2.6Z" />
-                  </svg>
-                  <span>Code owner review still required</span>
-                </div>
-              )}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {approvedCount > 0 && (
+              <ReviewStamp kind="approved" count={approvedCount} />
+            )}
+            {changesCount > 0 && (
+              <ReviewStamp kind="changes-requested" count={changesCount} />
+            )}
+            {missingCodeOwner && <ReviewStamp kind="missing-code-owner" />}
           </div>
+          {(approvedCount > 0 || changesCount > 0) && (
+            <div className="mt-2 space-y-1 text-sm">
+              {pr.reviews.approved.map((user) => (
+                <div key={user} className="flex items-center gap-2">
+                  <span className="text-green-600">✓</span>
+                  <span>{user}</span>
+                </div>
+              ))}
+              {pr.reviews.changesRequested.map((user) => (
+                <div key={user} className="flex items-center gap-2">
+                  <span className="text-red-600">✗</span>
+                  <span>{user}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
-      {/* CI Checks */}
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          CI Checks
-        </h3>
-        {isLoading ? (
-          <p className="text-xs text-muted-foreground">Loading...</p>
-        ) : meta?.checks.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No checks</p>
-        ) : meta?.checks.every((c) => c.conclusion === "success") ? (
-          <div className="flex items-center gap-2 text-sm text-green-600">
-            <svg
-              className="h-3.5 w-3.5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M20 6L9 17l-5-5" />
-            </svg>
-            <span>All checks passing ({meta.checks.length})</span>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {meta?.checks.map((check) => (
-              <div key={check.name} className="flex items-center gap-2 text-sm">
-                <CheckIcon
-                  conclusion={check.conclusion}
-                  status={check.status}
-                />
-                <span className="truncate">{check.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {/* CI Checks + Commits (two-column) */}
+      <div className="grid gap-5 sm:grid-cols-2">
+        <CiSection meta={meta} isLoading={isLoading} />
+        <CommitsSection commits={meta?.commits} />
+      </div>
 
       {/* Description */}
       {pr.body && (
@@ -266,19 +316,100 @@ function OverviewTab({
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Description
           </h3>
-          <div className="prose prose-sm max-w-none text-sm dark:prose-invert">
-            <Markdown>{pr.body}</Markdown>
-          </div>
+          <MarkdownBody body={pr.body} prUrl={pr.url} repo={pr.repo} />
         </section>
       )}
     </div>
   );
 }
 
+function CiSection({
+  meta,
+  isLoading,
+}: {
+  meta: Awaited<ReturnType<typeof api.prMeta>> | undefined;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          CI Checks
+        </h3>
+        <p className="text-xs text-muted-foreground">Loading...</p>
+      </section>
+    );
+  }
+  if (!meta || meta.checks.length === 0) return <div />;
+  const allPassing = meta.checks.every((c) => c.conclusion === "success");
+  if (allPassing) {
+    return (
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          CI Checks
+        </h3>
+        <div className="flex items-center gap-2">
+          <StatusBadge status="success" />
+          <span className="text-xs text-muted-foreground">
+            {meta.checks.length} checks
+          </span>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        CI Checks
+      </h3>
+      <div className="space-y-1">
+        {meta.checks.map((check) => (
+          <div key={check.name} className="flex items-center gap-2 text-sm">
+            <CheckIcon conclusion={check.conclusion} status={check.status} />
+            <span className="truncate">{check.name}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CommitsSection({
+  commits,
+}: {
+  commits: Awaited<ReturnType<typeof api.prMeta>>["commits"] | undefined;
+}) {
+  if (!commits || commits.length === 0) return <div />;
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Commits ({commits.length})
+      </h3>
+      <div className="overflow-hidden rounded-md border">
+        {commits.map((c, i) => (
+          <div
+            key={c.sha}
+            className={`flex items-baseline gap-2 px-3 py-1.5 text-sm ${
+              i > 0 ? "border-t" : ""
+            }`}
+          >
+            <code className="shrink-0 font-mono text-xs text-muted-foreground">
+              {c.sha.slice(0, 7)}
+            </code>
+            <span className="truncate">{c.message.split("\n")[0]}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function CommentsTab({
+  pr,
   comments,
   isLoading,
 }: {
+  pr: PanelPr;
   comments: Awaited<ReturnType<typeof api.prComments>> | undefined;
   isLoading: boolean;
 }) {
@@ -291,18 +422,23 @@ function CommentsTab({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {comments.map((c) => (
-        <div key={c.id} className="border-b pb-4 last:border-0">
-          <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+        <div
+          key={c.id}
+          className="rounded-md border bg-card shadow-sm overflow-hidden"
+        >
+          <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{c.author}</span>
             <TimeAgo date={c.createdAt} />
             {c.path && (
-              <span className="truncate font-mono text-[11px]">{c.path}</span>
+              <span className="ml-auto truncate font-mono text-[11px]">
+                {c.path}
+              </span>
             )}
           </div>
-          <div className="prose prose-sm max-w-none text-sm dark:prose-invert">
-            <Markdown>{c.body}</Markdown>
+          <div className="px-3 py-2">
+            <MarkdownBody body={c.body} prUrl={pr.url} repo={pr.repo} />
           </div>
         </div>
       ))}
