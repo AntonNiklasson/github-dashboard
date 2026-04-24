@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
@@ -66,6 +66,14 @@ function splitGradient(colors: string[]): string {
     .map((c, i) => `${c} ${i * step}% ${(i + 1) * step}%`)
     .join(", ");
   return `conic-gradient(from 180deg, ${stops})`;
+}
+
+function GithubMark() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 .5C5.73.5.67 5.56.67 11.83c0 5.01 3.24 9.25 7.74 10.75.57.11.78-.25.78-.55 0-.27-.01-1.17-.02-2.13-3.15.68-3.81-1.34-3.81-1.34-.52-1.31-1.26-1.66-1.26-1.66-1.03-.7.08-.69.08-.69 1.14.08 1.74 1.17 1.74 1.17 1.01 1.73 2.65 1.23 3.3.94.1-.73.39-1.23.72-1.51-2.52-.29-5.17-1.26-5.17-5.6 0-1.24.44-2.25 1.17-3.04-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.14 1.16.91-.25 1.88-.38 2.85-.39.97.01 1.94.14 2.85.39 2.18-1.47 3.14-1.16 3.14-1.16.62 1.57.23 2.73.11 3.02.73.79 1.17 1.8 1.17 3.04 0 4.35-2.66 5.31-5.19 5.59.4.35.76 1.03.76 2.08 0 1.5-.01 2.71-.01 3.08 0 .3.21.67.79.55 4.49-1.5 7.73-5.74 7.73-10.75C23.33 5.56 18.27.5 12 .5z" />
+    </svg>
+  );
 }
 
 export function App() {
@@ -214,6 +222,15 @@ export function App() {
             })}
           </div>
           <div className="ml-auto flex items-center gap-1.5">
+            <a
+              href="https://github.com/AntonNiklasson/github-dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="View on GitHub"
+              className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
+            >
+              <GithubMark />
+            </a>
             <Button
               size="icon-sm"
               variant="ghost"
