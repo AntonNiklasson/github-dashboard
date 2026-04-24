@@ -34,7 +34,7 @@ async function cachedOrFetch<T>(
   return data;
 }
 
-function maskToken(token: string): string {
+export function maskToken(token: string): string {
   if (token.length <= 4) return "****";
   return "****" + token.slice(-4);
 }
