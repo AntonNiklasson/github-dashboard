@@ -1,4 +1,6 @@
 #!/bin/sh
 cd "$(git rev-parse --show-toplevel)"
-pnpm exec oxlint || exit 1
-pnpm --filter @github-dashboard/web exec vitest run || exit 1
+pnpm lint || exit 1
+pnpm fmt:check || exit 1
+pnpm typecheck || exit 1
+pnpm test || exit 1
