@@ -10,7 +10,7 @@
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter @github-dashboard/web test",
+    "test": "pnpm -r test",
     "prepare": "husky"
   },
   "devDependencies": {
