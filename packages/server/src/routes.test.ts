@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { maskToken } from "./routes.js";
 
 const { cacheStore, configStub, fetchersStub, mockOctokit, octokitHolder } =
   vi.hoisted(() => {
@@ -76,7 +75,7 @@ vi.mock("@octokit/rest", async () => {
 });
 
 // Import after mocks are registered
-const { api } = await import("./routes.js");
+const { api, maskToken } = await import("./routes.js");
 
 function call(
   path: string,
