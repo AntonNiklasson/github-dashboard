@@ -9,7 +9,7 @@ interface MergeQueueInfo {
   reviewDecision: string | null;
 }
 
-async function fetchMergeQueueStatus(
+export async function fetchMergeQueueStatus(
   client: Octokit,
   items: { node_id: string }[],
 ): Promise<Map<string, MergeQueueInfo>> {
@@ -49,7 +49,7 @@ async function fetchMergeQueueStatus(
   return result;
 }
 
-async function getCiStatus(
+export async function getCiStatus(
   client: Octokit,
   owner: string,
   repo: string,
@@ -90,7 +90,7 @@ async function getCiStatus(
   return "success";
 }
 
-function summarizeReviews(reviews: Review[]) {
+export function summarizeReviews(reviews: Review[]) {
   const latest = new Map<string, string>();
   for (const r of reviews) {
     if (!r.user) continue;
