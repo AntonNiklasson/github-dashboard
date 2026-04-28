@@ -327,24 +327,33 @@ function autoMergeOrFallback(
   queryClient: ReturnType<typeof useQueryClient>,
   item: FocusedItem & { instanceId: string; repo: string; number: number },
 ): void {
-  if (!item.autoMerge) {
-    // Repo doesn't support auto-merge — confirm and merge directly.
-    if (item.autoMergeAllowed === false) {
-      confirmAndMerge(
+  // Disabling auto-merge is the reversal — silent, no confirm.
+  if (item.autoMerge) {
+    mutations
+      .toggleAutoMerge(
         queryClient,
-        item,
-        "Auto-merge is not enabled on this repo. Merge directly?",
-      );
-      return;
-    }
-    // PR is already mergeable now — auto-merge would just merge immediately,
-    // so confirm and merge directly instead.
-    if (isReadyToMergeNow(item)) {
-      confirmAndMerge(queryClient, item, "Merge this PR?");
-      return;
-    }
+        {
+          instanceId: item.instanceId,
+          repo: item.repo,
+          number: item.number,
+        },
+        true,
+      )
+      .catch(() => {});
+    return;
   }
 
+  // PR is mergeable now (or repo doesn't allow auto-merge) — confirm and
+  // merge directly. Either way, the action takes effect immediately.
+  if (item.autoMergeAllowed === false || isReadyToMergeNow(item)) {
+    confirmAndMerge(queryClient, item, "Merge this PR?");
+    return;
+  }
+
+  // PR isn't ready yet — confirm and arm auto-merge so it lands when checks
+  // pass. Confirmation matters because the user is committing to merge once
+  // the gates clear, even if they walk away.
+  if (!confirm("Auto-merge this PR when checks pass?")) return;
   mutations
     .toggleAutoMerge(
       queryClient,
@@ -353,11 +362,11 @@ function autoMergeOrFallback(
         repo: item.repo,
         number: item.number,
       },
-      !!item.autoMerge,
+      false,
     )
     .catch((err) => {
-      // Cache may be stale (allow_auto_merge flipped off after we cached);
-      // keep the runtime fallback as a safety net.
+      // Cache said allow_auto_merge=true but server disagrees — fall through
+      // and merge directly (user already expressed merge intent).
       if (err instanceof AutoMergeNotAllowedError) {
         confirmAndMerge(
           queryClient,
@@ -425,7 +434,7 @@ function getActionsForItem(
         ? "Disable auto-merge"
         : willMergeNow
           ? "Merge"
-          : "Enable auto-merge";
+          : "Auto-merge when ready";
       actions.push({
         label,
         key: "m",
