@@ -302,24 +302,47 @@ interface CommentingPr {
   number: number;
 }
 
+function isReadyToMergeNow(item: FocusedItem): boolean {
+  return item.reviewDecision === "APPROVED" && item.ciStatus === "success";
+}
+
+function confirmAndMerge(
+  queryClient: ReturnType<typeof useQueryClient>,
+  item: FocusedItem & { instanceId: string; repo: string; number: number },
+  message: string,
+): void {
+  if (!confirm(message)) return;
+  mutations
+    .mergePr(queryClient, {
+      instanceId: item.instanceId,
+      repo: item.repo,
+      number: item.number,
+      title: item.title,
+      url: item.url,
+    })
+    .catch(() => {});
+}
+
 function autoMergeOrFallback(
   queryClient: ReturnType<typeof useQueryClient>,
   item: FocusedItem & { instanceId: string; repo: string; number: number },
 ): void {
-  // Repo doesn't support auto-merge — confirm and merge directly.
-  if (!item.autoMerge && item.autoMergeAllowed === false) {
-    if (confirm("Auto-merge is not enabled on this repo. Merge directly?")) {
-      mutations
-        .mergePr(queryClient, {
-          instanceId: item.instanceId,
-          repo: item.repo,
-          number: item.number,
-          title: item.title,
-          url: item.url,
-        })
-        .catch(() => {});
+  if (!item.autoMerge) {
+    // Repo doesn't support auto-merge — confirm and merge directly.
+    if (item.autoMergeAllowed === false) {
+      confirmAndMerge(
+        queryClient,
+        item,
+        "Auto-merge is not enabled on this repo. Merge directly?",
+      );
+      return;
     }
-    return;
+    // PR is already mergeable now — auto-merge would just merge immediately,
+    // so confirm and merge directly instead.
+    if (isReadyToMergeNow(item)) {
+      confirmAndMerge(queryClient, item, "Merge this PR?");
+      return;
+    }
   }
 
   mutations
@@ -335,19 +358,12 @@ function autoMergeOrFallback(
     .catch((err) => {
       // Cache may be stale (allow_auto_merge flipped off after we cached);
       // keep the runtime fallback as a safety net.
-      if (
-        err instanceof AutoMergeNotAllowedError &&
-        confirm("Auto-merge is not enabled on this repo. Merge directly?")
-      ) {
-        mutations
-          .mergePr(queryClient, {
-            instanceId: item.instanceId,
-            repo: item.repo,
-            number: item.number,
-            title: item.title,
-            url: item.url,
-          })
-          .catch(() => {});
+      if (err instanceof AutoMergeNotAllowedError) {
+        confirmAndMerge(
+          queryClient,
+          item,
+          "Auto-merge is not enabled on this repo. Merge directly?",
+        );
       }
     });
 }
@@ -402,9 +418,12 @@ function getActionsForItem(
   ) {
     // GitHub rejects enablePullRequestAutoMerge on draft PRs.
     if (item.autoMerge || !item.draft) {
+      const willMergeNow =
+        !item.autoMerge &&
+        (item.autoMergeAllowed === false || isReadyToMergeNow(item));
       const label = item.autoMerge
         ? "Disable auto-merge"
-        : item.autoMergeAllowed === false
+        : willMergeNow
           ? "Merge"
           : "Enable auto-merge";
       actions.push({
