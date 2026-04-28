@@ -284,6 +284,7 @@ interface FocusedItem {
   deletions?: number;
   reviews?: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
+  mergeStateStatus?: string | null;
   autoMerge?: boolean;
   autoMergeAllowed?: boolean;
   draft?: boolean;
@@ -303,7 +304,11 @@ interface CommentingPr {
 }
 
 function isReadyToMergeNow(item: FocusedItem): boolean {
-  return item.reviewDecision === "APPROVED" && item.ciStatus === "success";
+  // CLEAN means GitHub thinks every gate is satisfied right now (approval,
+  // required checks, conversation resolution, branch up-to-date). Anything
+  // else (BLOCKED, BEHIND, UNSTABLE, DIRTY, …) means a direct merge would
+  // either fail or surprise the user — let auto-merge handle those.
+  return item.mergeStateStatus === "CLEAN";
 }
 
 function confirmAndMerge(
@@ -1147,6 +1152,7 @@ function getFocusedItem(
       deletions: p.deletions,
       reviews: p.reviews,
       reviewDecision: p.reviewDecision,
+      mergeStateStatus: p.mergeStateStatus,
       autoMerge: p.autoMerge,
       autoMergeAllowed: p.autoMergeAllowed,
       draft: p.draft,

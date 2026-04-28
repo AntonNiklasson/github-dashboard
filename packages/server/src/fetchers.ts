@@ -43,6 +43,7 @@ interface MergeQueueInfo {
   inMergeQueue: boolean;
   autoMerge: boolean;
   reviewDecision: string | null;
+  mergeStateStatus: string | null;
 }
 
 export async function fetchMergeQueueStatus(
@@ -54,7 +55,7 @@ export async function fetchMergeQueueStatus(
 
   // Build a batched GraphQL query
   const aliases = items.map((item, i) => {
-    return `pr${i}: node(id: "${item.node_id}") { ... on PullRequest { id mergeQueueEntry { id } autoMergeRequest { enabledAt } reviewDecision } }`;
+    return `pr${i}: node(id: "${item.node_id}") { ... on PullRequest { id mergeQueueEntry { id } autoMergeRequest { enabledAt } reviewDecision mergeStateStatus } }`;
   });
 
   try {
@@ -66,6 +67,7 @@ export async function fetchMergeQueueStatus(
           mergeQueueEntry: { id: string } | null;
           autoMergeRequest: { enabledAt: string } | null;
           reviewDecision: string | null;
+          mergeStateStatus: string | null;
         } | null
       >
     >(`query { ${aliases.join("\n")} }`);
@@ -76,6 +78,7 @@ export async function fetchMergeQueueStatus(
         inMergeQueue: pr?.mergeQueueEntry != null,
         autoMerge: pr?.autoMergeRequest != null,
         reviewDecision: pr?.reviewDecision ?? null,
+        mergeStateStatus: pr?.mergeStateStatus ?? null,
       });
     }
   } catch {
@@ -226,6 +229,7 @@ export async function fetchPrs(instanceId: string) {
         baseBranch: prData?.base.ref ?? "main",
         reviews: summarizeReviews(reviews),
         reviewDecision: mqStatus?.reviewDecision ?? null,
+        mergeStateStatus: mqStatus?.mergeStateStatus ?? null,
         additions: prData?.additions ?? 0,
         deletions: prData?.deletions ?? 0,
         commits: prData?.commits ?? 0,
@@ -342,6 +346,7 @@ export async function fetchReviews(instanceId: string) {
         baseBranch: prData?.base.ref ?? "main",
         reviews: summarizeReviews(reviews),
         reviewDecision: mqStatus?.reviewDecision ?? null,
+        mergeStateStatus: mqStatus?.mergeStateStatus ?? null,
         additions: prData?.additions ?? 0,
         deletions: prData?.deletions ?? 0,
         commits: prData?.commits ?? 0,

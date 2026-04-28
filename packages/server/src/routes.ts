@@ -281,12 +281,22 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
   const client = await getClient(instanceId);
 
-  await client.pulls.merge({
-    owner,
-    repo,
-    pull_number: Number(prNumber),
-    merge_method: "squash",
-  });
+  try {
+    await client.pulls.merge({
+      owner,
+      repo,
+      pull_number: Number(prNumber),
+      merge_method: "squash",
+    });
+  } catch (err) {
+    // GitHub returns helpful messages here ("A conversation must be
+    // resolved…", "At least 1 approving review is required…"). Forward
+    // the first line so the toast is actionable.
+    const e = err as { response?: { data?: { message?: string } } };
+    const message =
+      e.response?.data?.message?.split("\n")[0] ?? "Failed to merge PR";
+    return c.json({ error: "merge_rejected", message }, 422);
+  }
 
   scheduleResync(instanceId, ["prs", "reviews", "recent-prs"]);
 

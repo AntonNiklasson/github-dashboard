@@ -25,6 +25,7 @@ export interface PR {
   baseBranch: string;
   reviews: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
+  mergeStateStatus?: string | null;
   additions: number;
   deletions: number;
   commits: number;

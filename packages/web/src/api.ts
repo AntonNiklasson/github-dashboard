@@ -143,7 +143,10 @@ export const api = {
         method: "POST",
       },
     );
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.message ?? `${res.status} ${res.statusText}`);
+    }
     return res.json();
   },
   closePr: async (instanceId: string, repo: string, prNumber: number) => {

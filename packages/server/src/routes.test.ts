@@ -352,6 +352,25 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
     expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
     expect(fetchersStub.fetchRecentPrs).toHaveBeenCalledWith("github");
   });
+
+  it("forwards GitHub's first error line when merge is rejected", async () => {
+    const ghErr = Object.assign(new Error("405"), {
+      status: 405,
+      response: {
+        data: {
+          message:
+            "Repository rule violations found\n\nA conversation must be resolved before this pull request can be merged.\n",
+        },
+      },
+    });
+    mockOctokit.pulls.merge.mockRejectedValue(ghErr);
+    const res = await call("/github/prs/o/r/5/merge", { method: "POST" });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: "merge_rejected",
+      message: "Repository rule violations found",
+    });
+  });
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {

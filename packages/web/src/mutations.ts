@@ -101,7 +101,7 @@ export async function mergePr(
     restore(qc, prsSnap);
     restore(qc, reviewsSnap);
     restore(qc, recentSnap);
-    toast.error("Failed to merge PR");
+    toast.error(err instanceof Error ? err.message : "Failed to merge PR");
     throw err;
   }
 }
