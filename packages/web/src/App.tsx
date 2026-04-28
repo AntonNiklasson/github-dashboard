@@ -292,6 +292,7 @@ interface FocusedItem {
   baseBranch?: string;
   commentCount?: number;
   readOnly?: boolean;
+  ciStatus?: string;
 }
 
 interface CommentingPr {
@@ -393,19 +394,21 @@ function getActionsForItem(
       });
     }
 
-    actions.push({
-      label: "Rerun CI",
-      key: "i",
-      onSelect: () => {
-        mutations
-          .rerunCi(queryClient, {
-            instanceId: item.instanceId!,
-            repo: item.repo!,
-            number: item.number!,
-          })
-          .catch(() => {});
-      },
-    });
+    if (item.ciStatus === "failure") {
+      actions.push({
+        label: "Rerun failed jobs",
+        key: "i",
+        onSelect: () => {
+          mutations
+            .rerunCi(queryClient, {
+              instanceId: item.instanceId!,
+              repo: item.repo!,
+              number: item.number!,
+            })
+            .catch(() => {});
+        },
+      });
+    }
   }
 
   if (
@@ -1076,6 +1079,7 @@ function getFocusedItem(
       headBranch: p.headBranch,
       baseBranch: p.baseBranch,
       commentCount: p.commentCount,
+      ciStatus: p.ciStatus,
     };
   }
   if (section === "prs" && recentPrs[idx - prs.length]) {

@@ -39,6 +39,7 @@ const { cacheStore, configStub, fetchersStub, mockOctokit, octokitHolder } =
         actions: {
           listWorkflowRunsForRepo: vi.fn(),
           reRunWorkflow: vi.fn(),
+          reRunWorkflowFailedJobs: vi.fn(),
         },
         search: { issuesAndPullRequests: vi.fn() },
         graphql: vi.fn(),
@@ -424,23 +425,124 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/rerun-ci", () => {
     const res = await call("/github/prs/o/r/5/rerun-ci", { method: "POST" });
     expect(res.status).toBe(404);
     expect(mockOctokit.actions.reRunWorkflow).not.toHaveBeenCalled();
+    expect(mockOctokit.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
   });
 
-  it("reruns the latest workflow run", async () => {
+  it("404s when no completed PR-triggered runs are found", async () => {
     mockOctokit.pulls.get.mockResolvedValue({
       data: { head: { sha: "abc" }, node_id: "PR_1" },
     });
     mockOctokit.actions.listWorkflowRunsForRepo.mockResolvedValue({
-      data: { workflow_runs: [{ id: 777 }] },
+      data: {
+        workflow_runs: [
+          // Wrong event
+          {
+            id: 1,
+            workflow_id: 10,
+            event: "push",
+            status: "completed",
+            conclusion: "success",
+          },
+          // Still running
+          {
+            id: 2,
+            workflow_id: 11,
+            event: "pull_request",
+            status: "in_progress",
+            conclusion: null,
+          },
+        ],
+      },
+    });
+    const res = await call("/github/prs/o/r/5/rerun-ci", { method: "POST" });
+    expect(res.status).toBe(404);
+    expect(mockOctokit.actions.reRunWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("reruns failed jobs for failed runs and full workflow for passing runs", async () => {
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: { head: { sha: "abc" }, node_id: "PR_1" },
+    });
+    mockOctokit.actions.listWorkflowRunsForRepo.mockResolvedValue({
+      data: {
+        workflow_runs: [
+          // Newer attempt of workflow 20 — should win
+          {
+            id: 200,
+            workflow_id: 20,
+            event: "pull_request",
+            status: "completed",
+            conclusion: "failure",
+          },
+          // Older attempt of workflow 20 — should be ignored
+          {
+            id: 199,
+            workflow_id: 20,
+            event: "pull_request",
+            status: "completed",
+            conclusion: "success",
+          },
+          // Different workflow, success
+          {
+            id: 300,
+            workflow_id: 30,
+            event: "pull_request",
+            status: "completed",
+            conclusion: "success",
+          },
+          // Wrong event
+          {
+            id: 400,
+            workflow_id: 40,
+            event: "push",
+            status: "completed",
+            conclusion: "failure",
+          },
+        ],
+      },
     });
     mockOctokit.actions.reRunWorkflow.mockResolvedValue({});
+    mockOctokit.actions.reRunWorkflowFailedJobs.mockResolvedValue({});
     const res = await call("/github/prs/o/r/5/rerun-ci", { method: "POST" });
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, triggered: 2 });
+    expect(mockOctokit.actions.reRunWorkflowFailedJobs).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      run_id: 200,
+    });
     expect(mockOctokit.actions.reRunWorkflow).toHaveBeenCalledWith({
       owner: "o",
       repo: "r",
-      run_id: 777,
+      run_id: 300,
     });
+    expect(mockOctokit.actions.reRunWorkflow).not.toHaveBeenCalledWith(
+      expect.objectContaining({ run_id: 400 }),
+    );
+  });
+
+  it("502s when every rerun call fails", async () => {
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: { head: { sha: "abc" }, node_id: "PR_1" },
+    });
+    mockOctokit.actions.listWorkflowRunsForRepo.mockResolvedValue({
+      data: {
+        workflow_runs: [
+          {
+            id: 500,
+            workflow_id: 50,
+            event: "pull_request",
+            status: "completed",
+            conclusion: "failure",
+          },
+        ],
+      },
+    });
+    mockOctokit.actions.reRunWorkflowFailedJobs.mockRejectedValue(
+      new Error("boom"),
+    );
+    const res = await call("/github/prs/o/r/5/rerun-ci", { method: "POST" });
+    expect(res.status).toBe(502);
   });
 });
 

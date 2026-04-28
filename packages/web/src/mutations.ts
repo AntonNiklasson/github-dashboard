@@ -172,10 +172,10 @@ export async function rerunCi(qc: QueryClient, target: Target): Promise<void> {
   );
   try {
     await api.rerunCi(target.instanceId, target.repo, target.number);
-    toast.success("CI rerun started");
+    toast.success("Rerunning failed jobs");
   } catch (err) {
     restore(qc, snap);
-    toast.error("Failed to rerun CI");
+    toast.error("Failed to rerun jobs");
     throw err;
   }
 }

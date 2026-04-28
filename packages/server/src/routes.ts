@@ -349,21 +349,62 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/rerun-ci", async (c) => {
       owner,
       repo,
       head_sha: pr.head.sha,
-      per_page: 1,
+      per_page: 100,
     })
     .catch(() => null);
 
-  const latestRun = runsRes?.data.workflow_runs[0];
-
-  if (!latestRun) {
-    return c.json({ error: "No workflow runs found" }, 404);
+  // Keep only the latest attempt per workflow_id, and only for PR-triggered events
+  const latestPerWorkflow = new Map<
+    number,
+    { id: number; status: string; conclusion: string | null }
+  >();
+  for (const run of runsRes?.data.workflow_runs ?? []) {
+    if (run.event !== "pull_request" && run.event !== "pull_request_target") {
+      continue;
+    }
+    const existing = latestPerWorkflow.get(run.workflow_id);
+    if (!existing) {
+      latestPerWorkflow.set(run.workflow_id, {
+        id: run.id,
+        status: run.status ?? "",
+        conclusion: run.conclusion,
+      });
+    }
   }
 
-  await client.actions.reRunWorkflow({ owner, repo, run_id: latestRun.id });
+  const candidates = [...latestPerWorkflow.values()].filter(
+    (r) => r.status === "completed",
+  );
+
+  if (candidates.length === 0) {
+    return c.json({ error: "No rerunnable workflow runs found" }, 404);
+  }
+
+  const results = await Promise.allSettled(
+    candidates.map((run) => {
+      const failed =
+        run.conclusion === "failure" ||
+        run.conclusion === "timed_out" ||
+        run.conclusion === "cancelled";
+      return failed
+        ? client.actions.reRunWorkflowFailedJobs({
+            owner,
+            repo,
+            run_id: run.id,
+          })
+        : client.actions.reRunWorkflow({ owner, repo, run_id: run.id });
+    }),
+  );
+
+  const triggered = results.filter((r) => r.status === "fulfilled").length;
+
+  if (triggered === 0) {
+    return c.json({ error: "Failed to rerun any workflow" }, 502);
+  }
 
   scheduleResync(instanceId, ["prs"]);
 
-  return c.json({ ok: true });
+  return c.json({ ok: true, triggered });
 });
 
 // Post a comment on a PR
