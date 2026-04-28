@@ -1,5 +1,41 @@
 import type { Octokit } from "@octokit/rest";
+import { getCached, setCached } from "./cache.js";
 import { getClient, getInstance } from "./github-client.js";
+
+interface RepoSettings {
+  autoMergeAllowed: boolean;
+}
+
+const inFlightRepoSettings = new Map<string, Promise<RepoSettings>>();
+
+export async function getRepoSettings(
+  client: Octokit,
+  instanceId: string,
+  owner: string,
+  repo: string,
+): Promise<RepoSettings> {
+  const key = `${instanceId}:repo-settings:${owner}/${repo}`;
+  const cached = getCached<RepoSettings>(key);
+  if (cached) return cached;
+  const existing = inFlightRepoSettings.get(key);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      const { data } = await client.repos.get({ owner, repo });
+      const settings: RepoSettings = {
+        autoMergeAllowed: data.allow_auto_merge ?? false,
+      };
+      setCached(key, settings);
+      return settings;
+    } catch {
+      return { autoMergeAllowed: false };
+    } finally {
+      inFlightRepoSettings.delete(key);
+    }
+  })();
+  inFlightRepoSettings.set(key, promise);
+  return promise;
+}
 
 type Review = { state: string; user: { login: string } | null };
 
@@ -154,7 +190,7 @@ export async function fetchPrs(instanceId: string) {
       const [owner, repo] = item.repository_url.split("/").slice(-2);
       const prNumber = item.number;
 
-      const [ciStatus, reviewsRes, prRes] = await Promise.all([
+      const [ciStatus, reviewsRes, prRes, repoSettings] = await Promise.all([
         getCiStatus(client, owner, repo, `pull/${prNumber}/head`),
         client.pulls
           .listReviews({ owner, repo, pull_number: prNumber })
@@ -162,6 +198,7 @@ export async function fetchPrs(instanceId: string) {
         client.pulls
           .get({ owner, repo, pull_number: prNumber })
           .catch(() => null),
+        getRepoSettings(client, instanceId, owner, repo),
       ]);
 
       const reviews = reviewsRes?.data ?? [];
@@ -184,6 +221,7 @@ export async function fetchPrs(instanceId: string) {
         ciStatus,
         inMergeQueue: mqStatus?.inMergeQueue ?? false,
         autoMerge: mqStatus?.autoMerge ?? false,
+        autoMergeAllowed: repoSettings.autoMergeAllowed,
         headBranch: prData?.head.ref ?? "",
         baseBranch: prData?.base.ref ?? "main",
         reviews: summarizeReviews(reviews),

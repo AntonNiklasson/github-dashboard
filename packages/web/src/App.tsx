@@ -285,6 +285,7 @@ interface FocusedItem {
   reviews?: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
   autoMerge?: boolean;
+  autoMergeAllowed?: boolean;
   draft?: boolean;
   notificationId?: string;
   author?: string;
@@ -305,6 +306,22 @@ function autoMergeOrFallback(
   queryClient: ReturnType<typeof useQueryClient>,
   item: FocusedItem & { instanceId: string; repo: string; number: number },
 ): void {
+  // Repo doesn't support auto-merge — confirm and merge directly.
+  if (!item.autoMerge && item.autoMergeAllowed === false) {
+    if (confirm("Auto-merge is not enabled on this repo. Merge directly?")) {
+      mutations
+        .mergePr(queryClient, {
+          instanceId: item.instanceId,
+          repo: item.repo,
+          number: item.number,
+          title: item.title,
+          url: item.url,
+        })
+        .catch(() => {});
+    }
+    return;
+  }
+
   mutations
     .toggleAutoMerge(
       queryClient,
@@ -316,6 +333,8 @@ function autoMergeOrFallback(
       !!item.autoMerge,
     )
     .catch((err) => {
+      // Cache may be stale (allow_auto_merge flipped off after we cached);
+      // keep the runtime fallback as a safety net.
       if (
         err instanceof AutoMergeNotAllowedError &&
         confirm("Auto-merge is not enabled on this repo. Merge directly?")
@@ -383,8 +402,13 @@ function getActionsForItem(
   ) {
     // GitHub rejects enablePullRequestAutoMerge on draft PRs.
     if (item.autoMerge || !item.draft) {
+      const label = item.autoMerge
+        ? "Disable auto-merge"
+        : item.autoMergeAllowed === false
+          ? "Merge"
+          : "Enable auto-merge";
       actions.push({
-        label: item.autoMerge ? "Disable auto-merge" : "Enable auto-merge",
+        label,
         key: "m",
         onSelect: () => {
           autoMergeOrFallback(queryClient, {
@@ -1096,6 +1120,7 @@ function getFocusedItem(
       reviews: p.reviews,
       reviewDecision: p.reviewDecision,
       autoMerge: p.autoMerge,
+      autoMergeAllowed: p.autoMergeAllowed,
       draft: p.draft,
       author: p.author,
       headBranch: p.headBranch,

@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockOctokit } = vi.hoisted(() => ({
+const { mockOctokit, cacheStore } = vi.hoisted(() => ({
   mockOctokit: {
     search: { issuesAndPullRequests: vi.fn() },
     pulls: { get: vi.fn(), listReviews: vi.fn() },
     checks: { listForRef: vi.fn() },
-    repos: { getCombinedStatusForRef: vi.fn() },
+    repos: { getCombinedStatusForRef: vi.fn(), get: vi.fn() },
     activity: { listNotificationsForAuthenticatedUser: vi.fn() },
     graphql: vi.fn(),
   },
+  cacheStore: new Map<string, unknown>(),
 }));
 
 vi.mock("./github-client.js", () => ({
@@ -22,14 +23,25 @@ vi.mock("./github-client.js", () => ({
   }),
 }));
 
+vi.mock("./cache.js", () => ({
+  getCached: (key: string) => cacheStore.get(key) ?? null,
+  setCached: (key: string, data: unknown) => {
+    cacheStore.set(key, data);
+  },
+}));
+
 const { fetchPrs, fetchNotifications, fetchRecentPrs } = await import(
   "./fetchers.js"
 );
 
 beforeEach(() => {
   vi.clearAllMocks();
+  cacheStore.clear();
   // Safe defaults
   mockOctokit.pulls.listReviews.mockResolvedValue({ data: [] });
+  mockOctokit.repos.get.mockResolvedValue({
+    data: { allow_auto_merge: false },
+  });
   mockOctokit.pulls.get.mockResolvedValue({
     data: {
       body: "",
@@ -149,6 +161,33 @@ describe("fetchPrs", () => {
     const prs = await fetchPrs("github");
     expect(prs).toEqual([]);
     expect(mockOctokit.graphql).not.toHaveBeenCalled();
+  });
+
+  it("attaches autoMergeAllowed from repo settings and caches per repo", async () => {
+    mockOctokit.repos.get.mockResolvedValue({
+      data: { allow_auto_merge: true },
+    });
+    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
+      data: {
+        items: [
+          prSearchItem(),
+          prSearchItem({ id: 2, node_id: "PR_2", number: 6 }),
+        ],
+      },
+    });
+    const prs = await fetchPrs("github");
+    expect(prs.map((p) => p.autoMergeAllowed)).toEqual([true, true]);
+    // Both PRs share the same repo — settings call should hit cache after the first.
+    expect(mockOctokit.repos.get).toHaveBeenCalledTimes(1);
+  });
+
+  it("defaults autoMergeAllowed to false when repos.get fails", async () => {
+    mockOctokit.repos.get.mockRejectedValue(new Error("403"));
+    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
+      data: { items: [prSearchItem()] },
+    });
+    const prs = await fetchPrs("github");
+    expect(prs[0].autoMergeAllowed).toBe(false);
   });
 });
 

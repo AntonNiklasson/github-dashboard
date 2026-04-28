@@ -20,6 +20,7 @@ export interface PR {
   ciStatus: string;
   inMergeQueue: boolean;
   autoMerge: boolean;
+  autoMergeAllowed?: boolean;
   headBranch: string;
   baseBranch: string;
   reviews: { approved: string[]; changesRequested: string[] };
