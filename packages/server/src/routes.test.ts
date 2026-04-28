@@ -16,6 +16,11 @@ const { cacheStore, configStub, fetchersStub, mockOctokit, octokitHolder } =
         fetchRecentPrs: vi.fn(),
         fetchReviews: vi.fn(),
         fetchNotifications: vi.fn(),
+        latestCheckRunsByName: <T extends { name: string }>(runs: T[]): T[] => {
+          const m = new Map<string, T>();
+          for (const r of runs) m.set(r.name, r);
+          return [...m.values()];
+        },
       },
       mockOctokit: {
         users: { getAuthenticated: vi.fn() },

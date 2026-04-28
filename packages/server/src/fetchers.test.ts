@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { getCiStatus, summarizeReviews } from "./fetchers.js";
+import {
+  getCiStatus,
+  latestCheckRunsByName,
+  summarizeReviews,
+} from "./fetchers.js";
 
 describe("summarizeReviews", () => {
   it("returns empty arrays when no reviews", () => {
@@ -52,7 +56,12 @@ describe("summarizeReviews", () => {
 
 function mockClient(overrides: {
   statuses?: { state: string }[];
-  checks?: { status: string; conclusion: string | null }[];
+  checks?: {
+    name?: string;
+    status: string;
+    conclusion: string | null;
+    completed_at?: string | null;
+  }[];
   statusesError?: boolean;
   checksError?: boolean;
 }) {
@@ -85,8 +94,8 @@ describe("getCiStatus", () => {
     const result = await getCiStatus(
       mockClient({
         checks: [
-          { status: "in_progress", conclusion: null },
-          { status: "completed", conclusion: "success" },
+          { name: "lint", status: "in_progress", conclusion: null },
+          { name: "test", status: "completed", conclusion: "success" },
         ],
       }),
       "o",
@@ -94,6 +103,62 @@ describe("getCiStatus", () => {
       "ref",
     );
     expect(result).toBe("pending");
+  });
+
+  it("ignores stale check attempts when a newer one passed (rerun)", async () => {
+    const result = await getCiStatus(
+      mockClient({
+        checks: [
+          {
+            name: "Validate Title",
+            status: "completed",
+            conclusion: "failure",
+            completed_at: "2026-04-28T10:00:00Z",
+          },
+          {
+            name: "Validate Title",
+            status: "completed",
+            conclusion: "success",
+            completed_at: "2026-04-28T11:00:00Z",
+          },
+          {
+            name: "Tests",
+            status: "completed",
+            conclusion: "success",
+            completed_at: "2026-04-28T11:00:00Z",
+          },
+        ],
+      }),
+      "o",
+      "r",
+      "ref",
+    );
+    expect(result).toBe("success");
+  });
+
+  it("uses the latest attempt regardless of API ordering", async () => {
+    const result = await getCiStatus(
+      mockClient({
+        checks: [
+          {
+            name: "Build",
+            status: "completed",
+            conclusion: "success",
+            completed_at: "2026-04-28T10:00:00Z",
+          },
+          {
+            name: "Build",
+            status: "completed",
+            conclusion: "failure",
+            completed_at: "2026-04-28T11:00:00Z",
+          },
+        ],
+      }),
+      "o",
+      "r",
+      "ref",
+    );
+    expect(result).toBe("failure");
   });
 
   it("returns 'failure' on failed legacy status", async () => {
@@ -150,5 +215,52 @@ describe("getCiStatus", () => {
       "ref",
     );
     expect(result).toBe("unknown");
+  });
+});
+
+describe("latestCheckRunsByName", () => {
+  it("keeps the most recent attempt per name by completed_at", () => {
+    const result = latestCheckRunsByName([
+      {
+        name: "a",
+        status: "completed",
+        conclusion: "failure",
+        completed_at: "2026-04-28T10:00:00Z",
+      },
+      {
+        name: "a",
+        status: "completed",
+        conclusion: "success",
+        completed_at: "2026-04-28T11:00:00Z",
+      },
+      {
+        name: "b",
+        status: "completed",
+        conclusion: "success",
+        completed_at: "2026-04-28T09:00:00Z",
+      },
+    ]);
+    expect(result).toHaveLength(2);
+    expect(result.find((r) => r.name === "a")?.conclusion).toBe("success");
+    expect(result.find((r) => r.name === "b")?.conclusion).toBe("success");
+  });
+
+  it("falls back to started_at when completed_at is missing", () => {
+    const result = latestCheckRunsByName([
+      {
+        name: "a",
+        status: "in_progress",
+        conclusion: null,
+        started_at: "2026-04-28T11:00:00Z",
+      },
+      {
+        name: "a",
+        status: "completed",
+        conclusion: "failure",
+        completed_at: "2026-04-28T10:00:00Z",
+      },
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0].status).toBe("in_progress");
   });
 });
