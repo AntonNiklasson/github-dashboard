@@ -49,6 +49,32 @@ export async function fetchMergeQueueStatus(
   return result;
 }
 
+type CheckRun = {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+};
+
+// listForRef can return multiple attempts of the same named check (e.g. after
+// a rerun). Keep only the most recent attempt per name so a stale failure
+// doesn't outvote a later success.
+export function latestCheckRunsByName<T extends CheckRun>(runs: T[]): T[] {
+  const latest = new Map<string, T>();
+  const ts = (r: T) => {
+    const t = r.completed_at ?? r.started_at;
+    return t ? new Date(t).getTime() : 0;
+  };
+  for (const r of runs) {
+    const existing = latest.get(r.name);
+    if (!existing || ts(r) >= ts(existing)) {
+      latest.set(r.name, r);
+    }
+  }
+  return [...latest.values()];
+}
+
 export async function getCiStatus(
   client: Octokit,
   owner: string,
@@ -65,7 +91,7 @@ export async function getCiStatus(
   ]);
 
   const statuses = statusRes?.data.statuses ?? [];
-  const checkRuns = checksRes?.data.check_runs ?? [];
+  const checkRuns = latestCheckRunsByName(checksRes?.data.check_runs ?? []);
 
   // No CI configured at all
   if (statuses.length === 0 && checkRuns.length === 0) return "unknown";

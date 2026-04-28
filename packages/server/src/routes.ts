@@ -14,6 +14,7 @@ import {
   fetchPrs,
   fetchRecentPrs,
   fetchReviews,
+  latestCheckRunsByName,
 } from "./fetchers.js";
 import { clearClients, getClient, getInstance } from "./github-client.js";
 
@@ -410,7 +411,7 @@ api.get("/:instanceId/prs/:owner/:repo/:prNumber/meta", async (c) => {
     });
   }
 
-  for (const cr of checksRes?.data.check_runs ?? []) {
+  for (const cr of latestCheckRunsByName(checksRes?.data.check_runs ?? [])) {
     checksByName.set(cr.name, {
       name: cr.name,
       status: cr.status,
