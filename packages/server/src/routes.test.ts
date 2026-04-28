@@ -29,6 +29,7 @@ const { cacheStore, configStub, fetchersStub, mockOctokit, octokitHolder } =
           createReview: vi.fn(),
           get: vi.fn(),
           update: vi.fn(),
+          merge: vi.fn(),
           listFiles: vi.fn(),
           listCommits: vi.fn(),
           listReviewComments: vi.fn(),
@@ -317,6 +318,39 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/auto-merge", () => {
       expect.stringContaining("disableAutoMerge"),
       { id: "PR_123" },
     );
+  });
+
+  it("returns 422 with auto_merge_not_allowed when repo disallows it", async () => {
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: { auto_merge: null, node_id: "PR_123" },
+    });
+    mockOctokit.graphql.mockRejectedValue(
+      new Error("Auto merge is not allowed for this repository"),
+    );
+    const res = await call("/github/prs/o/r/5/auto-merge", { method: "POST" });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "auto_merge_not_allowed" });
+  });
+});
+
+describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
+  it("merges with squash and resyncs prs, reviews, recent-prs", async () => {
+    mockOctokit.pulls.merge.mockResolvedValue({});
+    fetchersStub.fetchPrs.mockResolvedValue([]);
+    fetchersStub.fetchReviews.mockResolvedValue([]);
+    fetchersStub.fetchRecentPrs.mockResolvedValue([]);
+    const res = await call("/github/prs/o/r/5/merge", { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(mockOctokit.pulls.merge).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      pull_number: 5,
+      merge_method: "squash",
+    });
+    await waitForPendingResyncs();
+    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
+    expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
+    expect(fetchersStub.fetchRecentPrs).toHaveBeenCalledWith("github");
   });
 });
 

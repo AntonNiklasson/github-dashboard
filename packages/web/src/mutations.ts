@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "./api";
+import { AutoMergeNotAllowedError, api } from "./api";
 import type { Notification, PR, RecentPR, ReviewRequest } from "./types";
 
 interface Target {
@@ -60,7 +60,48 @@ export async function toggleAutoMerge(
     await api.toggleAutoMerge(target.instanceId, target.repo, target.number);
   } catch (err) {
     restore(qc, snap);
-    toast.error("Failed to toggle auto-merge");
+    if (!(err instanceof AutoMergeNotAllowedError)) {
+      toast.error("Failed to toggle auto-merge");
+    }
+    throw err;
+  }
+}
+
+export async function mergePr(
+  qc: QueryClient,
+  target: Target & { title: string; url: string },
+): Promise<void> {
+  const prsSnap = snapshot<PR[]>(qc, "prs");
+  const reviewsSnap = snapshot<ReviewRequest[]>(qc, "reviews");
+  const recentSnap = snapshot<RecentPR[]>(qc, "recent-prs");
+
+  qc.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
+    old?.filter((pr) => !matches(target)(pr)),
+  );
+  qc.setQueriesData<ReviewRequest[]>({ queryKey: ["reviews"] }, (old) =>
+    old?.filter((r) => !matches(target)(r)),
+  );
+  qc.setQueriesData<RecentPR[]>({ queryKey: ["recent-prs"] }, (old) => [
+    {
+      id: Date.now(),
+      number: target.number,
+      title: target.title,
+      url: target.url,
+      repo: target.repo,
+      updatedAt: new Date().toISOString(),
+      merged: true,
+    },
+    ...(old ?? []),
+  ]);
+
+  try {
+    await api.mergePr(target.instanceId, target.repo, target.number);
+    toast.success("PR merged");
+  } catch (err) {
+    restore(qc, prsSnap);
+    restore(qc, reviewsSnap);
+    restore(qc, recentSnap);
+    toast.error("Failed to merge PR");
     throw err;
   }
 }

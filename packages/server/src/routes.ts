@@ -257,15 +257,40 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/auto-merge", async (c) => {
     );
   } else {
     // Enable auto-merge via GraphQL (merge method: squash by default)
-    await client.graphql(
-      `mutation($id: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { pullRequest { id } } }`,
-      { id: pr.node_id },
-    );
+    try {
+      await client.graphql(
+        `mutation($id: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { pullRequest { id } } }`,
+        { id: pr.node_id },
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/auto.?merge is not allowed/i.test(msg)) {
+        return c.json({ error: "auto_merge_not_allowed" }, 422);
+      }
+      throw err;
+    }
   }
 
   scheduleResync(instanceId, ["prs"]);
 
   return c.json({ ok: true, autoMerge: !pr.auto_merge });
+});
+
+// Merge a PR directly (squash)
+api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
+  const { instanceId, owner, repo, prNumber } = c.req.param();
+  const client = await getClient(instanceId);
+
+  await client.pulls.merge({
+    owner,
+    repo,
+    pull_number: Number(prNumber),
+    merge_method: "squash",
+  });
+
+  scheduleResync(instanceId, ["prs", "reviews", "recent-prs"]);
+
+  return c.json({ ok: true });
 });
 
 // Close a PR

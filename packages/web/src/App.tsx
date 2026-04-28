@@ -6,7 +6,7 @@ import { atomWithStorage } from "jotai/utils";
 import { Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api, type ConfigResponse } from "./api";
+import { AutoMergeNotAllowedError, api, type ConfigResponse } from "./api";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
 import { useChords } from "./use-chords";
 import {
@@ -301,6 +301,38 @@ interface CommentingPr {
   number: number;
 }
 
+function autoMergeOrFallback(
+  queryClient: ReturnType<typeof useQueryClient>,
+  item: FocusedItem & { instanceId: string; repo: string; number: number },
+): void {
+  mutations
+    .toggleAutoMerge(
+      queryClient,
+      {
+        instanceId: item.instanceId,
+        repo: item.repo,
+        number: item.number,
+      },
+      !!item.autoMerge,
+    )
+    .catch((err) => {
+      if (
+        err instanceof AutoMergeNotAllowedError &&
+        confirm("Auto-merge is not enabled on this repo. Merge directly?")
+      ) {
+        mutations
+          .mergePr(queryClient, {
+            instanceId: item.instanceId,
+            repo: item.repo,
+            number: item.number,
+            title: item.title,
+            url: item.url,
+          })
+          .catch(() => {});
+      }
+    });
+}
+
 function getActionsForItem(
   item: FocusedItem,
   queryClient: ReturnType<typeof useQueryClient>,
@@ -355,17 +387,12 @@ function getActionsForItem(
         label: item.autoMerge ? "Disable auto-merge" : "Enable auto-merge",
         key: "m",
         onSelect: () => {
-          mutations
-            .toggleAutoMerge(
-              queryClient,
-              {
-                instanceId: item.instanceId!,
-                repo: item.repo!,
-                number: item.number!,
-              },
-              !!item.autoMerge,
-            )
-            .catch(() => {});
+          autoMergeOrFallback(queryClient, {
+            ...item,
+            instanceId: item.instanceId!,
+            repo: item.repo!,
+            number: item.number!,
+          });
         },
       });
     }
@@ -764,17 +791,12 @@ function Dashboard({ source }: { source: DashboardSource }) {
             toast.error("Mark the PR as ready before enabling auto-merge");
             return;
           }
-          mutations
-            .toggleAutoMerge(
-              queryClient,
-              {
-                instanceId: item.instanceId,
-                repo: item.repo,
-                number: item.number,
-              },
-              !!item.autoMerge,
-            )
-            .catch(() => {});
+          autoMergeOrFallback(queryClient, {
+            ...item,
+            instanceId: item.instanceId,
+            repo: item.repo,
+            number: item.number,
+          });
         }
       } else if (
         e.key === "a" &&
