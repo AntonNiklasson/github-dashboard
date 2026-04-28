@@ -16,6 +16,7 @@ import {
   fetchReviews,
 } from "./fetchers.js";
 import { clearClients, getClient, getInstance } from "./github-client.js";
+import { scheduleResync } from "./sync.js";
 
 const api = new Hono();
 
@@ -213,6 +214,8 @@ api.delete("/:instanceId/notifications/:threadId", async (c) => {
     );
   }
 
+  scheduleResync(instanceId, ["notifications"]);
+
   return c.json({ ok: true });
 });
 
@@ -228,9 +231,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/approve", async (c) => {
     event: "APPROVE",
   });
 
-  // Invalidate caches so next request fetches fresh
-  setCached(`${instanceId}:prs`, null);
-  setCached(`${instanceId}:reviews`, null);
+  scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true });
 });
@@ -261,7 +262,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/auto-merge", async (c) => {
     );
   }
 
-  setCached(`${instanceId}:prs`, null);
+  scheduleResync(instanceId, ["prs"]);
 
   return c.json({ ok: true, autoMerge: !pr.auto_merge });
 });
@@ -278,8 +279,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/close", async (c) => {
     state: "closed",
   });
 
-  setCached(`${instanceId}:prs`, null);
-  setCached(`${instanceId}:reviews`, null);
+  scheduleResync(instanceId, ["prs", "reviews", "recent-prs"]);
 
   return c.json({ ok: true });
 });
@@ -302,7 +302,7 @@ api.patch("/:instanceId/prs/:owner/:repo/:prNumber", async (c) => {
     title,
   });
 
-  setCached(`${instanceId}:prs`, null);
+  scheduleResync(instanceId, ["prs"]);
 
   return c.json({ ok: true, title });
 });
@@ -326,7 +326,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/toggle-draft", async (c) => {
 
   await client.graphql(mutation, { id: pr.node_id });
 
-  setCached(`${instanceId}:prs`, null);
+  scheduleResync(instanceId, ["prs"]);
 
   return c.json({ ok: true, draft: !pr.draft });
 });
@@ -359,6 +359,8 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/rerun-ci", async (c) => {
   }
 
   await client.actions.reRunWorkflow({ owner, repo, run_id: latestRun.id });
+
+  scheduleResync(instanceId, ["prs"]);
 
   return c.json({ ok: true });
 });

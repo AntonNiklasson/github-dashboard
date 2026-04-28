@@ -9,27 +9,57 @@ import {
 
 const SYNC_INTERVAL = 30_000; // 30s
 
-async function syncInstance(instanceId: string) {
-  const tasks = [
-    { key: `${instanceId}:prs`, fn: () => fetchPrs(instanceId) },
-    { key: `${instanceId}:recent-prs`, fn: () => fetchRecentPrs(instanceId) },
-    { key: `${instanceId}:reviews`, fn: () => fetchReviews(instanceId) },
-    {
-      key: `${instanceId}:notifications`,
-      fn: () => fetchNotifications(instanceId),
-    },
-  ];
+export type ResyncKey = "prs" | "recent-prs" | "reviews" | "notifications";
 
-  for (const task of tasks) {
-    try {
-      const data = await task.fn();
-      setCached(task.key, data);
-    } catch (err) {
-      console.error(
-        `Sync failed for ${task.key}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
+const RESYNC_FETCHERS: Record<
+  ResyncKey,
+  (instanceId: string) => Promise<unknown>
+> = {
+  prs: fetchPrs,
+  "recent-prs": fetchRecentPrs,
+  reviews: fetchReviews,
+  notifications: fetchNotifications,
+};
+
+const ALL_KEYS: ResyncKey[] = ["prs", "recent-prs", "reviews", "notifications"];
+
+const pending = new Set<Promise<unknown>>();
+
+export async function resyncInstance(
+  instanceId: string,
+  keys: ResyncKey[] = ALL_KEYS,
+): Promise<void> {
+  await Promise.all(
+    keys.map(async (key) => {
+      try {
+        const data = await RESYNC_FETCHERS[key](instanceId);
+        setCached(`${instanceId}:${key}`, data);
+      } catch (err) {
+        console.error(
+          `Sync failed for ${instanceId}:${key}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }),
+  );
+}
+
+/**
+ * Fire-and-forget resync after a mutation. Lets the route respond fast while
+ * the cache is refreshed in the background, so the next client poll sees the
+ * new state without waiting for the 30s sync cycle.
+ */
+export function scheduleResync(instanceId: string, keys: ResyncKey[]): void {
+  const p = resyncInstance(instanceId, keys).finally(() => {
+    pending.delete(p);
+  });
+  pending.add(p);
+}
+
+/** Test seam: await all in-flight resyncs. */
+export async function waitForPendingResyncs(): Promise<void> {
+  while (pending.size > 0) {
+    await Promise.allSettled(pending);
   }
 }
 
@@ -40,7 +70,7 @@ async function syncAll() {
     return;
   }
   console.log(`Syncing ${instances.length} instance(s)...`);
-  await Promise.all(instances.map((inst) => syncInstance(inst.id)));
+  await Promise.all(instances.map((inst) => resyncInstance(inst.id)));
   console.log("Sync complete");
 }
 

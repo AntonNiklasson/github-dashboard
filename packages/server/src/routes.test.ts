@@ -76,6 +76,7 @@ vi.mock("@octokit/rest", async () => {
 
 // Import after mocks are registered
 const { api, maskToken } = await import("./routes.js");
+const { waitForPendingResyncs } = await import("./sync.js");
 
 function call(
   path: string,
@@ -88,7 +89,8 @@ function call(
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await waitForPendingResyncs();
   cacheStore.clear();
   vi.clearAllMocks();
   vi.unstubAllEnvs();
@@ -245,22 +247,27 @@ describe("caching behavior on GET /:instanceId/prs", () => {
 });
 
 describe("DELETE /:instanceId/notifications/:threadId", () => {
-  it("calls markThreadAsDone and removes the thread from cache", async () => {
+  it("calls markThreadAsDone, optimistically updates cache, and resyncs", async () => {
     cacheStore.set("github:notifications", [{ id: "42" }, { id: "99" }]);
+    fetchersStub.fetchNotifications.mockResolvedValue([{ id: "99" }]);
     mockOctokit.activity.markThreadAsDone.mockResolvedValue({});
     const res = await call("/github/notifications/42", { method: "DELETE" });
     expect(res.status).toBe(200);
     expect(mockOctokit.activity.markThreadAsDone).toHaveBeenCalledWith({
       thread_id: 42,
     });
+    await waitForPendingResyncs();
+    expect(fetchersStub.fetchNotifications).toHaveBeenCalledWith("github");
     expect(cacheStore.get("github:notifications")).toEqual([{ id: "99" }]);
   });
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/approve", () => {
-  it("creates an APPROVE review and invalidates prs + reviews caches", async () => {
+  it("creates an APPROVE review and resyncs prs + reviews", async () => {
     cacheStore.set("github:prs", [{ id: 1 }]);
     cacheStore.set("github:reviews", [{ id: 2 }]);
+    fetchersStub.fetchPrs.mockResolvedValue([{ id: 1, approved: true }]);
+    fetchersStub.fetchReviews.mockResolvedValue([]);
     mockOctokit.pulls.createReview.mockResolvedValue({});
     const res = await call("/github/prs/o/r/5/approve", { method: "POST" });
     expect(res.status).toBe(200);
@@ -270,8 +277,11 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/approve", () => {
       pull_number: 5,
       event: "APPROVE",
     });
-    expect(cacheStore.get("github:prs")).toBeNull();
-    expect(cacheStore.get("github:reviews")).toBeNull();
+    await waitForPendingResyncs();
+    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
+    expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
+    expect(cacheStore.get("github:prs")).toEqual([{ id: 1, approved: true }]);
+    expect(cacheStore.get("github:reviews")).toEqual([]);
   });
 });
 
@@ -305,9 +315,12 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/auto-merge", () => {
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
-  it("sets state=closed and invalidates prs + reviews caches", async () => {
+  it("sets state=closed and resyncs prs, reviews, recent-prs", async () => {
     cacheStore.set("github:prs", [{ id: 1 }]);
     cacheStore.set("github:reviews", [{ id: 2 }]);
+    fetchersStub.fetchPrs.mockResolvedValue([]);
+    fetchersStub.fetchReviews.mockResolvedValue([]);
+    fetchersStub.fetchRecentPrs.mockResolvedValue([{ id: 5, state: "closed" }]);
     mockOctokit.pulls.update.mockResolvedValue({});
     const res = await call("/github/prs/o/r/5/close", { method: "POST" });
     expect(res.status).toBe(200);
@@ -317,8 +330,10 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
       pull_number: 5,
       state: "closed",
     });
-    expect(cacheStore.get("github:prs")).toBeNull();
-    expect(cacheStore.get("github:reviews")).toBeNull();
+    await waitForPendingResyncs();
+    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
+    expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
+    expect(fetchersStub.fetchRecentPrs).toHaveBeenCalledWith("github");
   });
 });
 
@@ -338,8 +353,9 @@ describe("PATCH /:instanceId/prs/:owner/:repo/:prNumber", () => {
     expect(res.status).toBe(400);
   });
 
-  it("updates title and invalidates prs cache", async () => {
+  it("updates title and resyncs prs", async () => {
     cacheStore.set("github:prs", [{ id: 1 }]);
+    fetchersStub.fetchPrs.mockResolvedValue([{ id: 1, title: "new title" }]);
     mockOctokit.pulls.update.mockResolvedValue({});
     const res = await call("/github/prs/o/r/5", {
       method: "PATCH",
@@ -352,7 +368,11 @@ describe("PATCH /:instanceId/prs/:owner/:repo/:prNumber", () => {
       pull_number: 5,
       title: "new title",
     });
-    expect(cacheStore.get("github:prs")).toBeNull();
+    await waitForPendingResyncs();
+    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
+    expect(cacheStore.get("github:prs")).toEqual([
+      { id: 1, title: "new title" },
+    ]);
   });
 });
 
