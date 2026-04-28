@@ -11,9 +11,15 @@ function timeAgo(date: string): string {
   return `${days}d ago`;
 }
 
-export function TimeAgo({ date }: { date: string }) {
+export function TimeAgo({
+  date,
+  className,
+}: {
+  date: string;
+  className?: string;
+}) {
   return (
-    <Text size="small" variant="secondary" title={date}>
+    <Text size="small" variant="secondary" title={date} className={className}>
       {timeAgo(date)}
     </Text>
   );

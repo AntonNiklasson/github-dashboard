@@ -134,17 +134,17 @@ export function PrCard({
       <div className="absolute bottom-2 right-2 flex flex-col items-end gap-0.5">
         {createdAt && (
           <span className="flex items-center gap-1">
-            <Text size="small" variant="tertiary">
+            <Text size="small" variant="tertiary" className="text-[10px]">
               opened
             </Text>
-            <TimeAgo date={createdAt} />
+            <TimeAgo date={createdAt} className="text-[10px]" />
           </span>
         )}
         <span className="flex items-center gap-1">
-          <Text size="small" variant="tertiary">
-            pushed
+          <Text size="small" variant="tertiary" className="text-[10px]">
+            updated
           </Text>
-          <TimeAgo date={updatedAt} />
+          <TimeAgo date={updatedAt} className="text-[10px]" />
         </span>
       </div>
       <div className="flex">

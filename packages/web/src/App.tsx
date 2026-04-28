@@ -50,6 +50,7 @@ import type {
   ReviewRequest,
 } from "./types";
 import { applyTheme, themeAtom } from "./theme";
+import * as mutations from "./mutations";
 
 type Tab = "all" | string;
 
@@ -284,6 +285,7 @@ interface FocusedItem {
   reviews?: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
   autoMerge?: boolean;
+  draft?: boolean;
   notificationId?: string;
   author?: string;
   headBranch?: string;
@@ -301,7 +303,6 @@ interface CommentingPr {
 function getActionsForItem(
   item: FocusedItem,
   queryClient: ReturnType<typeof useQueryClient>,
-  onDone: () => void,
   setEditingPrNumber?: (prNumber: number) => void,
   setCommentingPr?: (pr: CommentingPr) => void,
 ): Action[] {
@@ -347,24 +348,26 @@ function getActionsForItem(
     item.instanceId &&
     !item.readOnly
   ) {
-    actions.push({
-      label: item.autoMerge ? "Disable auto-merge" : "Enable auto-merge",
-      key: "m",
-      onSelect: async () => {
-        queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-          old?.map((pr) =>
-            pr.number === item.number && pr.repo === item.repo
-              ? { ...pr, autoMerge: !item.autoMerge }
-              : pr,
-          ),
-        );
-        try {
-          await api.toggleAutoMerge(item.instanceId!, item.repo!, item.number!);
-        } catch {
-          onDone();
-        }
-      },
-    });
+    // GitHub rejects enablePullRequestAutoMerge on draft PRs.
+    if (item.autoMerge || !item.draft) {
+      actions.push({
+        label: item.autoMerge ? "Disable auto-merge" : "Enable auto-merge",
+        key: "m",
+        onSelect: () => {
+          mutations
+            .toggleAutoMerge(
+              queryClient,
+              {
+                instanceId: item.instanceId!,
+                repo: item.repo!,
+                number: item.number!,
+              },
+              !!item.autoMerge,
+            )
+            .catch(() => {});
+        },
+      });
+    }
 
     if (setEditingPrNumber) {
       actions.push({
@@ -393,12 +396,14 @@ function getActionsForItem(
     actions.push({
       label: "Rerun CI",
       key: "i",
-      onSelect: async () => {
-        try {
-          await api.rerunCi(item.instanceId!, item.repo!, item.number!);
-        } catch (err) {
-          console.error("Failed to rerun CI:", err);
-        }
+      onSelect: () => {
+        mutations
+          .rerunCi(queryClient, {
+            instanceId: item.instanceId!,
+            repo: item.repo!,
+            number: item.number!,
+          })
+          .catch(() => {});
       },
     });
   }
@@ -414,42 +419,30 @@ function getActionsForItem(
       label: "Approve",
       key: "a",
       confirm: "Are you sure you want to approve this PR?",
-      onSelect: async () => {
-        await api.approvePr(item.instanceId!, item.repo!, item.number!);
-        onDone();
+      onSelect: () => {
+        mutations
+          .approvePr(queryClient, {
+            instanceId: item.instanceId!,
+            repo: item.repo!,
+            number: item.number!,
+          })
+          .catch(() => {});
       },
     });
     actions.push({
       label: "Close",
       key: "x",
       confirm: "Are you sure you want to close this PR?",
-      onSelect: async () => {
-        // Optimistic: remove from open PRs, add to recent
-        queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-          old?.filter(
-            (pr) => !(pr.number === item.number && pr.repo === item.repo),
-          ),
-        );
-        queryClient.setQueriesData<RecentPR[]>(
-          { queryKey: ["recent-prs"] },
-          (old) => [
-            {
-              id: Date.now(),
-              number: item.number!,
-              title: item.title,
-              url: item.url,
-              repo: item.repo!,
-              updatedAt: new Date().toISOString(),
-              merged: false,
-            },
-            ...(old ?? []),
-          ],
-        );
-        try {
-          await api.closePr(item.instanceId!, item.repo!, item.number!);
-        } catch {
-          onDone(); // revert on failure
-        }
+      onSelect: () => {
+        mutations
+          .closePr(queryClient, {
+            instanceId: item.instanceId!,
+            repo: item.repo!,
+            number: item.number!,
+            title: item.title,
+            url: item.url,
+          })
+          .catch(() => {});
       },
     });
   }
@@ -764,19 +757,21 @@ function Dashboard({ source }: { source: DashboardSource }) {
       } else if (e.key === "m" && activeSection === "prs") {
         if (item?.repo && item.number && item.instanceId && !item.readOnly) {
           e.preventDefault();
-          queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-            old?.map((pr) =>
-              pr.number === item.number && pr.repo === item.repo
-                ? { ...pr, autoMerge: !item.autoMerge }
-                : pr,
-            ),
-          );
-          api
-            .toggleAutoMerge(item.instanceId, item.repo, item.number)
-            .catch(() => {
-              queryClient.invalidateQueries({ queryKey: ["prs"] });
-              toast.error("Failed to toggle auto-merge");
-            });
+          if (!item.autoMerge && item.draft) {
+            toast.error("Mark the PR as ready before enabling auto-merge");
+            return;
+          }
+          mutations
+            .toggleAutoMerge(
+              queryClient,
+              {
+                instanceId: item.instanceId,
+                repo: item.repo,
+                number: item.number,
+              },
+              !!item.autoMerge,
+            )
+            .catch(() => {});
         }
       } else if (
         e.key === "a" &&
@@ -790,11 +785,13 @@ function Dashboard({ source }: { source: DashboardSource }) {
           confirm("Approve this PR?")
         ) {
           e.preventDefault();
-          api.approvePr(item.instanceId, item.repo, item.number).then(() => {
-            queryClient.invalidateQueries({ queryKey: ["prs"] });
-            queryClient.invalidateQueries({ queryKey: ["reviews"] });
-            toast("PR approved");
-          });
+          mutations
+            .approvePr(queryClient, {
+              instanceId: item.instanceId,
+              repo: item.repo,
+              number: item.number,
+            })
+            .catch(() => {});
         }
       } else if (
         e.key === "c" &&
@@ -808,30 +805,15 @@ function Dashboard({ source }: { source: DashboardSource }) {
           confirm("Close this PR?")
         ) {
           e.preventDefault();
-          queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-            old?.filter(
-              (pr) => !(pr.number === item.number && pr.repo === item.repo),
-            ),
-          );
-          queryClient.setQueriesData<RecentPR[]>(
-            { queryKey: ["recent-prs"] },
-            (old) => [
-              {
-                id: Date.now(),
-                number: item.number!,
-                title: item.title,
-                url: item.url,
-                repo: item.repo!,
-                updatedAt: new Date().toISOString(),
-                merged: false,
-              },
-              ...(old ?? []),
-            ],
-          );
-          api.closePr(item.instanceId, item.repo, item.number).catch(() => {
-            queryClient.invalidateQueries({ queryKey: ["prs"] });
-            toast.error("Failed to close PR");
-          });
+          mutations
+            .closePr(queryClient, {
+              instanceId: item.instanceId,
+              repo: item.repo,
+              number: item.number,
+              title: item.title,
+              url: item.url,
+            })
+            .catch(() => {});
         }
       } else if (e.key === "d" && activeSection === "prs") {
         const pr = prsRef.current[focusIndex];
@@ -843,22 +825,18 @@ function Dashboard({ source }: { source: DashboardSource }) {
           !item.readOnly
         ) {
           e.preventDefault();
-          const newDraft = !pr.draft;
           setTogglingDraftId(pr.id);
-          queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-            old?.map((p) => (p.id === pr.id ? { ...p, draft: newDraft } : p)),
-          );
-          toast(newDraft ? "Marked as draft" : "Marked as ready for review");
-          api
-            .toggleDraft(item.instanceId, item.repo, item.number)
-            .catch(() => {
-              queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-                old?.map((p) =>
-                  p.id === pr.id ? { ...p, draft: !newDraft } : p,
-                ),
-              );
-              toast.error("Failed to toggle draft");
-            })
+          mutations
+            .toggleDraft(
+              queryClient,
+              {
+                instanceId: item.instanceId,
+                repo: item.repo,
+                number: item.number,
+              },
+              pr.draft,
+            )
+            .catch(() => {})
             .finally(() => setTogglingDraftId(null));
         }
       } else if (e.key === "e" && activeSection === "reviews") {
@@ -877,17 +855,12 @@ function Dashboard({ source }: { source: DashboardSource }) {
       } else if (e.key === "e" && activeSection === "notifications") {
         if (item?.notificationId && item.instanceId) {
           e.preventDefault();
-          queryClient.setQueriesData<Notification[]>(
-            { queryKey: ["notifications"] },
-            (old) => old?.filter((n) => n.id !== item.notificationId),
-          );
-          toast("Notification marked as done");
-          api
-            .dismissNotification(item.instanceId, item.notificationId)
-            .catch(() => {
-              queryClient.invalidateQueries({ queryKey: ["notifications"] });
-              toast.error("Failed to dismiss notification");
-            });
+          mutations
+            .dismissNotification(queryClient, {
+              instanceId: item.instanceId,
+              notificationId: item.notificationId,
+            })
+            .catch(() => {});
         }
       }
     };
@@ -926,18 +899,13 @@ function Dashboard({ source }: { source: DashboardSource }) {
               if (!pr) return;
               const instanceId = pr.instanceId ?? instances[0]?.id;
               if (!instanceId) return;
-              queryClient.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-                old?.map((p) =>
-                  p.number === prNumber && p.repo === pr.repo
-                    ? { ...p, title }
-                    : p,
-                ),
-              );
-              try {
-                await api.updatePrTitle(instanceId, pr.repo, prNumber, title);
-              } catch {
-                queryClient.invalidateQueries({ queryKey: ["prs"] });
-              }
+              await mutations
+                .updatePrTitle(
+                  queryClient,
+                  { instanceId, repo: pr.repo, number: prNumber },
+                  title,
+                )
+                .catch(() => {});
               setEditingPrNumber(null);
             }}
           />
@@ -997,10 +965,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
           actions={getActionsForItem(
             actionMenu,
             queryClient,
-            () => {
-              queryClient.invalidateQueries({ queryKey: ["prs"] });
-              queryClient.invalidateQueries({ queryKey: ["reviews"] });
-            },
             (num) => {
               setEditingPrNumber(num);
               if (panelItem) closePanel();
@@ -1107,6 +1071,7 @@ function getFocusedItem(
       reviews: p.reviews,
       reviewDecision: p.reviewDecision,
       autoMerge: p.autoMerge,
+      draft: p.draft,
       author: p.author,
       headBranch: p.headBranch,
       baseBranch: p.baseBranch,
@@ -1147,6 +1112,7 @@ function getFocusedItem(
       deletions: r.deletions,
       reviews: r.reviews,
       reviewDecision: r.reviewDecision,
+      draft: r.draft,
       author: r.author,
       headBranch: r.headBranch,
       baseBranch: r.baseBranch,
