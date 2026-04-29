@@ -218,26 +218,20 @@ export function PrCard({
                   {commits}
                 </Text>
               </span>
-              {(commentCount > 0 ||
-                (unresolvedThreadCount != null &&
-                  unresolvedThreadCount > 0)) && (
-                <span className="flex items-center gap-2">
-                  {commentCount > 0 && (
-                    <span className="flex items-center gap-1">
-                      <MessageSquare className="h-3 w-3" />
-                      <Text size="small" variant="secondary">
-                        {commentCount}
-                      </Text>
-                    </span>
-                  )}
-                  {unresolvedThreadCount != null &&
-                    unresolvedThreadCount > 0 && (
-                      <Pill icon={MessageSquareWarning} tone="amber">
-                        {unresolvedThreadCount} open{" "}
-                        {unresolvedThreadCount === 1 ? "thread" : "threads"}
-                      </Pill>
-                    )}
-                </span>
+              {unresolvedThreadCount != null && unresolvedThreadCount > 0 ? (
+                <Pill icon={MessageSquareWarning} tone="amber">
+                  {unresolvedThreadCount} open{" "}
+                  {unresolvedThreadCount === 1 ? "thread" : "threads"}
+                </Pill>
+              ) : (
+                commentCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <MessageSquare className="h-3 w-3" />
+                    <Text size="small" variant="secondary">
+                      {commentCount}
+                    </Text>
+                  </span>
+                )
               )}
             </div>
           )}
