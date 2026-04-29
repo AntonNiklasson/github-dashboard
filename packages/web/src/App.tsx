@@ -7,6 +7,11 @@ import { Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AutoMergeNotAllowedError, api, type ConfigResponse } from "./api";
+import {
+  STALE_CACHE_RECOVERY_PROMPT,
+  decideMergeAction,
+  mergeActionLabel,
+} from "./merge-decision";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
 import { useChords } from "./use-chords";
 import {
@@ -303,14 +308,6 @@ interface CommentingPr {
   number: number;
 }
 
-function isReadyToMergeNow(item: FocusedItem): boolean {
-  // CLEAN means GitHub thinks every gate is satisfied right now (approval,
-  // required checks, conversation resolution, branch up-to-date). Anything
-  // else (BLOCKED, BEHIND, UNSTABLE, DIRTY, …) means a direct merge would
-  // either fail or surprise the user — let auto-merge handle those.
-  return item.mergeStateStatus === "CLEAN";
-}
-
 function confirmAndMerge(
   queryClient: ReturnType<typeof useQueryClient>,
   item: FocusedItem & { instanceId: string; repo: string; number: number },
@@ -332,54 +329,32 @@ function autoMergeOrFallback(
   queryClient: ReturnType<typeof useQueryClient>,
   item: FocusedItem & { instanceId: string; repo: string; number: number },
 ): void {
-  // Disabling auto-merge is the reversal — silent, no confirm.
-  if (item.autoMerge) {
-    mutations
-      .toggleAutoMerge(
-        queryClient,
-        {
-          instanceId: item.instanceId,
-          repo: item.repo,
-          number: item.number,
-        },
-        true,
-      )
-      .catch(() => {});
+  const decision = decideMergeAction(item);
+  const target = {
+    instanceId: item.instanceId,
+    repo: item.repo,
+    number: item.number,
+  };
+
+  if (decision.kind === "disable_auto_merge") {
+    mutations.toggleAutoMerge(queryClient, target, true).catch(() => {});
     return;
   }
 
-  // PR is mergeable now (or repo doesn't allow auto-merge) — confirm and
-  // merge directly. Either way, the action takes effect immediately.
-  if (item.autoMergeAllowed === false || isReadyToMergeNow(item)) {
-    confirmAndMerge(queryClient, item, "Merge this PR?");
+  if (decision.kind === "merge") {
+    confirmAndMerge(queryClient, item, decision.prompt);
     return;
   }
 
-  // PR isn't ready yet — confirm and arm auto-merge so it lands when checks
-  // pass. Confirmation matters because the user is committing to merge once
-  // the gates clear, even if they walk away.
-  if (!confirm("Auto-merge this PR when checks pass?")) return;
-  mutations
-    .toggleAutoMerge(
-      queryClient,
-      {
-        instanceId: item.instanceId,
-        repo: item.repo,
-        number: item.number,
-      },
-      false,
-    )
-    .catch((err) => {
-      // Cache said allow_auto_merge=true but server disagrees — fall through
-      // and merge directly (user already expressed merge intent).
-      if (err instanceof AutoMergeNotAllowedError) {
-        confirmAndMerge(
-          queryClient,
-          item,
-          "Auto-merge is not enabled on this repo. Merge directly?",
-        );
-      }
-    });
+  // arm_auto_merge
+  if (!confirm(decision.prompt)) return;
+  mutations.toggleAutoMerge(queryClient, target, false).catch((err) => {
+    // Cache said allow_auto_merge=true but server disagrees — fall through
+    // and merge directly (user already expressed merge intent).
+    if (err instanceof AutoMergeNotAllowedError) {
+      confirmAndMerge(queryClient, item, STALE_CACHE_RECOVERY_PROMPT);
+    }
+  });
 }
 
 function getActionsForItem(
@@ -432,16 +407,8 @@ function getActionsForItem(
   ) {
     // GitHub rejects enablePullRequestAutoMerge on draft PRs.
     if (item.autoMerge || !item.draft) {
-      const willMergeNow =
-        !item.autoMerge &&
-        (item.autoMergeAllowed === false || isReadyToMergeNow(item));
-      const label = item.autoMerge
-        ? "Disable auto-merge"
-        : willMergeNow
-          ? "Merge"
-          : "Auto-merge when ready";
       actions.push({
-        label,
+        label: mergeActionLabel(decideMergeAction(item)),
         key: "m",
         onSelect: () => {
           autoMergeOrFallback(queryClient, {
