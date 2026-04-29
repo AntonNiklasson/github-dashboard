@@ -8,6 +8,7 @@ import {
   GitBranch,
   GitCommit,
   MessageSquare,
+  MessageSquareWarning,
   Rocket,
   TriangleAlert,
 } from "lucide-react";
@@ -46,6 +47,7 @@ interface Props {
   editing?: boolean;
   onSaveTitle?: (title: string) => void;
   conflict?: boolean;
+  unresolvedThreadCount?: number;
 }
 
 export function PrCard({
@@ -75,6 +77,7 @@ export function PrCard({
   editing,
   onSaveTitle,
   conflict,
+  unresolvedThreadCount,
 }: Props) {
   const merged = mergeStatus === "merged";
   const [editTitle, setEditTitle] = useState(title);
@@ -214,6 +217,12 @@ export function PrCard({
               {conflict && (
                 <Pill icon={TriangleAlert} tone="red">
                   conflict
+                </Pill>
+              )}
+              {unresolvedThreadCount != null && unresolvedThreadCount > 0 && (
+                <Pill icon={MessageSquareWarning} tone="amber">
+                  {unresolvedThreadCount} unresolved{" "}
+                  {unresolvedThreadCount === 1 ? "thread" : "threads"}
                 </Pill>
               )}
               <span className="flex items-center gap-0.5 font-mono">

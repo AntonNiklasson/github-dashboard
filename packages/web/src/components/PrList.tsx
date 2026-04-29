@@ -62,6 +62,7 @@ export function PrList({
                 commits={pr.commits}
                 commentCount={pr.commentCount}
                 conflict={pr.mergeable === false}
+                unresolvedThreadCount={pr.unresolvedThreadCount}
                 focused={focused}
                 instanceId={pr.instanceId}
                 instanceLabel={pr.instanceLabel}

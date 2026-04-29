@@ -44,6 +44,7 @@ interface MergeQueueInfo {
   autoMerge: boolean;
   reviewDecision: string | null;
   mergeStateStatus: string | null;
+  unresolvedThreadCount: number;
 }
 
 export async function fetchMergeQueueStatus(
@@ -55,7 +56,7 @@ export async function fetchMergeQueueStatus(
 
   // Build a batched GraphQL query
   const aliases = items.map((item, i) => {
-    return `pr${i}: node(id: "${item.node_id}") { ... on PullRequest { id mergeQueueEntry { id } autoMergeRequest { enabledAt } reviewDecision mergeStateStatus } }`;
+    return `pr${i}: node(id: "${item.node_id}") { ... on PullRequest { id mergeQueueEntry { id } autoMergeRequest { enabledAt } reviewDecision mergeStateStatus reviewThreads(first: 100) { nodes { isResolved } } } }`;
   });
 
   try {
@@ -68,17 +69,21 @@ export async function fetchMergeQueueStatus(
           autoMergeRequest: { enabledAt: string } | null;
           reviewDecision: string | null;
           mergeStateStatus: string | null;
+          reviewThreads: { nodes: { isResolved: boolean }[] } | null;
         } | null
       >
     >(`query { ${aliases.join("\n")} }`);
 
     for (let i = 0; i < items.length; i++) {
       const pr = response[`pr${i}`];
+      const threads = pr?.reviewThreads?.nodes ?? [];
+      const unresolvedThreadCount = threads.filter((t) => !t.isResolved).length;
       result.set(items[i].node_id, {
         inMergeQueue: pr?.mergeQueueEntry != null,
         autoMerge: pr?.autoMergeRequest != null,
         reviewDecision: pr?.reviewDecision ?? null,
         mergeStateStatus: pr?.mergeStateStatus ?? null,
+        unresolvedThreadCount,
       });
     }
   } catch {
@@ -230,6 +235,7 @@ export async function fetchPrs(instanceId: string) {
         reviews: summarizeReviews(reviews),
         reviewDecision: mqStatus?.reviewDecision ?? null,
         mergeStateStatus: mqStatus?.mergeStateStatus ?? null,
+        unresolvedThreadCount: mqStatus?.unresolvedThreadCount ?? 0,
         additions: prData?.additions ?? 0,
         deletions: prData?.deletions ?? 0,
         commits: prData?.commits ?? 0,
@@ -347,6 +353,7 @@ export async function fetchReviews(instanceId: string) {
         reviews: summarizeReviews(reviews),
         reviewDecision: mqStatus?.reviewDecision ?? null,
         mergeStateStatus: mqStatus?.mergeStateStatus ?? null,
+        unresolvedThreadCount: mqStatus?.unresolvedThreadCount ?? 0,
         additions: prData?.additions ?? 0,
         deletions: prData?.deletions ?? 0,
         commits: prData?.commits ?? 0,

@@ -121,7 +121,7 @@ describe("fetchPrs", () => {
     expect(prs.map((p) => p.author)).toEqual(["alice"]);
   });
 
-  it("populates mergeQueue + autoMerge + reviewDecision from GraphQL", async () => {
+  it("populates mergeQueue + autoMerge + reviewDecision + threads from GraphQL", async () => {
     mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
       data: { items: [prSearchItem()] },
     });
@@ -131,6 +131,14 @@ describe("fetchPrs", () => {
         mergeQueueEntry: { id: "MQ_1" },
         autoMergeRequest: { enabledAt: "x" },
         reviewDecision: "APPROVED",
+        mergeStateStatus: "BLOCKED",
+        reviewThreads: {
+          nodes: [
+            { isResolved: false },
+            { isResolved: false },
+            { isResolved: true },
+          ],
+        },
       },
     });
     const prs = await fetchPrs("github");
@@ -138,6 +146,8 @@ describe("fetchPrs", () => {
       inMergeQueue: true,
       autoMerge: true,
       reviewDecision: "APPROVED",
+      mergeStateStatus: "BLOCKED",
+      unresolvedThreadCount: 2,
     });
   });
 
@@ -151,6 +161,8 @@ describe("fetchPrs", () => {
       inMergeQueue: false,
       autoMerge: false,
       reviewDecision: null,
+      mergeStateStatus: null,
+      unresolvedThreadCount: 0,
     });
   });
 

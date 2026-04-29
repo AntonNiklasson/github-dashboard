@@ -26,6 +26,7 @@ export interface PR {
   reviews: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
   mergeStateStatus?: string | null;
+  unresolvedThreadCount?: number;
   additions: number;
   deletions: number;
   commits: number;
@@ -56,6 +57,7 @@ export interface ReviewRequest {
   baseBranch: string;
   reviews: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
+  unresolvedThreadCount?: number;
   additions: number;
   deletions: number;
   commits: number;
