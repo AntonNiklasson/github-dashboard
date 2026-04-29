@@ -233,7 +233,8 @@ export function PrCard({
                   {unresolvedThreadCount != null &&
                     unresolvedThreadCount > 0 && (
                       <Pill icon={MessageSquareWarning} tone="amber">
-                        {unresolvedThreadCount} unresolved
+                        {unresolvedThreadCount} open{" "}
+                        {unresolvedThreadCount === 1 ? "thread" : "threads"}
                       </Pill>
                     )}
                 </span>
