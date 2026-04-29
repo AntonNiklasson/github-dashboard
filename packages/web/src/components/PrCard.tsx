@@ -119,43 +119,12 @@ export function PrCard({
           : ""
       }`}
     >
-      <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
-        {reviews.approved.length > 0 && (
-          <ReviewStamp kind="approved" count={reviews.approved.length} />
-        )}
-        {reviews.changesRequested.length > 0 && (
-          <ReviewStamp
-            kind="changes-requested"
-            count={reviews.changesRequested.length}
-          />
-        )}
-        {reviewDecision === "REVIEW_REQUIRED" &&
-          reviews.approved.length > 0 && (
-            <ReviewStamp kind="missing-code-owner" />
-          )}
-      </div>
-      <div className="absolute bottom-2 right-2 flex flex-col items-end gap-0.5">
-        {createdAt && (
-          <span className="flex items-center gap-1">
-            <Text size="small" variant="tertiary" className="text-[10px]">
-              opened
-            </Text>
-            <TimeAgo date={createdAt} className="text-[10px]" />
-          </span>
-        )}
-        <span className="flex items-center gap-1">
-          <Text size="small" variant="tertiary" className="text-[10px]">
-            updated
-          </Text>
-          <TimeAgo date={updatedAt} className="text-[10px]" />
-        </span>
-      </div>
       <div className="flex">
         <div className="flex shrink-0 items-center justify-center pr-4">
           <PrStateIcon status={mergeStatus} loading={loading} />
         </div>
-        <div className="flex-1 overflow-hidden pr-32">
-          <div className="flex items-center gap-2 whitespace-nowrap">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
             {instanceId && (
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
@@ -166,7 +135,7 @@ export function PrCard({
             <Text size="small" variant="secondary" className="truncate">
               {repo}
             </Text>
-            <Text size="small" variant="tertiary">
+            <Text size="small" variant="tertiary" className="shrink-0">
               #{number}
             </Text>
             {author && (
@@ -174,6 +143,21 @@ export function PrCard({
                 @{author}
               </Text>
             )}
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              {reviews.approved.length > 0 && (
+                <ReviewStamp kind="approved" count={reviews.approved.length} />
+              )}
+              {reviews.changesRequested.length > 0 && (
+                <ReviewStamp
+                  kind="changes-requested"
+                  count={reviews.changesRequested.length}
+                />
+              )}
+              {reviewDecision === "REVIEW_REQUIRED" &&
+                reviews.approved.length > 0 && (
+                  <ReviewStamp kind="missing-code-owner" />
+                )}
+            </div>
           </div>
           {editing ? (
             <input
@@ -250,22 +234,43 @@ export function PrCard({
               )}
             </div>
           )}
-          {!merged &&
-            (() => {
-              const ci = toCiStatus(ciStatus);
-              const anyBadge = ci || autoMerge;
-              if (!anyBadge) return null;
-              return (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {ci && <StatusBadge status={ci} />}
-                  {autoMerge && (
-                    <Pill icon={Rocket} tone="green">
-                      auto-merge
-                    </Pill>
+          {(() => {
+            const ci = !merged && toCiStatus(ciStatus);
+            return (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {ci && <StatusBadge status={ci} />}
+                {!merged && autoMerge && (
+                  <Pill icon={Rocket} tone="green">
+                    auto-merge
+                  </Pill>
+                )}
+                <div className="ml-auto flex items-center gap-3 text-muted-foreground">
+                  {createdAt && (
+                    <span className="flex items-center gap-1">
+                      <Text
+                        size="small"
+                        variant="tertiary"
+                        className="text-[10px]"
+                      >
+                        opened
+                      </Text>
+                      <TimeAgo date={createdAt} className="text-[10px]" />
+                    </span>
                   )}
+                  <span className="flex items-center gap-1">
+                    <Text
+                      size="small"
+                      variant="tertiary"
+                      className="text-[10px]"
+                    >
+                      updated
+                    </Text>
+                    <TimeAgo date={updatedAt} className="text-[10px]" />
+                  </span>
                 </div>
-              );
-            })()}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </Card>
