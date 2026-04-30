@@ -26,6 +26,7 @@ export function PrCardPlayground() {
   const [mergeStatus, setMergeStatus] = useState<MergeStatus>("ready");
   const [autoMerge, setAutoMerge] = useState(true);
   const [conflict, setConflict] = useState(false);
+  const [unresolvedThreadCount, setUnresolvedThreadCount] = useState(0);
   const [instanceId, setInstanceId] = useState("github.com");
   const [focused, setFocused] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -52,6 +53,17 @@ export function PrCardPlayground() {
           onChange={setAutoMerge}
         />
         <Toggle label="Conflict" checked={conflict} onChange={setConflict} />
+        <Field label="Unresolved threads">
+          <input
+            type="number"
+            min={0}
+            value={unresolvedThreadCount}
+            onChange={(e) =>
+              setUnresolvedThreadCount(Math.max(0, +e.target.value))
+            }
+            className={inputCls}
+          />
+        </Field>
         <Toggle label="Focused" checked={focused} onChange={setFocused} />
         <Toggle label="Editing title" checked={editing} onChange={setEditing} />
 
@@ -243,6 +255,7 @@ export function PrCardPlayground() {
             author={author || undefined}
             editing={editing}
             conflict={conflict}
+            unresolvedThreadCount={unresolvedThreadCount}
             onSaveTitle={(t) => {
               if (t) setTitle(t);
               setEditing(false);

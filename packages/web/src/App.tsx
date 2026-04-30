@@ -6,7 +6,12 @@ import { atomWithStorage } from "jotai/utils";
 import { Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api, type ConfigResponse } from "./api";
+import { AutoMergeNotAllowedError, api, type ConfigResponse } from "./api";
+import {
+  STALE_CACHE_RECOVERY_PROMPT,
+  decideMergeAction,
+  mergeActionLabel,
+} from "./merge-decision";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
 import { useChords } from "./use-chords";
 import {
@@ -284,7 +289,9 @@ interface FocusedItem {
   deletions?: number;
   reviews?: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
+  mergeStateStatus?: string | null;
   autoMerge?: boolean;
+  autoMergeAllowed?: boolean;
   draft?: boolean;
   notificationId?: string;
   author?: string;
@@ -299,6 +306,55 @@ interface CommentingPr {
   instanceId: string;
   repo: string;
   number: number;
+}
+
+function confirmAndMerge(
+  queryClient: ReturnType<typeof useQueryClient>,
+  item: FocusedItem & { instanceId: string; repo: string; number: number },
+  message: string,
+): void {
+  if (!confirm(message)) return;
+  mutations
+    .mergePr(queryClient, {
+      instanceId: item.instanceId,
+      repo: item.repo,
+      number: item.number,
+      title: item.title,
+      url: item.url,
+    })
+    .catch(() => {});
+}
+
+function autoMergeOrFallback(
+  queryClient: ReturnType<typeof useQueryClient>,
+  item: FocusedItem & { instanceId: string; repo: string; number: number },
+): void {
+  const decision = decideMergeAction(item);
+  const target = {
+    instanceId: item.instanceId,
+    repo: item.repo,
+    number: item.number,
+  };
+
+  if (decision.kind === "disable_auto_merge") {
+    mutations.toggleAutoMerge(queryClient, target, true).catch(() => {});
+    return;
+  }
+
+  if (decision.kind === "merge") {
+    confirmAndMerge(queryClient, item, decision.prompt);
+    return;
+  }
+
+  // arm_auto_merge
+  if (!confirm(decision.prompt)) return;
+  mutations.toggleAutoMerge(queryClient, target, false).catch((err) => {
+    // Cache said allow_auto_merge=true but server disagrees — fall through
+    // and merge directly (user already expressed merge intent).
+    if (err instanceof AutoMergeNotAllowedError) {
+      confirmAndMerge(queryClient, item, STALE_CACHE_RECOVERY_PROMPT);
+    }
+  });
 }
 
 function getActionsForItem(
@@ -352,20 +408,15 @@ function getActionsForItem(
     // GitHub rejects enablePullRequestAutoMerge on draft PRs.
     if (item.autoMerge || !item.draft) {
       actions.push({
-        label: item.autoMerge ? "Disable auto-merge" : "Enable auto-merge",
+        label: mergeActionLabel(decideMergeAction(item)),
         key: "m",
         onSelect: () => {
-          mutations
-            .toggleAutoMerge(
-              queryClient,
-              {
-                instanceId: item.instanceId!,
-                repo: item.repo!,
-                number: item.number!,
-              },
-              !!item.autoMerge,
-            )
-            .catch(() => {});
+          autoMergeOrFallback(queryClient, {
+            ...item,
+            instanceId: item.instanceId!,
+            repo: item.repo!,
+            number: item.number!,
+          });
         },
       });
     }
@@ -764,17 +815,12 @@ function Dashboard({ source }: { source: DashboardSource }) {
             toast.error("Mark the PR as ready before enabling auto-merge");
             return;
           }
-          mutations
-            .toggleAutoMerge(
-              queryClient,
-              {
-                instanceId: item.instanceId,
-                repo: item.repo,
-                number: item.number,
-              },
-              !!item.autoMerge,
-            )
-            .catch(() => {});
+          autoMergeOrFallback(queryClient, {
+            ...item,
+            instanceId: item.instanceId,
+            repo: item.repo,
+            number: item.number,
+          });
         }
       } else if (
         e.key === "a" &&
@@ -1073,7 +1119,9 @@ function getFocusedItem(
       deletions: p.deletions,
       reviews: p.reviews,
       reviewDecision: p.reviewDecision,
+      mergeStateStatus: p.mergeStateStatus,
       autoMerge: p.autoMerge,
+      autoMergeAllowed: p.autoMergeAllowed,
       draft: p.draft,
       author: p.author,
       headBranch: p.headBranch,

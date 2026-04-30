@@ -20,10 +20,13 @@ export interface PR {
   ciStatus: string;
   inMergeQueue: boolean;
   autoMerge: boolean;
+  autoMergeAllowed?: boolean;
   headBranch: string;
   baseBranch: string;
   reviews: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
+  mergeStateStatus?: string | null;
+  unresolvedThreadCount?: number;
   additions: number;
   deletions: number;
   commits: number;
@@ -54,6 +57,7 @@ export interface ReviewRequest {
   baseBranch: string;
   reviews: { approved: string[]; changesRequested: string[] };
   reviewDecision?: string | null;
+  unresolvedThreadCount?: number;
   additions: number;
   deletions: number;
   commits: number;

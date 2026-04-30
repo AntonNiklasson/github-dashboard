@@ -38,6 +38,12 @@ export class ConfigValidationError extends Error {
   }
 }
 
+export class AutoMergeNotAllowedError extends Error {
+  constructor() {
+    super("Auto-merge is not allowed for this repository");
+  }
+}
+
 export const api = {
   getConfig: () => fetchJson<ConfigResponse>("/api/config"),
   saveConfig: async (config: ConfigData) => {
@@ -120,8 +126,28 @@ export const api = {
         method: "POST",
       },
     );
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (body?.error === "auto_merge_not_allowed") {
+        throw new AutoMergeNotAllowedError();
+      }
+      throw new Error(`${res.status} ${res.statusText}`);
+    }
     return res.json() as Promise<{ ok: boolean; autoMerge: boolean }>;
+  },
+  mergePr: async (instanceId: string, repo: string, prNumber: number) => {
+    const [owner, name] = repo.split("/");
+    const res = await fetch(
+      `/api/${instanceId}/prs/${owner}/${name}/${prNumber}/merge`,
+      {
+        method: "POST",
+      },
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.message ?? `${res.status} ${res.statusText}`);
+    }
+    return res.json();
   },
   closePr: async (instanceId: string, repo: string, prNumber: number) => {
     const [owner, name] = repo.split("/");

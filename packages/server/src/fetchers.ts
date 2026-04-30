@@ -1,5 +1,41 @@
 import type { Octokit } from "@octokit/rest";
+import { getCached, setCached } from "./cache.js";
 import { getClient, getInstance } from "./github-client.js";
+
+interface RepoSettings {
+  autoMergeAllowed: boolean;
+}
+
+const inFlightRepoSettings = new Map<string, Promise<RepoSettings>>();
+
+export async function getRepoSettings(
+  client: Octokit,
+  instanceId: string,
+  owner: string,
+  repo: string,
+): Promise<RepoSettings> {
+  const key = `${instanceId}:repo-settings:${owner}/${repo}`;
+  const cached = getCached<RepoSettings>(key);
+  if (cached) return cached;
+  const existing = inFlightRepoSettings.get(key);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      const { data } = await client.repos.get({ owner, repo });
+      const settings: RepoSettings = {
+        autoMergeAllowed: data.allow_auto_merge ?? false,
+      };
+      setCached(key, settings);
+      return settings;
+    } catch {
+      return { autoMergeAllowed: false };
+    } finally {
+      inFlightRepoSettings.delete(key);
+    }
+  })();
+  inFlightRepoSettings.set(key, promise);
+  return promise;
+}
 
 type Review = { state: string; user: { login: string } | null };
 
@@ -7,6 +43,8 @@ interface MergeQueueInfo {
   inMergeQueue: boolean;
   autoMerge: boolean;
   reviewDecision: string | null;
+  mergeStateStatus: string | null;
+  unresolvedThreadCount: number;
 }
 
 export async function fetchMergeQueueStatus(
@@ -18,7 +56,7 @@ export async function fetchMergeQueueStatus(
 
   // Build a batched GraphQL query
   const aliases = items.map((item, i) => {
-    return `pr${i}: node(id: "${item.node_id}") { ... on PullRequest { id mergeQueueEntry { id } autoMergeRequest { enabledAt } reviewDecision } }`;
+    return `pr${i}: node(id: "${item.node_id}") { ... on PullRequest { id mergeQueueEntry { id } autoMergeRequest { enabledAt } reviewDecision mergeStateStatus reviewThreads(first: 100) { nodes { isResolved } } } }`;
   });
 
   try {
@@ -30,16 +68,22 @@ export async function fetchMergeQueueStatus(
           mergeQueueEntry: { id: string } | null;
           autoMergeRequest: { enabledAt: string } | null;
           reviewDecision: string | null;
+          mergeStateStatus: string | null;
+          reviewThreads: { nodes: { isResolved: boolean }[] } | null;
         } | null
       >
     >(`query { ${aliases.join("\n")} }`);
 
     for (let i = 0; i < items.length; i++) {
       const pr = response[`pr${i}`];
+      const threads = pr?.reviewThreads?.nodes ?? [];
+      const unresolvedThreadCount = threads.filter((t) => !t.isResolved).length;
       result.set(items[i].node_id, {
         inMergeQueue: pr?.mergeQueueEntry != null,
         autoMerge: pr?.autoMergeRequest != null,
         reviewDecision: pr?.reviewDecision ?? null,
+        mergeStateStatus: pr?.mergeStateStatus ?? null,
+        unresolvedThreadCount,
       });
     }
   } catch {
@@ -154,7 +198,7 @@ export async function fetchPrs(instanceId: string) {
       const [owner, repo] = item.repository_url.split("/").slice(-2);
       const prNumber = item.number;
 
-      const [ciStatus, reviewsRes, prRes] = await Promise.all([
+      const [ciStatus, reviewsRes, prRes, repoSettings] = await Promise.all([
         getCiStatus(client, owner, repo, `pull/${prNumber}/head`),
         client.pulls
           .listReviews({ owner, repo, pull_number: prNumber })
@@ -162,6 +206,7 @@ export async function fetchPrs(instanceId: string) {
         client.pulls
           .get({ owner, repo, pull_number: prNumber })
           .catch(() => null),
+        getRepoSettings(client, instanceId, owner, repo),
       ]);
 
       const reviews = reviewsRes?.data ?? [];
@@ -184,10 +229,13 @@ export async function fetchPrs(instanceId: string) {
         ciStatus,
         inMergeQueue: mqStatus?.inMergeQueue ?? false,
         autoMerge: mqStatus?.autoMerge ?? false,
+        autoMergeAllowed: repoSettings.autoMergeAllowed,
         headBranch: prData?.head.ref ?? "",
         baseBranch: prData?.base.ref ?? "main",
         reviews: summarizeReviews(reviews),
         reviewDecision: mqStatus?.reviewDecision ?? null,
+        mergeStateStatus: mqStatus?.mergeStateStatus ?? null,
+        unresolvedThreadCount: mqStatus?.unresolvedThreadCount ?? 0,
         additions: prData?.additions ?? 0,
         deletions: prData?.deletions ?? 0,
         commits: prData?.commits ?? 0,
@@ -304,6 +352,8 @@ export async function fetchReviews(instanceId: string) {
         baseBranch: prData?.base.ref ?? "main",
         reviews: summarizeReviews(reviews),
         reviewDecision: mqStatus?.reviewDecision ?? null,
+        mergeStateStatus: mqStatus?.mergeStateStatus ?? null,
+        unresolvedThreadCount: mqStatus?.unresolvedThreadCount ?? 0,
         additions: prData?.additions ?? 0,
         deletions: prData?.deletions ?? 0,
         commits: prData?.commits ?? 0,
