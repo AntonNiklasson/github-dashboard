@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.29.3",
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,green \"pnpm --filter @github-dashboard/server dev\" \"pnpm --filter @github-dashboard/web dev\"",
+    "dev": "mkdir -p .logs && concurrently -n server,web -c blue,green \"pnpm --filter @github-dashboard/server dev 2>&1 | tee .logs/server.log\" \"pnpm --filter @github-dashboard/web dev 2>&1 | tee .logs/web.log\"",
     "demo": "DEMO=1 pnpm dev",
     "build": "pnpm --filter @github-dashboard/server build && pnpm --filter @github-dashboard/web build",
     "lint": "oxlint",

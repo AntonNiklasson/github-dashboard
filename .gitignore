@@ -3,6 +3,7 @@ dist/
 **/dist/
 config.yaml
 .cache/
+.logs/
 *.tsbuildinfo
 pnpm-debug.log*
 .claude/settings.local.json
