@@ -812,7 +812,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
         if (item?.repo && item.number && item.instanceId && !item.readOnly) {
           e.preventDefault();
           if (!item.autoMerge && item.draft) {
-            toast.error("Mark the PR as ready before enabling auto-merge");
+            toast.error("Mark the PR as ready before merging");
             return;
           }
           autoMergeOrFallback(queryClient, {
