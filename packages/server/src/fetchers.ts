@@ -1,5 +1,5 @@
 import type { Octokit } from "@octokit/rest";
-import { getCached, setCached } from "./cache.js";
+import { cacheAge, getCached, setCached } from "./cache.js";
 import { getClient, getInstance } from "./github-client.js";
 
 interface RepoSettings {
@@ -7,6 +7,7 @@ interface RepoSettings {
 }
 
 const inFlightRepoSettings = new Map<string, Promise<RepoSettings>>();
+const REPO_SETTINGS_TTL_MS = 2 * 60 * 1000;
 
 export async function getRepoSettings(
   client: Octokit,
@@ -15,7 +16,11 @@ export async function getRepoSettings(
   repo: string,
 ): Promise<RepoSettings> {
   const key = `${instanceId}:repo-settings:${owner}/${repo}`;
-  const cached = getCached<RepoSettings>(key);
+  const age = cacheAge(key);
+  const cached =
+    age !== null && age < REPO_SETTINGS_TTL_MS
+      ? getCached<RepoSettings>(key)
+      : null;
   if (cached) return cached;
   const existing = inFlightRepoSettings.get(key);
   if (existing) return existing;
