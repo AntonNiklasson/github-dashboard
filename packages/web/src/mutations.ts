@@ -101,7 +101,28 @@ export async function mergePr(
     restore(qc, prsSnap);
     restore(qc, reviewsSnap);
     restore(qc, recentSnap);
-    toast.error(err instanceof Error ? err.message : "Failed to merge PR");
+
+    // mergeStateStatus="CLEAN" can lie when repo rulesets impose extra
+    // requirements GraphQL doesn't reflect. Always attempt to arm
+    // auto-merge as a fallback — the server returns AutoMergeNotAllowedError
+    // when the repo really disallows it (more reliable than the cached
+    // autoMergeAllowed flag, which can be stale).
+    const reason = err instanceof Error ? err.message : "Failed to merge PR";
+    try {
+      await api.toggleAutoMerge(target.instanceId, target.repo, target.number);
+      qc.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
+        old?.map((pr) =>
+          matches(target)(pr) ? { ...pr, autoMerge: true } : pr,
+        ),
+      );
+      toast.success(`Auto-merge enabled — direct merge blocked: ${reason}`);
+      return;
+    } catch {
+      // Fallback failed (repo doesn't allow auto-merge, or some other
+      // error) — surface the original merge error since that's what the
+      // user tried to do.
+    }
+    toast.error(reason);
     throw err;
   }
 }

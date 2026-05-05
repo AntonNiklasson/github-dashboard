@@ -289,12 +289,19 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
       merge_method: "squash",
     });
   } catch (err) {
-    // GitHub returns helpful messages here ("A conversation must be
-    // resolved…", "At least 1 approving review is required…"). Forward
-    // the first line so the toast is actionable.
+    // GitHub's message is often multi-line: a generic header
+    // ("Repository rule violations found") followed by the actionable
+    // detail ("A conversation must be resolved…"). Join non-empty lines
+    // so the toast carries the reason, not just the header.
     const e = err as { response?: { data?: { message?: string } } };
-    const message =
-      e.response?.data?.message?.split("\n")[0] ?? "Failed to merge PR";
+    const raw = e.response?.data?.message;
+    const message = raw
+      ? raw
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0)
+          .join(" — ")
+      : "Failed to merge PR";
     return c.json({ error: "merge_rejected", message }, 422);
   }
 

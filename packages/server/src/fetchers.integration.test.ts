@@ -23,10 +23,16 @@ vi.mock("./github-client.js", () => ({
   }),
 }));
 
+const cacheTimes = new Map<string, number>();
 vi.mock("./cache.js", () => ({
   getCached: (key: string) => cacheStore.get(key) ?? null,
   setCached: (key: string, data: unknown) => {
     cacheStore.set(key, data);
+    cacheTimes.set(key, Date.now());
+  },
+  cacheAge: (key: string) => {
+    const t = cacheTimes.get(key);
+    return t == null ? null : Date.now() - t;
   },
 }));
 
