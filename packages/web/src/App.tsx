@@ -93,6 +93,7 @@ export function App() {
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme] = useAtom(themeAtom);
+
   useEffect(() => {
     applyTheme(theme);
     if (theme !== "system") return;
@@ -101,6 +102,7 @@ export function App() {
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
   }, [theme]);
+
   useEffect(() => {
     const hideCursorOnKeyboard = () => {
       if (!document.querySelector('[data-has-moved="true"]')) return;
