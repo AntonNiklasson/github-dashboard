@@ -93,7 +93,16 @@ export function App() {
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme] = useAtom(themeAtom);
-  useEffect(() => applyTheme(theme), [theme]);
+
+  useEffect(() => {
+    applyTheme(theme);
+    if (theme !== "system") return;
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyTheme(theme);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, [theme]);
+
   useEffect(() => {
     const hideCursorOnKeyboard = () => {
       if (!document.querySelector('[data-has-moved="true"]')) return;
