@@ -24,3 +24,9 @@ For UI/UX changes, type-checks aren't enough — drive the app via the **Playwri
 Typical loop: edit → dev server hot-reloads → snapshot/interact → check console + `.logs/*` → iterate.
 
 A `config.yaml` with valid tokens already exists locally; don't overwrite it.
+
+## Code style
+
+Things `oxfmt`/`oxlint` won't catch but we still care about:
+
+- **Blank lines around React hook calls.** Separate `useEffect`, `useMemo`, `useCallback`, etc. from surrounding code and from each other with a blank line above and below. Multi-statement hook bodies are easier to scan when they aren't visually fused to neighboring lines.
