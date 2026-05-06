@@ -55,6 +55,10 @@ export function setCached(key: string, data: unknown) {
   persistCache();
 }
 
+export function patchCache<T>(key: string, fn: (data: T | null) => T): void {
+  setCached(key, fn(getCached<T>(key)));
+}
+
 export function cacheAge(key: string): number | null {
   const entry = store.get(key);
   if (!entry) return null;

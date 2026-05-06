@@ -54,6 +54,9 @@ vi.mock("./cache.js", () => ({
   setCached: (key: string, data: unknown) => {
     cacheStore.set(key, data);
   },
+  patchCache: <T>(key: string, fn: (data: T | null) => T) => {
+    cacheStore.set(key, fn((cacheStore.get(key) ?? null) as T | null));
+  },
 }));
 
 vi.mock("./config.js", () => configStub);
@@ -372,6 +375,41 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
         "Repository rule violations found — A conversation must be resolved before this pull request can be merged.",
     });
   });
+
+  it("removes the merged PR from cached prs/reviews even when GitHub still reports it as open", async () => {
+    cacheStore.set("github:prs", [
+      { id: 1, repo: "o/r", number: 5, title: "x" },
+      { id: 2, repo: "o/r", number: 9, title: "other" },
+    ]);
+    cacheStore.set("github:reviews", [
+      { id: 11, repo: "o/r", number: 5, title: "x" },
+      { id: 12, repo: "o/r", number: 7, title: "other" },
+    ]);
+    cacheStore.set("github:recent-prs", []);
+    mockOctokit.pulls.merge.mockResolvedValue({});
+
+    // Simulate GitHub eventual consistency: search index still returns the PR.
+    fetchersStub.fetchPrs.mockResolvedValue([
+      { id: 1, repo: "o/r", number: 5, title: "x" },
+      { id: 2, repo: "o/r", number: 9, title: "other" },
+    ]);
+    fetchersStub.fetchReviews.mockResolvedValue([
+      { id: 11, repo: "o/r", number: 5, title: "x" },
+      { id: 12, repo: "o/r", number: 7, title: "other" },
+    ]);
+    fetchersStub.fetchRecentPrs.mockResolvedValue([]);
+
+    const res = await call("/github/prs/o/r/5/merge", { method: "POST" });
+    expect(res.status).toBe(200);
+    await waitForPendingResyncs();
+
+    const prs = cacheStore.get("github:prs") as Array<{ number: number }>;
+    const reviews = cacheStore.get("github:reviews") as Array<{
+      number: number;
+    }>;
+    expect(prs.map((p) => p.number)).toEqual([9]);
+    expect(reviews.map((r) => r.number)).toEqual([7]);
+  });
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
@@ -394,6 +432,38 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
     expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
     expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
     expect(fetchersStub.fetchRecentPrs).toHaveBeenCalledWith("github");
+  });
+
+  it("removes the closed PR from cached prs/reviews even when GitHub still reports it as open", async () => {
+    cacheStore.set("github:prs", [
+      { id: 1, repo: "o/r", number: 5, title: "x" },
+      { id: 2, repo: "o/r", number: 9, title: "other" },
+    ]);
+    cacheStore.set("github:reviews", [
+      { id: 11, repo: "o/r", number: 5, title: "x" },
+    ]);
+    cacheStore.set("github:recent-prs", []);
+    mockOctokit.pulls.update.mockResolvedValue({});
+
+    fetchersStub.fetchPrs.mockResolvedValue([
+      { id: 1, repo: "o/r", number: 5, title: "x" },
+      { id: 2, repo: "o/r", number: 9, title: "other" },
+    ]);
+    fetchersStub.fetchReviews.mockResolvedValue([
+      { id: 11, repo: "o/r", number: 5, title: "x" },
+    ]);
+    fetchersStub.fetchRecentPrs.mockResolvedValue([]);
+
+    const res = await call("/github/prs/o/r/5/close", { method: "POST" });
+    expect(res.status).toBe(200);
+    await waitForPendingResyncs();
+
+    const prs = cacheStore.get("github:prs") as Array<{ number: number }>;
+    const reviews = cacheStore.get("github:reviews") as Array<{
+      number: number;
+    }>;
+    expect(prs.map((p) => p.number)).toEqual([9]);
+    expect(reviews.map((r) => r.number)).toEqual([]);
   });
 });
 
@@ -465,6 +535,36 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/toggle-draft", () => {
       expect.stringContaining("convertPullRequestToDraft"),
       { id: "PR_1" },
     );
+  });
+
+  it("flips draft on the cached PR even when GitHub still reports the old draft state", async () => {
+    cacheStore.set("github:prs", [
+      { id: 1, repo: "o/r", number: 5, title: "x", draft: true },
+      { id: 2, repo: "o/r", number: 9, title: "other", draft: false },
+    ]);
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: { draft: true, node_id: "PR_1" },
+    });
+    mockOctokit.graphql.mockResolvedValue({});
+
+    // GitHub eventual consistency: still says draft=true.
+    fetchersStub.fetchPrs.mockResolvedValue([
+      { id: 1, repo: "o/r", number: 5, title: "x", draft: true },
+      { id: 2, repo: "o/r", number: 9, title: "other", draft: false },
+    ]);
+
+    const res = await call("/github/prs/o/r/5/toggle-draft", {
+      method: "POST",
+    });
+    expect(res.status).toBe(200);
+    await waitForPendingResyncs();
+
+    const prs = cacheStore.get("github:prs") as Array<{
+      number: number;
+      draft: boolean;
+    }>;
+    expect(prs.find((p) => p.number === 5)?.draft).toBe(false);
+    expect(prs.find((p) => p.number === 9)?.draft).toBe(false);
   });
 });
 
