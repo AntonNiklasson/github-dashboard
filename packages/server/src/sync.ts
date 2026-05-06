@@ -25,6 +25,88 @@ const ALL_KEYS: ResyncKey[] = ["prs", "recent-prs", "reviews", "notifications"];
 
 const pending = new Set<Promise<unknown>>();
 
+// Tracks recent client-driven mutations so a stale resync (GitHub's search
+// index lags by seconds after a merge/close/draft toggle) doesn't re-introduce
+// the old state. Entries expire after MUTATION_TTL.
+type MutationRecord =
+  | { kind: "removed"; repo: string; number: number; expiresAt: number }
+  | {
+      kind: "draft";
+      repo: string;
+      number: number;
+      draft: boolean;
+      expiresAt: number;
+    };
+
+const MUTATION_TTL = 60_000;
+const mutations = new Map<string, MutationRecord>();
+
+function mutationKey(instanceId: string, repo: string, number: number) {
+  return `${instanceId}:${repo}:${number}`;
+}
+
+export function recordMutation(
+  instanceId: string,
+  m:
+    | { kind: "removed"; repo: string; number: number }
+    | { kind: "draft"; repo: string; number: number; draft: boolean },
+): void {
+  mutations.set(mutationKey(instanceId, m.repo, m.number), {
+    ...m,
+    expiresAt: Date.now() + MUTATION_TTL,
+  });
+}
+
+function activeMutations(instanceId: string): MutationRecord[] {
+  const now = Date.now();
+  const out: MutationRecord[] = [];
+  for (const [k, v] of mutations) {
+    if (v.expiresAt <= now) {
+      mutations.delete(k);
+      continue;
+    }
+    if (k.startsWith(`${instanceId}:`)) out.push(v);
+  }
+  return out;
+}
+
+interface ListItem {
+  repo: string;
+  number: number;
+  draft?: boolean;
+}
+
+function applyMutations(
+  instanceId: string,
+  key: ResyncKey,
+  data: unknown,
+): unknown {
+  if (key !== "prs" && key !== "reviews") return data;
+  const muts = activeMutations(instanceId);
+  if (muts.length === 0) return data;
+  const items = data as ListItem[];
+
+  const filtered = items.filter(
+    (item) =>
+      !muts.some(
+        (m) =>
+          m.kind === "removed" &&
+          m.repo === item.repo &&
+          m.number === item.number,
+      ),
+  );
+
+  if (key === "reviews") return filtered;
+
+  return filtered.map((item) => {
+    const draftMut = muts.find(
+      (m): m is Extract<MutationRecord, { kind: "draft" }> =>
+        m.kind === "draft" && m.repo === item.repo && m.number === item.number,
+    );
+    return draftMut ? { ...item, draft: draftMut.draft } : item;
+  });
+}
+
 export async function resyncInstance(
   instanceId: string,
   keys: ResyncKey[] = ALL_KEYS,
@@ -33,7 +115,10 @@ export async function resyncInstance(
     keys.map(async (key) => {
       try {
         const data = await RESYNC_FETCHERS[key](instanceId);
-        setCached(`${instanceId}:${key}`, data);
+        setCached(
+          `${instanceId}:${key}`,
+          applyMutations(instanceId, key, data),
+        );
       } catch (err) {
         console.error(
           `Sync failed for ${instanceId}:${key}:`,

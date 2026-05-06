@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Octokit } from "@octokit/rest";
-import { getCached, setCached } from "./cache.js";
+import { getCached, patchCache, setCached } from "./cache.js";
 import {
   type ConfigSchema,
   configExists,
@@ -17,7 +17,27 @@ import {
   latestCheckRunsByName,
 } from "./fetchers.js";
 import { clearClients, getClient, getInstance } from "./github-client.js";
-import { scheduleResync } from "./sync.js";
+import { recordMutation, scheduleResync } from "./sync.js";
+
+interface CachedListItem {
+  repo: string;
+  number: number;
+  draft?: boolean;
+}
+
+function removeFromList(repo: string, number: number) {
+  return (data: CachedListItem[] | null): CachedListItem[] =>
+    (data ?? []).filter(
+      (item) => !(item.repo === repo && item.number === number),
+    );
+}
+
+function setDraftInList(repo: string, number: number, draft: boolean) {
+  return (data: CachedListItem[] | null): CachedListItem[] =>
+    (data ?? []).map((item) =>
+      item.repo === repo && item.number === number ? { ...item, draft } : item,
+    );
+}
 
 const api = new Hono();
 
@@ -279,13 +299,15 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/auto-merge", async (c) => {
 // Merge a PR directly (squash)
 api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
+  const num = Number(prNumber);
+  const fullRepo = `${owner}/${repo}`;
   const client = await getClient(instanceId);
 
   try {
     await client.pulls.merge({
       owner,
       repo,
-      pull_number: Number(prNumber),
+      pull_number: num,
       merge_method: "squash",
     });
   } catch (err) {
@@ -305,6 +327,9 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
     return c.json({ error: "merge_rejected", message }, 422);
   }
 
+  patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
+  patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
+  recordMutation(instanceId, { kind: "removed", repo: fullRepo, number: num });
   scheduleResync(instanceId, ["prs", "reviews", "recent-prs"]);
 
   return c.json({ ok: true });
@@ -313,15 +338,20 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
 // Close a PR
 api.post("/:instanceId/prs/:owner/:repo/:prNumber/close", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
+  const num = Number(prNumber);
+  const fullRepo = `${owner}/${repo}`;
   const client = await getClient(instanceId);
 
   await client.pulls.update({
     owner,
     repo,
-    pull_number: Number(prNumber),
+    pull_number: num,
     state: "closed",
   });
 
+  patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
+  patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
+  recordMutation(instanceId, { kind: "removed", repo: fullRepo, number: num });
   scheduleResync(instanceId, ["prs", "reviews", "recent-prs"]);
 
   return c.json({ ok: true });
@@ -355,6 +385,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/toggle-draft", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
   const client = await getClient(instanceId);
   const num = Number(prNumber);
+  const fullRepo = `${owner}/${repo}`;
 
   const { data: pr } = await client.pulls.get({
     owner,
@@ -369,9 +400,17 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/toggle-draft", async (c) => {
 
   await client.graphql(mutation, { id: pr.node_id });
 
+  const newDraft = !pr.draft;
+  patchCache(`${instanceId}:prs`, setDraftInList(fullRepo, num, newDraft));
+  recordMutation(instanceId, {
+    kind: "draft",
+    repo: fullRepo,
+    number: num,
+    draft: newDraft,
+  });
   scheduleResync(instanceId, ["prs"]);
 
-  return c.json({ ok: true, draft: !pr.draft });
+  return c.json({ ok: true, draft: newDraft });
 });
 
 // Rerun CI for a PR
