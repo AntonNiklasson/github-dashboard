@@ -132,7 +132,7 @@
     @apply font-sans;
     }
   html.hide-cursor {
-    @apply cursor-none;
+    @apply pointer-events-none cursor-none;
     }
 }
 
