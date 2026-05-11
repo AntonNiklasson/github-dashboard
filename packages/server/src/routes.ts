@@ -272,7 +272,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/auto-merge", async (c) => {
   if (pr.auto_merge) {
     // Disable auto-merge via GraphQL
     await client.graphql(
-      `mutation($id: ID!) { disableAutoMerge(input: { pullRequestId: $id }) { pullRequest { id } } }`,
+      `mutation($id: ID!) { disablePullRequestAutoMerge(input: { pullRequestId: $id }) { pullRequest { id } } }`,
       { id: pr.node_id },
     );
   } else {
