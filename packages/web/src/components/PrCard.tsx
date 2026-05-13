@@ -253,7 +253,7 @@ export function PrCard({
                         variant="tertiary"
                         className="text-[10px]"
                       >
-                        opened
+                        created
                       </Text>
                       <TimeAgo date={createdAt} className="text-[10px]" />
                     </span>
