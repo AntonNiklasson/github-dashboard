@@ -318,7 +318,7 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/auto-merge", () => {
     const res = await call("/github/prs/o/r/5/auto-merge", { method: "POST" });
     expect(await res.json()).toEqual({ ok: true, autoMerge: false });
     expect(mockOctokit.graphql).toHaveBeenCalledWith(
-      expect.stringContaining("disableAutoMerge"),
+      expect.stringContaining("disablePullRequestAutoMerge"),
       { id: "PR_123" },
     );
   });
