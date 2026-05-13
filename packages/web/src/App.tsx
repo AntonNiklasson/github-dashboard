@@ -32,6 +32,18 @@ import { SectionHeader } from "./components/SectionHeader";
 import { SettingsModal } from "./components/SettingsModal";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { Skeleton } from "./components/Skeleton";
+import { SortControl } from "./components/SortControl";
+import {
+  NOTIFICATION_SORT_FIELDS,
+  PR_SORT_FIELDS,
+  REVIEW_SORT_FIELDS,
+  compareNotifications,
+  comparePrs,
+  compareReviews,
+  notificationSortAtom,
+  prSortAtom,
+  reviewSortAtom,
+} from "./sort";
 import {
   type Section,
   useAllAuthoredPrs,
@@ -608,20 +620,36 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const queryClient = useQueryClient();
   const { instances, prs, recentPrs, reviews, notifications } = source;
   const [dismissed, setDismissed] = useAtom(dismissedReviewsAtom);
+  const [prSort, setPrSort] = useAtom(prSortAtom);
+  const [reviewSort, setReviewSort] = useAtom(reviewSortAtom);
+  const [notificationSort, setNotificationSort] = useAtom(notificationSortAtom);
+
+  const sortedPrs = useMemo(
+    () => [...prs.data].sort((a, b) => comparePrs(a, b, prSort)),
+    [prs.data, prSort],
+  );
 
   const filteredReviews = useMemo(
     () =>
-      reviews.data.filter(
-        (r) => !isDismissed(dismissed, r.repo, r.number, r.updatedAt),
+      reviews.data
+        .filter((r) => !isDismissed(dismissed, r.repo, r.number, r.updatedAt))
+        .sort((a, b) => compareReviews(a, b, reviewSort)),
+    [reviews.data, dismissed, reviewSort],
+  );
+
+  const sortedNotifications = useMemo(
+    () =>
+      [...notifications.data].sort((a, b) =>
+        compareNotifications(a, b, notificationSort),
       ),
-    [reviews.data, dismissed],
+    [notifications.data, notificationSort],
   );
 
   const sections: Section[] = ["prs", "reviews", "notifications"];
   const itemCounts = {
-    prs: prs.data.length + recentPrs.data.length,
+    prs: sortedPrs.length + recentPrs.data.length,
     reviews: filteredReviews.length,
-    notifications: notifications.data.length,
+    notifications: sortedNotifications.length,
   };
 
   const nav = useKeyboardNav(sections, itemCounts);
@@ -699,16 +727,16 @@ function Dashboard({ source }: { source: DashboardSource }) {
   };
 
   const navRef = useRef(nav);
-  const prsRef = useRef(prs.data);
+  const prsRef = useRef(sortedPrs);
   const recentPrsRef = useRef(recentPrs.data);
   const reviewsRef = useRef(filteredReviews);
-  const notificationsRef = useRef(notifications.data);
+  const notificationsRef = useRef(sortedNotifications);
   const instancesRef = useRef(instances);
   navRef.current = nav;
-  prsRef.current = prs.data;
+  prsRef.current = sortedPrs;
   recentPrsRef.current = recentPrs.data;
   reviewsRef.current = filteredReviews;
-  notificationsRef.current = notifications.data;
+  notificationsRef.current = sortedNotifications;
   instancesRef.current = instances;
 
   const getFocused = () =>
@@ -920,6 +948,45 @@ function Dashboard({ source }: { source: DashboardSource }) {
             })
             .catch(() => {});
         }
+      } else if (e.key === "s") {
+        if (activeSection === "prs") {
+          setPrSort((cur) => {
+            const i = PR_SORT_FIELDS.findIndex((f) => f.field === cur.field);
+            const next = PR_SORT_FIELDS[(i + 1) % PR_SORT_FIELDS.length];
+            return { field: next.field, dir: "desc" };
+          });
+        } else if (activeSection === "reviews") {
+          setReviewSort((cur) => {
+            const i = REVIEW_SORT_FIELDS.findIndex(
+              (f) => f.field === cur.field,
+            );
+            const next =
+              REVIEW_SORT_FIELDS[(i + 1) % REVIEW_SORT_FIELDS.length];
+            return { field: next.field, dir: "desc" };
+          });
+        } else if (activeSection === "notifications") {
+          setNotificationSort((cur) => {
+            const i = NOTIFICATION_SORT_FIELDS.findIndex(
+              (f) => f.field === cur.field,
+            );
+            const next =
+              NOTIFICATION_SORT_FIELDS[
+                (i + 1) % NOTIFICATION_SORT_FIELDS.length
+              ];
+            return { field: next.field, dir: "desc" };
+          });
+        }
+        e.preventDefault();
+      } else if (e.key === "S") {
+        const flip = (d: "asc" | "desc") => (d === "asc" ? "desc" : "asc");
+        if (activeSection === "prs") {
+          setPrSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
+        } else if (activeSection === "reviews") {
+          setReviewSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
+        } else if (activeSection === "notifications") {
+          setNotificationSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
+        }
+        e.preventDefault();
       }
     };
 
@@ -939,6 +1006,13 @@ function Dashboard({ source }: { source: DashboardSource }) {
           nav.setActiveSection("prs");
           nav.setFocusIndex(0);
         }}
+        right={
+          <SortControl
+            fields={PR_SORT_FIELDS}
+            value={prSort}
+            onChange={setPrSort}
+          />
+        }
       >
         {prs.isLoading ? (
           <Skeleton />
@@ -946,14 +1020,14 @@ function Dashboard({ source }: { source: DashboardSource }) {
           <ErrorMessage message={prs.error.message} />
         ) : (
           <PrList
-            prs={prs.data}
+            prs={sortedPrs}
             focusIndex={nav.focusIndex}
             isFocusedSection={nav.activeSection === "prs"}
             togglingDraftId={togglingDraftId ?? undefined}
             recentPrs={recentPrs.data}
             editingPrNumber={editingPrNumber ?? undefined}
             onSaveTitle={async (prNumber, title) => {
-              const pr = prs.data.find((p) => p.number === prNumber);
+              const pr = sortedPrs.find((p) => p.number === prNumber);
               if (!pr) return;
               const instanceId = pr.instanceId ?? instances[0]?.id;
               if (!instanceId) return;
@@ -980,6 +1054,13 @@ function Dashboard({ source }: { source: DashboardSource }) {
           nav.setActiveSection("reviews");
           nav.setFocusIndex(0);
         }}
+        right={
+          <SortControl
+            fields={REVIEW_SORT_FIELDS}
+            value={reviewSort}
+            onChange={setReviewSort}
+          />
+        }
       >
         {reviews.isLoading ? (
           <Skeleton />
@@ -1004,6 +1085,13 @@ function Dashboard({ source }: { source: DashboardSource }) {
           nav.setActiveSection("notifications");
           nav.setFocusIndex(0);
         }}
+        right={
+          <SortControl
+            fields={NOTIFICATION_SORT_FIELDS}
+            value={notificationSort}
+            onChange={setNotificationSort}
+          />
+        }
       >
         {notifications.isLoading ? (
           <Skeleton />
@@ -1011,7 +1099,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
           <ErrorMessage message={notifications.error.message} />
         ) : (
           <NotificationList
-            notifications={notifications.data}
+            notifications={sortedNotifications}
             focusIndex={nav.focusIndex}
             isFocusedSection={nav.activeSection === "notifications"}
           />
@@ -1202,6 +1290,7 @@ function Column({
   isActive,
   isFetching,
   onActivate,
+  right,
   children,
 }: {
   section: Section;
@@ -1210,6 +1299,7 @@ function Column({
   isActive: boolean;
   isFetching: boolean;
   onActivate: () => void;
+  right?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -1222,6 +1312,7 @@ function Column({
           isActive={isActive}
           isFetching={isFetching}
           onClick={onActivate}
+          right={right}
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-4 scroll-pt-2 scroll-pb-2">

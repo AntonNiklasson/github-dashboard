@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Section } from "../hooks";
 import { Text } from "./Text";
 
@@ -8,12 +9,19 @@ interface Props {
   isActive: boolean;
   isFetching: boolean;
   onClick: () => void;
+  right?: ReactNode;
 }
 
-export function SectionHeader({ label, count, isFetching, onClick }: Props) {
+export function SectionHeader({
+  label,
+  count,
+  isFetching,
+  onClick,
+  right,
+}: Props) {
   return (
     <div
-      className="flex cursor-pointer items-center justify-between"
+      className="flex cursor-pointer items-center justify-between gap-3"
       onClick={onClick}
     >
       <div className="flex items-baseline gap-2">
@@ -29,9 +37,12 @@ export function SectionHeader({ label, count, isFetching, onClick }: Props) {
           {count}
         </Text>
       </div>
-      {isFetching && (
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
-      )}
+      <div className="flex items-center gap-2">
+        {right}
+        {isFetching && (
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
+        )}
+      </div>
     </div>
   );
 }
