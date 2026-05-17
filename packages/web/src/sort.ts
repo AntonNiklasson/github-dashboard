@@ -73,6 +73,7 @@ export function comparePrs(a: PR, b: PR, sort: SortState<PrSortField>) {
     case "size":
       return sign * (a.additions + a.deletions - (b.additions + b.deletions));
   }
+  return 0;
 }
 
 export function compareReviews(
@@ -91,6 +92,7 @@ export function compareReviews(
     case "author":
       return sign * cmpString(a.author, b.author);
   }
+  return 0;
 }
 
 export function compareNotifications(
@@ -107,4 +109,5 @@ export function compareNotifications(
     case "repo":
       return sign * cmpString(a.repo, b.repo);
   }
+  return 0;
 }
