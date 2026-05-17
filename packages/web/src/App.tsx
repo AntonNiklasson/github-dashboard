@@ -948,43 +948,44 @@ function Dashboard({ source }: { source: DashboardSource }) {
             })
             .catch(() => {});
         }
-      } else if (e.key === "s") {
-        if (activeSection === "prs") {
-          setPrSort((cur) => {
-            const i = PR_SORT_FIELDS.findIndex((f) => f.field === cur.field);
-            const next = PR_SORT_FIELDS[(i + 1) % PR_SORT_FIELDS.length];
-            return { field: next.field, dir: "desc" };
-          });
-        } else if (activeSection === "reviews") {
-          setReviewSort((cur) => {
-            const i = REVIEW_SORT_FIELDS.findIndex(
-              (f) => f.field === cur.field,
-            );
-            const next =
-              REVIEW_SORT_FIELDS[(i + 1) % REVIEW_SORT_FIELDS.length];
-            return { field: next.field, dir: "desc" };
-          });
-        } else if (activeSection === "notifications") {
-          setNotificationSort((cur) => {
-            const i = NOTIFICATION_SORT_FIELDS.findIndex(
-              (f) => f.field === cur.field,
-            );
-            const next =
-              NOTIFICATION_SORT_FIELDS[
-                (i + 1) % NOTIFICATION_SORT_FIELDS.length
-              ];
-            return { field: next.field, dir: "desc" };
-          });
-        }
-        e.preventDefault();
-      } else if (e.key === "S") {
-        const flip = (d: "asc" | "desc") => (d === "asc" ? "desc" : "asc");
-        if (activeSection === "prs") {
-          setPrSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
-        } else if (activeSection === "reviews") {
-          setReviewSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
-        } else if (activeSection === "notifications") {
-          setNotificationSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
+      } else if (e.code === "KeyS") {
+        if (e.shiftKey) {
+          const flip = (d: "asc" | "desc") => (d === "asc" ? "desc" : "asc");
+          if (activeSection === "prs") {
+            setPrSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
+          } else if (activeSection === "reviews") {
+            setReviewSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
+          } else if (activeSection === "notifications") {
+            setNotificationSort((cur) => ({ ...cur, dir: flip(cur.dir) }));
+          }
+        } else {
+          if (activeSection === "prs") {
+            setPrSort((cur) => {
+              const i = PR_SORT_FIELDS.findIndex((f) => f.field === cur.field);
+              const next = PR_SORT_FIELDS[(i + 1) % PR_SORT_FIELDS.length];
+              return { field: next.field, dir: "desc" };
+            });
+          } else if (activeSection === "reviews") {
+            setReviewSort((cur) => {
+              const i = REVIEW_SORT_FIELDS.findIndex(
+                (f) => f.field === cur.field,
+              );
+              const next =
+                REVIEW_SORT_FIELDS[(i + 1) % REVIEW_SORT_FIELDS.length];
+              return { field: next.field, dir: "desc" };
+            });
+          } else if (activeSection === "notifications") {
+            setNotificationSort((cur) => {
+              const i = NOTIFICATION_SORT_FIELDS.findIndex(
+                (f) => f.field === cur.field,
+              );
+              const next =
+                NOTIFICATION_SORT_FIELDS[
+                  (i + 1) % NOTIFICATION_SORT_FIELDS.length
+                ];
+              return { field: next.field, dir: "desc" };
+            });
+          }
         }
         e.preventDefault();
       }
