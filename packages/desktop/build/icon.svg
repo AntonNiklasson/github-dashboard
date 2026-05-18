@@ -1,0 +1,8 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Per Apple HIG, the visible squircle sits inside a ~824px grid with
+       transparent padding so the icon doesn't fill the dock tile. -->
+  <rect x="100" y="100" width="824" height="824" rx="184" ry="184" fill="#0d0d0d"/>
+
+  <circle cx="342" cy="512" r="130" fill="#22c55e"/>
+  <circle cx="682" cy="512" r="130" fill="#f59e0b"/>
+</svg>

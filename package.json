@@ -4,8 +4,10 @@
   "packageManager": "pnpm@10.29.3",
   "scripts": {
     "dev": "mkdir -p .logs && concurrently -n server,web -c blue,green \"pnpm --filter @github-dashboard/server dev 2>&1 | tee .logs/server.log\" \"pnpm --filter @github-dashboard/web dev 2>&1 | tee .logs/web.log\"",
+    "dev:desktop": "mkdir -p .logs && pnpm --filter @github-dashboard/desktop build && concurrently -n server,web,desktop -c blue,green,magenta \"pnpm --filter @github-dashboard/server dev 2>&1 | tee .logs/server.log\" \"pnpm --filter @github-dashboard/web dev 2>&1 | tee .logs/web.log\" \"wait-on http://localhost:7200 && pnpm --filter @github-dashboard/desktop dev 2>&1 | tee .logs/desktop.log\"",
     "demo": "DEMO=1 pnpm dev",
     "build": "pnpm --filter @github-dashboard/server build && pnpm --filter @github-dashboard/web build",
+    "build:desktop": "pnpm build && pnpm --filter @github-dashboard/desktop build && pnpm --filter @github-dashboard/desktop package",
     "lint": "oxlint",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
@@ -19,11 +21,13 @@
     "husky": "^9.1.7",
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.10",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "wait-on": "^8.0.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "esbuild",
+      "electron"
     ]
   }
 }

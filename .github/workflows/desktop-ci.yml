@@ -1,0 +1,32 @@
+name: Desktop CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Build (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: pnpm --filter @github-dashboard/desktop build
+
+      - name: Package (unsigned, dir-only)
+        run: pnpm --filter @github-dashboard/desktop package:dir
+        env:
+          # Skip code-signing in CI — we just want to validate the package step.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
