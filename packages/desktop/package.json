@@ -1,0 +1,65 @@
+{
+  "name": "@github-dashboard/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Electron desktop wrapper for github-dashboard",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsgo && node scripts/bundle-server.mjs",
+    "typecheck": "tsgo --noEmit",
+    "dev": "electron .",
+    "package": "electron-builder",
+    "package:dir": "electron-builder --dir"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@github-dashboard/server": "workspace:*",
+    "@types/node": "^25.5.0",
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.0"
+  },
+  "build": {
+    "appId": "dev.antonniklasson.github-dashboard",
+    "productName": "GitHub Dashboard",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/server.mjs",
+        "to": "server.mjs"
+      },
+      {
+        "from": "../web/dist",
+        "to": "web"
+      }
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "AntonNiklasson",
+      "repo": "github-dashboard"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ]
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "category": "Development"
+    }
+  }
+}
