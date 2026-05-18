@@ -119,18 +119,12 @@ jobs:
 
       - run: pnpm --filter @github-dashboard/desktop build
 
-      - name: Package + publish (pre-release)
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'rc'
-        # Override the package.json publish.releaseType (default: draft) so the
-        # rc release is created as a real GitHub pre-release. electron-updater
-        # ignores pre-releases by default; clients opt in to consume them.
-        run: pnpm --filter @github-dashboard/desktop package --publish always --config.publish.releaseType=prerelease
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
-      - name: Package + publish (draft release)
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
+      # Always publish to a draft first. GitHub's immutable-releases behavior
+      # locks published releases (including pre-releases) against further
+      # changes, so creating one straight as pre-release breaks the
+      # create-then-upload-assets sequence electron-builder uses. Drafts are
+      # mutable; the promote step below flips it to pre-release after uploads.
+      - name: Package + publish (draft)
         run: pnpm --filter @github-dashboard/desktop package --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -138,3 +132,9 @@ jobs:
           # ship unsigned. macOS users will need to right-click → Open the first
           # time.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Promote draft to pre-release (rc mode)
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'rc'
+        run: gh release edit "${{ needs.bump.outputs.ref }}" --draft=false --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
