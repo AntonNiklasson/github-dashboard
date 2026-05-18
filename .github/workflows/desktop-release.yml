@@ -3,10 +3,11 @@ name: Desktop Release
 on:
   # Manual trigger from the Actions UI. Pick a mode:
   #   - rc: bump packages/desktop/package.json to the next -rc.N (starting
-  #     a new rc cycle for the next patch if currently on a stable version),
+  #     a new rc cycle on the next patch if currently on a stable version),
   #     commit, tag, push, then build + publish a GitHub *pre-release*.
-  #   - patch / minor / major: bump to the next stable version, commit, tag,
-  #     push, then build + publish a *draft* GitHub Release.
+  #   - release: bump to the next patch (or drop the -rc.N suffix when
+  #     promoting a release candidate), commit, tag, push, then build +
+  #     publish a *draft* GitHub Release.
   workflow_dispatch:
     inputs:
       mode:
@@ -16,11 +17,10 @@ on:
         default: "rc"
         options:
           - rc
-          - patch
-          - minor
-          - major
+          - release
   # Tag-push fallback — push a v*.*.* tag yourself and the build will run.
-  # Useful if you bumped via PR and just want CI to publish.
+  # Useful if you want to skip the patch-bump default for a one-off
+  # minor / major / custom version.
   push:
     tags:
       - "v*.*.*"
@@ -54,17 +54,20 @@ jobs:
         working-directory: packages/desktop
         run: |
           mode="${{ inputs.mode }}"
+          current=$(node -p "require('./package.json').version")
           if [ "$mode" = "rc" ]; then
-            current=$(node -p "require('./package.json').version")
             if [[ "$current" == *"-rc."* ]]; then
-              # Already on rc.N — increment to rc.N+1
+              # Already on rc.N — increment to rc.N+1.
               new_version=$(npm version prerelease -m "release: desktop %s")
             else
-              # Stable → start a new rc cycle on the next patch
+              # Stable → start a new rc cycle on the next patch.
               new_version=$(npm version prepatch --preid=rc -m "release: desktop %s")
             fi
           else
-            new_version=$(npm version "$mode" -m "release: desktop %s")
+            # release mode. If we're on an rc, npm version patch strips the
+            # -rc.N suffix and lands on the base patch (e.g. 0.0.2-rc.3 → 0.0.2).
+            # Otherwise it bumps the patch (0.0.1 → 0.0.2).
+            new_version=$(npm version patch -m "release: desktop %s")
           fi
           echo "ref=$new_version" >> "$GITHUB_OUTPUT"
 
@@ -111,7 +114,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Package + publish (draft release)
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'rc')
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
         run: pnpm --filter @github-dashboard/desktop package --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
