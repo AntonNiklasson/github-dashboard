@@ -587,6 +587,7 @@ api.get("/:instanceId/prs/:owner/:repo/:prNumber/comments", async (c) => {
       body: c.body ?? "",
       createdAt: c.created_at,
       path: null as string | null,
+      inReplyToId: null as number | null,
     })),
     ...reviewComments.data.map((c) => ({
       id: c.id,
@@ -594,6 +595,7 @@ api.get("/:instanceId/prs/:owner/:repo/:prNumber/comments", async (c) => {
       body: c.body,
       createdAt: c.created_at,
       path: c.path,
+      inReplyToId: c.in_reply_to_id ?? null,
     })),
   ].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),

@@ -187,6 +187,7 @@ export const api = {
         body: string;
         createdAt: string;
         path: string | null;
+        inReplyToId: number | null;
       }[]
     >(`/api/${instanceId}/prs/${owner}/${name}/${prNumber}/comments`);
   },

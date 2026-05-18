@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, GitBranch, GitCommit } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { type Comment, buildThreads } from "../pr-comment-threads";
 import { MarkdownBody } from "./MarkdownBody";
 import { ReviewStamp } from "./ReviewStamp";
 import { StatusBadge } from "./StatusBadge";
@@ -410,7 +411,7 @@ function CommentsTab({
   isLoading,
 }: {
   pr: PanelPr;
-  comments: Awaited<ReturnType<typeof api.prComments>> | undefined;
+  comments: Comment[] | undefined;
   isLoading: boolean;
 }) {
   if (isLoading) {
@@ -421,27 +422,53 @@ function CommentsTab({
     return <p className="text-sm text-muted-foreground">No comments</p>;
   }
 
+  const threads = buildThreads(comments);
+
   return (
     <div className="space-y-3">
-      {comments.map((c) => (
-        <div
-          key={c.id}
-          className="rounded-md border bg-card shadow-sm overflow-hidden"
-        >
-          <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{c.author}</span>
-            <TimeAgo date={c.createdAt} />
-            {c.path && (
-              <span className="ml-auto truncate font-mono text-[11px]">
-                {c.path}
-              </span>
-            )}
-          </div>
-          <div className="px-3 py-2">
-            <MarkdownBody body={c.body} prUrl={pr.url} repo={pr.repo} />
-          </div>
+      {threads.map(({ root, replies }) => (
+        <div key={root.id} className="space-y-2">
+          <CommentCard comment={root} pr={pr} />
+          {replies.length > 0 && (
+            <div className="ml-4 space-y-2 border-l-2 border-muted pl-3">
+              <div className="text-[11px] text-muted-foreground">
+                {replies.length} {replies.length === 1 ? "reply" : "replies"}
+              </div>
+              {replies.map((r) => (
+                <CommentCard key={r.id} comment={r} pr={pr} isReply />
+              ))}
+            </div>
+          )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function CommentCard({
+  comment,
+  pr,
+  isReply,
+}: {
+  comment: Comment;
+  pr: PanelPr;
+  isReply?: boolean;
+}) {
+  return (
+    <div className="rounded-md border bg-card shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{comment.author}</span>
+        <TimeAgo date={comment.createdAt} />
+        {isReply && <span className="text-[11px] italic">replied</span>}
+        {comment.path && (
+          <span className="ml-auto truncate font-mono text-[11px]">
+            {comment.path}
+          </span>
+        )}
+      </div>
+      <div className="px-3 py-2">
+        <MarkdownBody body={comment.body} prUrl={pr.url} repo={pr.repo} />
+      </div>
     </div>
   );
 }
