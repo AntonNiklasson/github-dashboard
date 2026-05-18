@@ -6,6 +6,11 @@ import path from "node:path";
 
 const DEV_WEB_URL = "http://localhost:7200";
 
+// In dev, `app.name` defaults to the package.json `name` ("@github-dashboard/
+// desktop"), which surfaces as "Electron" in the macOS app menu. Force it
+// here so the dev menu matches the packaged build (Info.plist sets it there).
+app.setName("GitHub Dashboard");
+
 let mainWindow: BrowserWindow | null = null;
 let serverPort = 0;
 
