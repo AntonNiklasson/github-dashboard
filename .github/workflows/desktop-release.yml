@@ -138,3 +138,32 @@ jobs:
         run: gh release edit "${{ needs.bump.outputs.ref }}" --draft=false --prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build a friendlier release body: direct .dmg links up top + GitHub's
+      # auto-generated commit list below. The raw asset list (zips, blockmaps,
+      # latest-mac.yml) still renders below the body, but most users only see
+      # the .dmg link now.
+      - name: Write release notes
+        run: |
+          set -euo pipefail
+          tag="${{ needs.bump.outputs.ref || github.ref_name }}"
+          version="${tag#v}"
+          repo="${{ github.repository }}"
+          base_url="https://github.com/${repo}/releases/download/${tag}"
+          changelog=$(gh api -X POST "/repos/${repo}/releases/generate-notes" \
+            -f tag_name="$tag" --jq '.body')
+          {
+            echo "## Download"
+            echo
+            echo "- **Apple Silicon (M1/M2/M3/M4):** [GitHub-Dashboard-${version}-arm64.dmg](${base_url}/GitHub-Dashboard-${version}-arm64.dmg)"
+            echo "- **Intel:** [GitHub-Dashboard-${version}.dmg](${base_url}/GitHub-Dashboard-${version}.dmg)"
+            echo
+            echo "Other files in the asset list are consumed by the in-app auto-updater."
+            echo
+            echo "---"
+            echo
+            echo "$changelog"
+          } > /tmp/notes.md
+          gh release edit "$tag" --notes-file /tmp/notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
