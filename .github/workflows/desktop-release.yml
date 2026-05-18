@@ -4,8 +4,11 @@ on:
   # Manual trigger from the Actions UI. Pick a mode:
   #   - dry-run: build installers on all platforms, upload as artifacts,
   #     don't touch the repo or GitHub Releases. Use this to validate.
-  #   - patch / minor / major: bump packages/desktop/package.json, commit,
-  #     tag, push, then build + publish a draft GitHub Release.
+  #   - rc: bump packages/desktop/package.json to the next -rc.N (starting
+  #     a new rc cycle for the next patch if currently on a stable version),
+  #     commit, tag, push, then build + publish a GitHub *pre-release*.
+  #   - patch / minor / major: bump to the next stable version, commit, tag,
+  #     push, then build + publish a *draft* GitHub Release.
   workflow_dispatch:
     inputs:
       mode:
@@ -15,6 +18,7 @@ on:
         default: "dry-run"
         options:
           - dry-run
+          - rc
           - patch
           - minor
           - major
@@ -52,7 +56,19 @@ jobs:
         id: bump
         working-directory: packages/desktop
         run: |
-          new_version=$(npm version ${{ inputs.mode }} -m "release: desktop %s")
+          mode="${{ inputs.mode }}"
+          if [ "$mode" = "rc" ]; then
+            current=$(node -p "require('./package.json').version")
+            if [[ "$current" == *"-rc."* ]]; then
+              # Already on rc.N — increment to rc.N+1
+              new_version=$(npm version prerelease -m "release: desktop %s")
+            else
+              # Stable → start a new rc cycle on the next patch
+              new_version=$(npm version prepatch --preid=rc -m "release: desktop %s")
+            fi
+          else
+            new_version=$(npm version "$mode" -m "release: desktop %s")
+          fi
           echo "ref=$new_version" >> "$GITHUB_OUTPUT"
 
       - run: git push --follow-tags
@@ -95,8 +111,18 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
+      - name: Package + publish (pre-release)
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'rc'
+        # Override the package.json publish.releaseType (default: draft) so the
+        # rc release is created as a real GitHub pre-release. electron-updater
+        # ignores pre-releases by default; clients opt in to consume them.
+        run: pnpm --filter @github-dashboard/desktop package --publish always --config.publish.releaseType=prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
       - name: Package + publish (draft release)
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'dry-run')
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'dry-run' && inputs.mode != 'rc')
         run: pnpm --filter @github-dashboard/desktop package --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
