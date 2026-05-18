@@ -1,5 +1,6 @@
 {
   "name": "@github-dashboard/desktop",
+  "productName": "GitHub Dashboard",
   "private": true,
   "version": "0.0.0",
   "description": "Electron desktop wrapper for github-dashboard",

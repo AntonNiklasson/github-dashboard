@@ -85,8 +85,10 @@ async function createWindow(): Promise<void> {
 
 function buildAppMenu(): Menu {
   const isMac = process.platform === "darwin";
-  const openSettings = () => {
-    mainWindow?.webContents.send("ghd:open-settings");
+  const settingsItem: MenuItemConstructorOptions = {
+    label: "Settings…",
+    accelerator: "CmdOrCtrl+,",
+    click: () => mainWindow?.webContents.send("ghd:open-settings"),
   };
 
   const template: MenuItemConstructorOptions[] = [
@@ -96,6 +98,8 @@ function buildAppMenu(): Menu {
             label: app.name,
             submenu: [
               { role: "about" },
+              { type: "separator" },
+              settingsItem,
               { type: "separator" },
               { role: "services" },
               { type: "separator" },
@@ -111,12 +115,8 @@ function buildAppMenu(): Menu {
     {
       label: "File",
       submenu: [
-        {
-          label: "Settings…",
-          accelerator: "CmdOrCtrl+,",
-          click: openSettings,
-        },
-        { type: "separator" },
+        // On non-mac, settings lives here since there's no app menu.
+        ...(isMac ? [] : [settingsItem, { type: "separator" } as const]),
         isMac ? { role: "close" } : { role: "quit" },
       ],
     },
