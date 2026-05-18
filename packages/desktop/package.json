@@ -45,7 +45,8 @@
     "publish": {
       "provider": "github",
       "owner": "AntonNiklasson",
-      "repo": "github-dashboard"
+      "repo": "github-dashboard",
+      "releaseType": "draft"
     },
     "mac": {
       "category": "public.app-category.developer-tools",

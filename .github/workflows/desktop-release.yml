@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # Manual trigger: builds installers across the matrix without uploading
+  # anything. Use this to validate the release pipeline before pushing a tag.
+  workflow_dispatch:
 
 jobs:
   release:
@@ -29,7 +32,14 @@ jobs:
 
       - run: pnpm --filter @github-dashboard/desktop build
 
+      - name: Package (dry run, no upload)
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm --filter @github-dashboard/desktop package --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
       - name: Package + publish
+        if: github.event_name == 'push'
         run: pnpm --filter @github-dashboard/desktop package --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -37,3 +47,16 @@ jobs:
           # ship unsigned. macOS users will need to right-click → Open the first
           # time.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload dry-run artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.zip
+            packages/desktop/release/*.exe
+            packages/desktop/release/*.AppImage
+            packages/desktop/release/*.yml
+          if-no-files-found: ignore
