@@ -1,16 +1,69 @@
 name: Desktop Release
 
 on:
+  # Manual trigger from the Actions UI. Pick a mode:
+  #   - dry-run: build installers on all platforms, upload as artifacts,
+  #     don't touch the repo or GitHub Releases. Use this to validate.
+  #   - patch / minor / major: bump packages/desktop/package.json, commit,
+  #     tag, push, then build + publish a draft GitHub Release.
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Release mode"
+        type: choice
+        required: true
+        default: "dry-run"
+        options:
+          - dry-run
+          - patch
+          - minor
+          - major
+  # Tag-push fallback — push a v*.*.* tag yourself and the build will run.
+  # Useful if you bumped via PR and just want CI to publish.
   push:
     tags:
       - "v*.*.*"
-  # Manual trigger: builds installers across the matrix without uploading
-  # anything. Use this to validate the release pipeline before pushing a tag.
-  workflow_dispatch:
 
 jobs:
-  release:
-    name: Release (${{ matrix.os }})
+  bump:
+    name: Bump version + tag
+    if: github.event_name == 'workflow_dispatch' && inputs.mode != 'dry-run'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      ref: ${{ steps.bump.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump + tag
+        id: bump
+        working-directory: packages/desktop
+        run: |
+          new_version=$(npm version ${{ inputs.mode }} -m "release: desktop %s")
+          echo "ref=$new_version" >> "$GITHUB_OUTPUT"
+
+      - run: git push --follow-tags
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: [bump]
+    # Run when:
+    # - bump succeeded (workflow_dispatch with a non-dry-run mode), or
+    # - bump was skipped (dry-run, or tag push).
+    if: ${{ always() && (needs.bump.result == 'success' || needs.bump.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -18,6 +71,10 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # If we just bumped, build the tagged commit; otherwise build the
+          # ref that triggered the workflow.
+          ref: ${{ needs.bump.outputs.ref || github.ref }}
 
       - uses: pnpm/action-setup@v4
 
@@ -33,13 +90,13 @@ jobs:
       - run: pnpm --filter @github-dashboard/desktop build
 
       - name: Package (dry run, no upload)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run'
         run: pnpm --filter @github-dashboard/desktop package --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Package + publish
-        if: github.event_name == 'push'
+      - name: Package + publish (draft release)
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'dry-run')
         run: pnpm --filter @github-dashboard/desktop package --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,7 +106,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Upload dry-run artifacts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run'
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os }}
