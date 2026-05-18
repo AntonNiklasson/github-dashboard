@@ -37,12 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
       - name: Configure git
         run: |
@@ -53,6 +50,7 @@ jobs:
         id: bump
         working-directory: packages/desktop
         run: |
+          set -x
           mode="${{ inputs.mode }}"
           current=$(node -p "require('./package.json').version")
           if [ "$mode" = "rc" ]; then
