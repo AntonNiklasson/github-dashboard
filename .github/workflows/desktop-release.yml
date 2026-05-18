@@ -2,8 +2,6 @@ name: Desktop Release
 
 on:
   # Manual trigger from the Actions UI. Pick a mode:
-  #   - dry-run: build installers on all platforms, upload as artifacts,
-  #     don't touch the repo or GitHub Releases. Use this to validate.
   #   - rc: bump packages/desktop/package.json to the next -rc.N (starting
   #     a new rc cycle for the next patch if currently on a stable version),
   #     commit, tag, push, then build + publish a GitHub *pre-release*.
@@ -15,9 +13,8 @@ on:
         description: "Release mode"
         type: choice
         required: true
-        default: "dry-run"
+        default: "rc"
         options:
-          - dry-run
           - rc
           - patch
           - minor
@@ -31,7 +28,7 @@ on:
 jobs:
   bump:
     name: Bump version + tag
-    if: github.event_name == 'workflow_dispatch' && inputs.mode != 'dry-run'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -76,9 +73,7 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     needs: [bump]
-    # Run when:
-    # - bump succeeded (workflow_dispatch with a non-dry-run mode), or
-    # - bump was skipped (dry-run, or tag push).
+    # Run when bump succeeded (workflow_dispatch) or was skipped (tag push).
     if: ${{ always() && (needs.bump.result == 'success' || needs.bump.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -105,12 +100,6 @@ jobs:
 
       - run: pnpm --filter @github-dashboard/desktop build
 
-      - name: Package (dry run, no upload)
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run'
-        run: pnpm --filter @github-dashboard/desktop package --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
       - name: Package + publish (pre-release)
         if: github.event_name == 'workflow_dispatch' && inputs.mode == 'rc'
         # Override the package.json publish.releaseType (default: draft) so the
@@ -122,7 +111,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Package + publish (draft release)
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'dry-run' && inputs.mode != 'rc')
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'rc')
         run: pnpm --filter @github-dashboard/desktop package --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -130,16 +119,3 @@ jobs:
           # ship unsigned. macOS users will need to right-click → Open the first
           # time.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
-      - name: Upload dry-run artifacts
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run'
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-${{ matrix.os }}
-          path: |
-            packages/desktop/release/*.dmg
-            packages/desktop/release/*.zip
-            packages/desktop/release/*.exe
-            packages/desktop/release/*.AppImage
-            packages/desktop/release/*.yml
-          if-no-files-found: ignore
