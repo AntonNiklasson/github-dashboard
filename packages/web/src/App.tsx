@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { Settings } from "lucide-react";
+import { ArrowUpCircle, Settings } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AutoMergeNotAllowedError, api, type ConfigResponse } from "./api";
@@ -107,6 +107,7 @@ export function App() {
   const { data: instances, isLoading, error } = useInstances();
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [theme] = useAtom(themeAtom);
   const headerRef = useRef<HTMLElement>(null);
 
@@ -129,6 +130,15 @@ export function App() {
 
   useEffect(() => {
     return window.electron?.onOpenSettings(() => setSettingsOpen(true));
+  }, []);
+
+  useEffect(() => {
+    const bridge = window.electron;
+    if (!bridge) return;
+    bridge.hasPendingUpdate().then((has) => {
+      if (has) setUpdateAvailable(true);
+    });
+    return bridge.onUpdateAvailable(() => setUpdateAvailable(true));
   }, []);
 
   useEffect(() => {
@@ -282,6 +292,18 @@ export function App() {
             })}
           </div>
           <div className="ml-auto flex items-center gap-1.5 [-webkit-app-region:no-drag]">
+            {updateAvailable && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => window.electron?.installUpdate()}
+                title="Restart and install update"
+                className="h-7 gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200"
+              >
+                <ArrowUpCircle className="size-3.5" />
+                <Text bold>Update available</Text>
+              </Button>
+            )}
             <a
               href="https://github.com/AntonNiklasson/github-dashboard"
               target="_blank"

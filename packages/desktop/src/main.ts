@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, Notification, app, shell } from "electron";
+import { BrowserWindow, Menu, app, ipcMain, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import { autoUpdater } from "electron-updater";
 import net from "node:net";
@@ -85,25 +85,19 @@ async function createWindow(): Promise<void> {
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
-// Notify once per downloaded version. If the user dismisses the OS
-// notification we don't re-pop it on the next hourly check; a newer version
-// (different `version`) produces a fresh notification.
-const notifiedVersions = new Set<string>();
+// Whether an update has been downloaded and is waiting to install. Held here
+// so a renderer that mounts after `update-downloaded` fires can still query
+// via `ghd:has-pending-update`.
+let updatePending = false;
 
-function showUpdateNotification(version: string): void {
-  if (notifiedVersions.has(version)) return;
-  notifiedVersions.add(version);
-  const notification = new Notification({
-    title: "Update ready",
-    body: `Version ${version} is ready. Click to restart and install.`,
-  });
-  notification.on("click", () => autoUpdater.quitAndInstall());
-  notification.show();
+function announceUpdate(): void {
+  updatePending = true;
+  mainWindow?.webContents.send("ghd:update-available");
 }
 
 function setupAutoUpdater(): void {
-  autoUpdater.on("update-downloaded", (info) => {
-    showUpdateNotification(info.version);
+  autoUpdater.on("update-downloaded", () => {
+    announceUpdate();
   });
 
   autoUpdater.on("error", (err) => {
@@ -119,13 +113,8 @@ function setupAutoUpdater(): void {
   setInterval(check, UPDATE_CHECK_INTERVAL_MS).unref();
 }
 
-// Each toggle-on bumps the fake version so the dedup in
-// showUpdateNotification doesn't swallow successive simulations.
-let fakeUpdateCounter = 0;
-
 function simulateUpdate(): void {
-  fakeUpdateCounter++;
-  showUpdateNotification(`99.0.${fakeUpdateCounter}`);
+  announceUpdate();
 }
 
 function buildAppMenu(): Menu {
@@ -189,6 +178,18 @@ function buildAppMenu(): Menu {
 
   return Menu.buildFromTemplate(template);
 }
+
+ipcMain.handle("ghd:has-pending-update", () => updatePending);
+ipcMain.handle("ghd:install-update", () => {
+  // Dev/simulated path: no real download to install, so just relaunch so the
+  // header button still has a visible effect when exercising the flow.
+  if (!app.isPackaged) {
+    app.relaunch();
+    app.exit(0);
+    return;
+  }
+  autoUpdater.quitAndInstall();
+});
 
 app.whenReady().then(async () => {
   // In packaged builds the dock icon comes from Contents/Resources/icon.icns
