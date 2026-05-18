@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, app, ipcMain, shell } from "electron";
+import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import { autoUpdater } from "electron-updater";
 import net from "node:net";
@@ -13,6 +13,7 @@ app.setName("GitHub Dashboard");
 
 let mainWindow: BrowserWindow | null = null;
 let serverPort = 0;
+let isQuitting = false;
 
 async function findFreePort(): Promise<number> {
   return await new Promise((resolve, reject) => {
@@ -78,6 +79,26 @@ async function createWindow(): Promise<void> {
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
 
+  // Closing the last window quits the app (see `window-all-closed`), so warn
+  // before letting that happen. Skipped when the close is part of an
+  // already-confirmed quit (menu Quit, Cmd+Q, etc.).
+  mainWindow.on("close", (e) => {
+    if (isQuitting || !mainWindow) return;
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: "question",
+      buttons: ["Quit", "Cancel"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Quit GitHub Dashboard?",
+      message: "Closing this window will quit GitHub Dashboard.",
+    });
+    if (choice === 1) e.preventDefault();
+  });
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
   if (app.isPackaged) {
     await startEmbeddedServer();
     await mainWindow.loadURL(`http://localhost:${serverPort}/`);
@@ -97,7 +118,9 @@ let updatePending = false;
 
 function announceUpdate(): void {
   updatePending = true;
-  mainWindow?.webContents.send("ghd:update-available");
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("ghd:update-available");
+  }
 }
 
 function setupAutoUpdater(): void {
@@ -211,10 +234,10 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+app.on("before-quit", () => {
+  isQuitting = true;
 });
 
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+app.on("window-all-closed", () => {
+  app.quit();
 });
