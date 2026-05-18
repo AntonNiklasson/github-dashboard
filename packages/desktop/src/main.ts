@@ -85,21 +85,25 @@ async function createWindow(): Promise<void> {
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
-function setupAutoUpdater(): void {
-  // Notify once per downloaded version. If the user dismisses the OS
-  // notification we don't re-pop it on the next hourly check; a newer
-  // version (different `info.version`) will produce a fresh notification.
-  const notifiedVersions = new Set<string>();
+// Notify once per downloaded version. If the user dismisses the OS
+// notification we don't re-pop it on the next hourly check; a newer version
+// (different `version`) produces a fresh notification.
+const notifiedVersions = new Set<string>();
 
+function showUpdateNotification(version: string): void {
+  if (notifiedVersions.has(version)) return;
+  notifiedVersions.add(version);
+  const notification = new Notification({
+    title: "Update ready",
+    body: `Version ${version} is ready. Click to restart and install.`,
+  });
+  notification.on("click", () => autoUpdater.quitAndInstall());
+  notification.show();
+}
+
+function setupAutoUpdater(): void {
   autoUpdater.on("update-downloaded", (info) => {
-    if (notifiedVersions.has(info.version)) return;
-    notifiedVersions.add(info.version);
-    const notification = new Notification({
-      title: "Update ready",
-      body: `Version ${info.version} is ready. Click to restart and install.`,
-    });
-    notification.on("click", () => autoUpdater.quitAndInstall());
-    notification.show();
+    showUpdateNotification(info.version);
   });
 
   autoUpdater.on("error", (err) => {
@@ -113,6 +117,15 @@ function setupAutoUpdater(): void {
   };
   check();
   setInterval(check, UPDATE_CHECK_INTERVAL_MS).unref();
+}
+
+// Each toggle-on bumps the fake version so the dedup in
+// showUpdateNotification doesn't swallow successive simulations.
+let fakeUpdateCounter = 0;
+
+function simulateUpdate(): void {
+  fakeUpdateCounter++;
+  showUpdateNotification(`99.0.${fakeUpdateCounter}`);
 }
 
 function buildAppMenu(): Menu {
@@ -155,6 +168,23 @@ function buildAppMenu(): Menu {
     { role: "editMenu" },
     { role: "viewMenu" },
     { role: "windowMenu" },
+    ...(!app.isPackaged
+      ? ([
+          {
+            label: "Developer",
+            submenu: [
+              {
+                label: "Simulate update available",
+                type: "checkbox",
+                checked: false,
+                click: (menuItem) => {
+                  if (menuItem.checked) simulateUpdate();
+                },
+              },
+            ],
+          },
+        ] as MenuItemConstructorOptions[])
+      : []),
   ];
 
   return Menu.buildFromTemplate(template);
