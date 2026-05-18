@@ -129,6 +129,12 @@ function buildAppMenu(): Menu {
 }
 
 app.whenReady().then(async () => {
+  // In packaged builds the dock icon comes from Contents/Resources/icon.icns
+  // via Info.plist. In dev we run via `electron .`, which falls back to the
+  // Electron framework icon — set it explicitly so the dev session matches.
+  if (process.platform === "darwin" && !app.isPackaged) {
+    app.dock?.setIcon(path.join(__dirname, "..", "build", "icon.png"));
+  }
   Menu.setApplicationMenu(buildAppMenu());
   await createWindow();
 
