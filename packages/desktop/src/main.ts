@@ -1,10 +1,15 @@
-import { BrowserWindow, Menu, app, shell } from "electron";
+import { BrowserWindow, Menu, app, ipcMain, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import { autoUpdater } from "electron-updater";
 import net from "node:net";
 import path from "node:path";
 
 const DEV_WEB_URL = "http://localhost:7200";
+
+// In dev, `app.name` defaults to the package.json `name` ("@github-dashboard/
+// desktop"), which surfaces as "Electron" in the macOS app menu. Force it
+// here so the dev menu matches the packaged build (Info.plist sets it there).
+app.setName("GitHub Dashboard");
 
 let mainWindow: BrowserWindow | null = null;
 let serverPort = 0;
@@ -73,6 +78,10 @@ async function createWindow(): Promise<void> {
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
 
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
   if (app.isPackaged) {
     await startEmbeddedServer();
     await mainWindow.loadURL(`http://localhost:${serverPort}/`);
@@ -81,6 +90,42 @@ async function createWindow(): Promise<void> {
     await mainWindow.loadURL(DEV_WEB_URL);
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
+}
+
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
+// Whether an update has been downloaded and is waiting to install. Held here
+// so a renderer that mounts after `update-downloaded` fires can still query
+// via `ghd:has-pending-update`.
+let updatePending = false;
+
+function announceUpdate(): void {
+  updatePending = true;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("ghd:update-available");
+  }
+}
+
+function setupAutoUpdater(): void {
+  autoUpdater.on("update-downloaded", () => {
+    announceUpdate();
+  });
+
+  autoUpdater.on("error", (err) => {
+    console.error("Update error:", err);
+  });
+
+  const check = () => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error("Update check failed:", err);
+    });
+  };
+  check();
+  setInterval(check, UPDATE_CHECK_INTERVAL_MS).unref();
+}
+
+function simulateUpdate(): void {
+  announceUpdate();
 }
 
 function buildAppMenu(): Menu {
@@ -123,10 +168,39 @@ function buildAppMenu(): Menu {
     { role: "editMenu" },
     { role: "viewMenu" },
     { role: "windowMenu" },
+    ...(!app.isPackaged
+      ? ([
+          {
+            label: "Developer",
+            submenu: [
+              {
+                label: "Simulate update available",
+                type: "checkbox",
+                checked: false,
+                click: (menuItem) => {
+                  if (menuItem.checked) simulateUpdate();
+                },
+              },
+            ],
+          },
+        ] as MenuItemConstructorOptions[])
+      : []),
   ];
 
   return Menu.buildFromTemplate(template);
 }
+
+ipcMain.handle("ghd:has-pending-update", () => updatePending);
+ipcMain.handle("ghd:install-update", () => {
+  // Dev/simulated path: no real download to install, so just relaunch so the
+  // header button still has a visible effect when exercising the flow.
+  if (!app.isPackaged) {
+    app.relaunch();
+    app.exit(0);
+    return;
+  }
+  autoUpdater.quitAndInstall();
+});
 
 app.whenReady().then(async () => {
   // In packaged builds the dock icon comes from Contents/Resources/icon.icns
@@ -139,16 +213,10 @@ app.whenReady().then(async () => {
   await createWindow();
 
   if (app.isPackaged) {
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-      console.error("Update check failed:", err);
-    });
+    setupAutoUpdater();
   }
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
-
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  app.quit();
 });
