@@ -14,7 +14,7 @@ Act on a PR from your keyboard without leaving the dashboard:
 
 ## Download
 
-Pre-built desktop apps (macOS, Windows, Linux) are available from the [Releases page](https://github.com/AntonNiklasson/github-dashboard/releases).
+Pre-built macOS app is available from the [Releases page](https://github.com/AntonNiklasson/github-dashboard/releases).
 
 ## Keyboard shortcuts
 

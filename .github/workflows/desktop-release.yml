@@ -74,15 +74,11 @@ jobs:
       - run: git push --follow-tags
 
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (macOS)
     needs: [bump]
     # Run when bump succeeded (workflow_dispatch) or was skipped (tag push).
     if: ${{ always() && (needs.bump.result == 'success' || needs.bump.result == 'skipped') }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
