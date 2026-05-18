@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, app, shell } from "electron";
+import { BrowserWindow, Menu, Notification, app, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import { autoUpdater } from "electron-updater";
 import net from "node:net";
@@ -83,6 +83,38 @@ async function createWindow(): Promise<void> {
   }
 }
 
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
+function setupAutoUpdater(): void {
+  // Notify once per downloaded version. If the user dismisses the OS
+  // notification we don't re-pop it on the next hourly check; a newer
+  // version (different `info.version`) will produce a fresh notification.
+  const notifiedVersions = new Set<string>();
+
+  autoUpdater.on("update-downloaded", (info) => {
+    if (notifiedVersions.has(info.version)) return;
+    notifiedVersions.add(info.version);
+    const notification = new Notification({
+      title: "Update ready",
+      body: `Version ${info.version} is ready. Click to restart and install.`,
+    });
+    notification.on("click", () => autoUpdater.quitAndInstall());
+    notification.show();
+  });
+
+  autoUpdater.on("error", (err) => {
+    console.error("Update error:", err);
+  });
+
+  const check = () => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error("Update check failed:", err);
+    });
+  };
+  check();
+  setInterval(check, UPDATE_CHECK_INTERVAL_MS).unref();
+}
+
 function buildAppMenu(): Menu {
   const isMac = process.platform === "darwin";
   const settingsItem: MenuItemConstructorOptions = {
@@ -139,9 +171,7 @@ app.whenReady().then(async () => {
   await createWindow();
 
   if (app.isPackaged) {
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-      console.error("Update check failed:", err);
-    });
+    setupAutoUpdater();
   }
 });
 
