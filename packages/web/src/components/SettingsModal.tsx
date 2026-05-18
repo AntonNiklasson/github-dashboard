@@ -3,7 +3,6 @@ import { useAtom } from "jotai";
 import { toast } from "sonner";
 import { Settings, Globe, Building2 } from "lucide-react";
 import { api, type ConfigData, ConfigValidationError } from "../api";
-import { hideTeamReviewRequestsAtom } from "../filters";
 import { type Theme, applyTheme, themeAtom } from "../theme";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,9 +56,6 @@ function GeneralTab({
   setPort: (v: string) => void;
 }) {
   const [theme, setTheme] = useAtom(themeAtom);
-  const [hideTeamReviewRequests, setHideTeamReviewRequests] = useAtom(
-    hideTeamReviewRequestsAtom,
-  );
 
   useEffect(() => applyTheme(theme), [theme]);
 
@@ -82,28 +78,6 @@ function GeneralTab({
             <option value="dark">Dark</option>
           </select>
         </div>
-      </div>
-      <div className="space-y-3">
-        <h3>
-          <Text bold>Review requests</Text>
-        </h3>
-        <label className="flex items-start gap-2 text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={hideTeamReviewRequests}
-            onChange={(e) => setHideTeamReviewRequests(e.target.checked)}
-            className="mt-1 rounded"
-          />
-          <span className="space-y-0.5">
-            <Text>Hide requests routed via a team</Text>
-            <span className="block">
-              <Text size="small" variant="tertiary">
-                Filters out CODEOWNERS auto-assignments. Also hides manual team
-                requests — GitHub's API doesn't distinguish them.
-              </Text>
-            </span>
-          </span>
-        </label>
       </div>
       <div className="space-y-3">
         <h3>

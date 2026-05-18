@@ -13,7 +13,7 @@ import {
   mergeActionLabel,
 } from "./merge-decision";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
-import { hideTeamReviewRequestsAtom } from "./filters";
+import { showTeamReviewRequestsAtom } from "./filters";
 import { useChords } from "./use-chords";
 import {
   type Action,
@@ -678,7 +678,9 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const queryClient = useQueryClient();
   const { instances, prs, recentPrs, reviews, notifications } = source;
   const [dismissed, setDismissed] = useAtom(dismissedReviewsAtom);
-  const [hideTeamReviewRequests] = useAtom(hideTeamReviewRequestsAtom);
+  const [showTeamReviewRequests, setShowTeamReviewRequests] = useAtom(
+    showTeamReviewRequestsAtom,
+  );
   const [prSort, setPrSort] = useAtom(prSortAtom);
   const [reviewSort, setReviewSort] = useAtom(reviewSortAtom);
   const [notificationSort, setNotificationSort] = useAtom(notificationSortAtom);
@@ -692,9 +694,9 @@ function Dashboard({ source }: { source: DashboardSource }) {
     () =>
       reviews.data
         .filter((r) => !isDismissed(dismissed, r.repo, r.number, r.updatedAt))
-        .filter((r) => !hideTeamReviewRequests || r.requestedDirectly !== false)
+        .filter((r) => showTeamReviewRequests || r.requestedDirectly !== false)
         .sort((a, b) => compareReviews(a, b, reviewSort)),
-    [reviews.data, dismissed, hideTeamReviewRequests, reviewSort],
+    [reviews.data, dismissed, showTeamReviewRequests, reviewSort],
   );
 
   const sortedNotifications = useMemo(
@@ -985,6 +987,9 @@ function Dashboard({ source }: { source: DashboardSource }) {
             .catch(() => {})
             .finally(() => setTogglingDraftId(null));
         }
+      } else if (e.key === "f" && activeSection === "reviews") {
+        e.preventDefault();
+        setShowTeamReviewRequests((v) => !v);
       } else if (e.key === "e" && activeSection === "reviews") {
         const r = reviewsRef.current[focusIndex];
         if (r) {
@@ -1059,8 +1064,8 @@ function Dashboard({ source }: { source: DashboardSource }) {
     <div className="grid h-full grid-cols-[2fr_2fr_1fr] overflow-hidden">
       <Column
         section="prs"
-        label="My PRs"
-        count={itemCounts.prs}
+        label="My work"
+        count={sortedPrs.length}
         isActive={nav.activeSection === "prs"}
         isFetching={prs.isFetching}
         onActivate={() => {
@@ -1107,7 +1112,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
 
       <Column
         section="reviews"
-        label="Review Requests"
+        label="Reviews"
         count={itemCounts.reviews}
         isActive={nav.activeSection === "reviews"}
         isFetching={reviews.isFetching}
@@ -1116,11 +1121,35 @@ function Dashboard({ source }: { source: DashboardSource }) {
           nav.setFocusIndex(0);
         }}
         right={
-          <SortControl
-            fields={REVIEW_SORT_FIELDS}
-            value={reviewSort}
-            onChange={setReviewSort}
-          />
+          <>
+            <label
+              className="flex cursor-pointer items-center gap-1.5 select-none"
+              title="Includes CODEOWNERS auto-assignments and manual team requests — GitHub's API doesn't distinguish them."
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                checked={showTeamReviewRequests}
+                onChange={(e) => setShowTeamReviewRequests(e.target.checked)}
+                className="h-3 w-3 rounded"
+              />
+              <span
+                className={
+                  "text-[10px] uppercase tracking-tight " +
+                  (showTeamReviewRequests
+                    ? "text-foreground"
+                    : "text-muted-foreground/70")
+                }
+              >
+                Show auto requests
+              </span>
+            </label>
+            <SortControl
+              fields={REVIEW_SORT_FIELDS}
+              value={reviewSort}
+              onChange={setReviewSort}
+            />
+          </>
         }
       >
         {reviews.isLoading ? (
