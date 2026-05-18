@@ -336,6 +336,9 @@ export async function fetchReviews(instanceId: string) {
       const reviews = reviewsRes?.data ?? [];
       const prData = prRes?.data;
       const mqStatus = mergeQueueStatus.get(item.node_id);
+      const requestedDirectly =
+        prData?.requested_reviewers?.some((r) => r?.login === username) ??
+        false;
 
       return {
         id: item.id,
@@ -364,6 +367,9 @@ export async function fetchReviews(instanceId: string) {
         commits: prData?.commits ?? 0,
         commentCount: (prData?.comments ?? 0) + (prData?.review_comments ?? 0),
         mergeable: prData?.mergeable ?? null,
+        // False when the request came in via team membership (e.g.
+        // CODEOWNERS auto-assignment) rather than a direct user request.
+        requestedDirectly,
       };
     }),
   );

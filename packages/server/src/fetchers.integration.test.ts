@@ -36,9 +36,8 @@ vi.mock("./cache.js", () => ({
   },
 }));
 
-const { fetchPrs, fetchNotifications, fetchRecentPrs } = await import(
-  "./fetchers.js"
-);
+const { fetchPrs, fetchNotifications, fetchRecentPrs, fetchReviews } =
+  await import("./fetchers.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -59,6 +58,8 @@ beforeEach(() => {
       comments: 0,
       review_comments: 0,
       mergeable: true,
+      requested_reviewers: [],
+      requested_teams: [],
     },
   });
   mockOctokit.checks.listForRef.mockResolvedValue({
@@ -276,5 +277,78 @@ describe("fetchNotifications", () => {
       unread: false,
       url: "http://x",
     });
+  });
+});
+
+describe("fetchReviews", () => {
+  function reviewSearchItem(over: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: 1,
+      node_id: "PR_1",
+      number: 5,
+      title: "t",
+      html_url: "http://x",
+      repository_url: "https://api.github.com/repos/o/r",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+      user: { login: "bob", avatar_url: "" },
+      draft: false,
+      ...over,
+    };
+  }
+
+  it("marks requestedDirectly true when the user is in requested_reviewers", async () => {
+    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
+      data: { items: [reviewSearchItem()] },
+    });
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: {
+        body: "",
+        head: { ref: "feat" },
+        base: { ref: "main" },
+        additions: 0,
+        deletions: 0,
+        commits: 0,
+        comments: 0,
+        review_comments: 0,
+        mergeable: true,
+        requested_reviewers: [{ login: "alice" }],
+        requested_teams: [],
+      },
+    });
+    const reviews = await fetchReviews("github");
+    expect(reviews[0].requestedDirectly).toBe(true);
+  });
+
+  it("marks requestedDirectly false when the user is only on a requested team", async () => {
+    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
+      data: { items: [reviewSearchItem()] },
+    });
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: {
+        body: "",
+        head: { ref: "feat" },
+        base: { ref: "main" },
+        additions: 0,
+        deletions: 0,
+        commits: 0,
+        comments: 0,
+        review_comments: 0,
+        mergeable: true,
+        requested_reviewers: [{ login: "carol" }],
+        requested_teams: [{ slug: "platform" }],
+      },
+    });
+    const reviews = await fetchReviews("github");
+    expect(reviews[0].requestedDirectly).toBe(false);
+  });
+
+  it("defaults requestedDirectly to false when pulls.get fails", async () => {
+    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
+      data: { items: [reviewSearchItem()] },
+    });
+    mockOctokit.pulls.get.mockRejectedValue(new Error("404"));
+    const reviews = await fetchReviews("github");
+    expect(reviews[0].requestedDirectly).toBe(false);
   });
 });

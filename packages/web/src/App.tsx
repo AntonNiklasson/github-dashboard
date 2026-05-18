@@ -13,6 +13,7 @@ import {
   mergeActionLabel,
 } from "./merge-decision";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
+import { hideTeamReviewRequestsAtom } from "./filters";
 import { useChords } from "./use-chords";
 import {
   type Action,
@@ -677,6 +678,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const queryClient = useQueryClient();
   const { instances, prs, recentPrs, reviews, notifications } = source;
   const [dismissed, setDismissed] = useAtom(dismissedReviewsAtom);
+  const [hideTeamReviewRequests] = useAtom(hideTeamReviewRequestsAtom);
   const [prSort, setPrSort] = useAtom(prSortAtom);
   const [reviewSort, setReviewSort] = useAtom(reviewSortAtom);
   const [notificationSort, setNotificationSort] = useAtom(notificationSortAtom);
@@ -690,8 +692,9 @@ function Dashboard({ source }: { source: DashboardSource }) {
     () =>
       reviews.data
         .filter((r) => !isDismissed(dismissed, r.repo, r.number, r.updatedAt))
+        .filter((r) => !hideTeamReviewRequests || r.requestedDirectly !== false)
         .sort((a, b) => compareReviews(a, b, reviewSort)),
-    [reviews.data, dismissed, reviewSort],
+    [reviews.data, dismissed, hideTeamReviewRequests, reviewSort],
   );
 
   const sortedNotifications = useMemo(
