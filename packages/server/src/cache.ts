@@ -2,10 +2,15 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const DEMO = process.env.DEMO === "1";
-const CACHE_DIR = resolve(
-  import.meta.dirname,
-  DEMO ? "../../../.cache-demo" : "../../../.cache",
-);
+
+function resolveCacheDir(): string {
+  if (DEMO) return resolve(import.meta.dirname, "../../../.cache-demo");
+  if (process.env.GHD_DATA_DIR)
+    return resolve(process.env.GHD_DATA_DIR, ".cache");
+  return resolve(import.meta.dirname, "../../../.cache");
+}
+
+const CACHE_DIR = resolveCacheDir();
 const CACHE_FILE = resolve(CACHE_DIR, "data.json");
 
 interface CacheEntry {

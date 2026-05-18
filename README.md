@@ -12,6 +12,10 @@ Act on a PR from your keyboard without leaving the dashboard:
 
 ![Dashboard screenshot](./demo.png)
 
+## Download
+
+Pre-built desktop apps (macOS, Windows, Linux) are available from the [Releases page](https://github.com/AntonNiklasson/github-dashboard/releases).
+
 ## Keyboard shortcuts
 
 | Key | Action |

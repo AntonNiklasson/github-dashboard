@@ -8,3 +8,4 @@ config.yaml
 pnpm-debug.log*
 .claude/settings.local.json
 .playwright-mcp/
+packages/desktop/release/

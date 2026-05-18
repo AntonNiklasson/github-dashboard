@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { Settings } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AutoMergeNotAllowedError, api, type ConfigResponse } from "./api";
 import {
@@ -73,6 +73,9 @@ type Tab = "all" | string;
 
 const activeTabAtom = atomWithStorage<Tab>("activeTab", "all");
 
+const IS_ELECTRON =
+  typeof navigator !== "undefined" && /Electron/.test(navigator.userAgent);
+
 function splitGradient(colors: string[]): string {
   if (colors.length === 0) return "transparent";
   if (colors.length === 1) return colors[0];
@@ -105,6 +108,28 @@ export function App() {
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme] = useAtom(themeAtom);
+  const headerRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+
+    const update = () => {
+      document.documentElement.style.setProperty(
+        "--ghd-header-h",
+        `${el.offsetHeight}px`,
+      );
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    return window.electron?.onOpenSettings(() => setSettingsOpen(true));
+  }, []);
 
   useEffect(() => {
     applyTheme(theme);
@@ -212,11 +237,19 @@ export function App() {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-background">
-      <header className="shrink-0 border-b bg-card">
-        <div className="flex items-center gap-3 px-3 py-2">
+      <header
+        ref={headerRef}
+        className="shrink-0 border-b bg-card [-webkit-app-region:drag]"
+      >
+        <div
+          className={cn(
+            "flex items-center gap-3 px-3 py-2",
+            IS_ELECTRON && "pl-20",
+          )}
+        >
           <div
             role="tablist"
-            className="inline-flex items-center gap-1 rounded-lg bg-[oklch(0.94_0_0)] p-1 dark:bg-[oklch(0.22_0_0)]"
+            className="inline-flex items-center gap-0.5 rounded-md bg-[oklch(0.94_0_0)] p-0.5 dark:bg-[oklch(0.22_0_0)] [-webkit-app-region:no-drag]"
           >
             {tabs.map((tab) => {
               const active = activeTab === tab.id;
@@ -236,19 +269,19 @@ export function App() {
                   aria-selected={active}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "inline-flex h-6 items-center gap-1.5 rounded-sm px-2 text-xs font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                     active
                       ? "bg-background text-foreground shadow-sm dark:bg-[oklch(0.32_0_0)] dark:shadow-none"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <span className="h-2.5 w-2.5 rounded-full" style={dotStyle} />
+                  <span className="h-2 w-2 rounded-full" style={dotStyle} />
                   <Text bold>{tab.label}</Text>
                 </button>
               );
             })}
           </div>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex items-center gap-1.5 [-webkit-app-region:no-drag]">
             <a
               href="https://github.com/AntonNiklasson/github-dashboard"
               target="_blank"
@@ -258,14 +291,16 @@ export function App() {
             >
               <GithubMark />
             </a>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={() => setSettingsOpen(true)}
-              title="Settings (,)"
-            >
-              <Settings />
-            </Button>
+            {!IS_ELECTRON && (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={() => setSettingsOpen(true)}
+                title="Settings (,)"
+              >
+                <Settings />
+              </Button>
+            )}
           </div>
         </div>
       </header>

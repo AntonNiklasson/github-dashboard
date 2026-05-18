@@ -23,7 +23,9 @@ export interface ConfigSchema {
   port?: number;
 }
 
-export const CONFIG_PATH = resolve(import.meta.dirname, "../../../config.yaml");
+export const CONFIG_PATH = process.env.GHD_DATA_DIR
+  ? resolve(process.env.GHD_DATA_DIR, "config.yaml")
+  : resolve(import.meta.dirname, "../../../config.yaml");
 
 export function configExists(): boolean {
   return existsSync(CONFIG_PATH);

@@ -1,0 +1,124 @@
+name: Desktop Release
+
+on:
+  # Manual trigger from the Actions UI. Pick a mode:
+  #   - rc: bump packages/desktop/package.json to the next -rc.N (starting
+  #     a new rc cycle on the next patch if currently on a stable version),
+  #     commit, tag, push, then build + publish a GitHub *pre-release*.
+  #   - release: bump to the next patch (or drop the -rc.N suffix when
+  #     promoting a release candidate), commit, tag, push, then build +
+  #     publish a *draft* GitHub Release.
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Release mode"
+        type: choice
+        required: true
+        default: "rc"
+        options:
+          - rc
+          - release
+  # Tag-push fallback — push a v*.*.* tag yourself and the build will run.
+  # Useful if you want to skip the patch-bump default for a one-off
+  # minor / major / custom version.
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  bump:
+    name: Bump version + tag
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      ref: ${{ steps.bump.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump + tag
+        id: bump
+        working-directory: packages/desktop
+        run: |
+          mode="${{ inputs.mode }}"
+          current=$(node -p "require('./package.json').version")
+          if [ "$mode" = "rc" ]; then
+            if [[ "$current" == *"-rc."* ]]; then
+              # Already on rc.N — increment to rc.N+1.
+              new_version=$(npm version prerelease -m "release: desktop %s")
+            else
+              # Stable → start a new rc cycle on the next patch.
+              new_version=$(npm version prepatch --preid=rc -m "release: desktop %s")
+            fi
+          else
+            # release mode. If we're on an rc, npm version patch strips the
+            # -rc.N suffix and lands on the base patch (e.g. 0.0.2-rc.3 → 0.0.2).
+            # Otherwise it bumps the patch (0.0.1 → 0.0.2).
+            new_version=$(npm version patch -m "release: desktop %s")
+          fi
+          echo "ref=$new_version" >> "$GITHUB_OUTPUT"
+
+      - run: git push --follow-tags
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: [bump]
+    # Run when bump succeeded (workflow_dispatch) or was skipped (tag push).
+    if: ${{ always() && (needs.bump.result == 'success' || needs.bump.result == 'skipped') }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # If we just bumped, build the tagged commit; otherwise build the
+          # ref that triggered the workflow.
+          ref: ${{ needs.bump.outputs.ref || github.ref }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: pnpm --filter @github-dashboard/desktop build
+
+      - name: Package + publish (pre-release)
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'rc'
+        # Override the package.json publish.releaseType (default: draft) so the
+        # rc release is created as a real GitHub pre-release. electron-updater
+        # ignores pre-releases by default; clients opt in to consume them.
+        run: pnpm --filter @github-dashboard/desktop package --publish always --config.publish.releaseType=prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Package + publish (draft release)
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
+        run: pnpm --filter @github-dashboard/desktop package --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing is not yet configured. Until certs are added, builds
+          # ship unsigned. macOS users will need to right-click → Open the first
+          # time.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"

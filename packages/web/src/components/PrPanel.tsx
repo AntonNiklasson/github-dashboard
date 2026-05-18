@@ -118,7 +118,7 @@ export function PrPanel({
   }, [closing, actionMenuOpen]);
 
   return (
-    <div className="fixed inset-0 z-40 flex">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--ghd-header-h,3rem)] z-40 flex">
       <div
         className={`flex w-[60vw] max-w-[1100px] shrink-0 flex-col border-r bg-background shadow-xl ${
           closing
