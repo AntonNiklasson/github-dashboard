@@ -95,6 +95,10 @@ jobs:
     # Run when bump succeeded (workflow_dispatch) or was skipped (tag push).
     if: ${{ always() && (needs.bump.result == 'success' || needs.bump.result == 'skipped') }}
     runs-on: macos-latest
+    permissions:
+      # electron-builder POSTs to /releases via GITHUB_TOKEN; default
+      # job perms are read-only and 403 on that call.
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
