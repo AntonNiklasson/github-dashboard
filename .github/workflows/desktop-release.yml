@@ -48,26 +48,38 @@ jobs:
 
       - name: Bump + tag
         id: bump
-        working-directory: packages/desktop
         run: |
           set -x
           mode="${{ inputs.mode }}"
-          current=$(node -p "require('./package.json').version")
+          current=$(node -p "require('./packages/desktop/package.json').version")
+          # `npm version` from a workspace member silently skipped its git
+          # commit/tag side effects in CI (see run 26024176128). Drive the
+          # version bump with --no-git-tag-version and do the commit/tag here
+          # so it's explicit and visible in the log.
+          cd packages/desktop
           if [ "$mode" = "rc" ]; then
             if [[ "$current" == *"-rc."* ]]; then
               # Already on rc.N — increment to rc.N+1.
-              new_version=$(npm version prerelease -m "release: desktop %s")
+              new_version=$(npm version prerelease --no-git-tag-version)
             else
               # Stable → start a new rc cycle on the next patch.
-              new_version=$(npm version prepatch --preid=rc -m "release: desktop %s")
+              new_version=$(npm version prepatch --preid=rc --no-git-tag-version)
             fi
           else
             # release mode. If we're on an rc, npm version patch strips the
             # -rc.N suffix and lands on the base patch (e.g. 0.0.2-rc.3 → 0.0.2).
             # Otherwise it bumps the patch (0.0.1 → 0.0.2).
-            new_version=$(npm version patch -m "release: desktop %s")
+            new_version=$(npm version patch --no-git-tag-version)
           fi
+          # Normalize to `vX.Y.Z[-rc.N]` regardless of npm's output prefix.
+          new_version="v${new_version#v}"
+          cd ../..
+          git add packages/desktop/package.json
+          git commit -m "release: desktop $new_version"
+          git tag -a "$new_version" -m "release: desktop $new_version"
           echo "ref=$new_version" >> "$GITHUB_OUTPUT"
+          git log -2 --oneline
+          git tag --list 'v*' | tail -3
 
       - run: git push --follow-tags
 
