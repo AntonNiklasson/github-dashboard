@@ -65,7 +65,7 @@ export interface ReviewRequest {
   instanceId?: string;
   instanceLabel?: string;
   mergeable?: boolean | null;
-  requestedDirectly?: boolean;
+  autoAssigned?: boolean;
 }
 
 export interface Notification {

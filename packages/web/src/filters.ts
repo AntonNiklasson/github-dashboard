@@ -1,10 +1,9 @@
 import { atomWithStorage } from "jotai/utils";
 
-// Show review requests where the user was attached via team membership rather
-// than asked directly. Off catches most CODEOWNERS auto-assignments — at the
-// cost of also hiding manual team requests, which the GitHub API doesn't let
-// us distinguish.
-export const showTeamReviewRequestsAtom = atomWithStorage<boolean>(
-  "showTeamReviewRequests",
+// When false, hide reviews where CODEOWNERS auto-attached the current user
+// (directly or via a team). Manual user/team requests stay visible either
+// way. Defaults to true.
+export const showCodeOwnerRequestsAtom = atomWithStorage<boolean>(
+  "showCodeOwnerRequests",
   true,
 );

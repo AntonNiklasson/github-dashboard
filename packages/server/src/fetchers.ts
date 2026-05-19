@@ -323,7 +323,7 @@ export async function fetchReviews(instanceId: string) {
       const [owner, repo] = item.repository_url.split("/").slice(-2);
       const prNumber = item.number;
 
-      const [ciStatus, reviewsRes, prRes] = await Promise.all([
+      const [ciStatus, reviewsRes, prRes, timelineRes] = await Promise.all([
         getCiStatus(client, owner, repo, `pull/${prNumber}/head`),
         client.pulls
           .listReviews({ owner, repo, pull_number: prNumber })
@@ -331,14 +331,61 @@ export async function fetchReviews(instanceId: string) {
         client.pulls
           .get({ owner, repo, pull_number: prNumber })
           .catch(() => null),
+        client.issues
+          .listEventsForTimeline({
+            owner,
+            repo,
+            issue_number: prNumber,
+            per_page: 100,
+          })
+          .catch(() => null),
       ]);
 
       const reviews = reviewsRes?.data ?? [];
       const prData = prRes?.data;
       const mqStatus = mergeQueueStatus.get(item.node_id);
-      const requestedDirectly =
+
+      // A review request counts as automatic when either:
+      //   - the actor is a bot (login ends in `[bot]` or type is "Bot"), or
+      //   - the actor is the PR author AND the event fired at the same time
+      //     as the PR was opened (within 2s).
+      // Manual requests by the PR author (later clicks of "Request review")
+      // share the actor but not the timing, so they correctly stay visible.
+      const prAuthor = item.user?.login;
+      const prCreatedMs = item.created_at ? Date.parse(item.created_at) : null;
+      const inRequestedReviewers =
         prData?.requested_reviewers?.some((r) => r?.login === username) ??
         false;
+      const timelineEvents = (timelineRes?.data ?? []) as Array<{
+        event?: string;
+        created_at?: string;
+        actor?: { login?: string; type?: string } | null;
+        requested_reviewer?: { login?: string } | null;
+        requested_team?: { slug?: string } | null;
+      }>;
+      const isAutoActor = (
+        actor: { login?: string; type?: string } | null | undefined,
+        eventCreatedAt?: string,
+      ) => {
+        if (!actor?.login) return false;
+        if (actor.type === "Bot" || actor.login.endsWith("[bot]")) return true;
+        if (!prAuthor || actor.login !== prAuthor) return false;
+        if (prCreatedMs == null || !eventCreatedAt) return false;
+        return Math.abs(Date.parse(eventCreatedAt) - prCreatedMs) <= 2000;
+      };
+      const autoAssigned = inRequestedReviewers
+        ? timelineEvents.some(
+            (ev) =>
+              ev.event === "review_requested" &&
+              ev.requested_reviewer?.login === username &&
+              isAutoActor(ev.actor, ev.created_at),
+          )
+        : timelineEvents.some(
+            (ev) =>
+              ev.event === "review_requested" &&
+              ev.requested_team != null &&
+              isAutoActor(ev.actor, ev.created_at),
+          );
 
       return {
         id: item.id,
@@ -367,9 +414,9 @@ export async function fetchReviews(instanceId: string) {
         commits: prData?.commits ?? 0,
         commentCount: (prData?.comments ?? 0) + (prData?.review_comments ?? 0),
         mergeable: prData?.mergeable ?? null,
-        // False when the request came in via team membership (e.g.
-        // CODEOWNERS auto-assignment) rather than a direct user request.
-        requestedDirectly,
+        // True when CODEOWNERS auto-attached this user (directly or via a
+        // team). Manual user/team requests stay false.
+        autoAssigned,
       };
     }),
   );

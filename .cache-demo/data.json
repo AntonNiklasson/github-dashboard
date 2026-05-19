@@ -174,7 +174,7 @@
         "commits": 8,
         "commentCount": 3,
         "mergeable": true,
-        "requestedDirectly": true,
+        "autoAssigned": false,
         "instanceId": "github",
         "instanceLabel": "github.com"
       },
@@ -202,7 +202,7 @@
         "commits": 3,
         "commentCount": 1,
         "mergeable": true,
-        "requestedDirectly": false,
+        "autoAssigned": true,
         "instanceId": "github",
         "instanceLabel": "github.com"
       }

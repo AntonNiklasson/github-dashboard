@@ -4,6 +4,7 @@ const { mockOctokit, cacheStore } = vi.hoisted(() => ({
   mockOctokit: {
     search: { issuesAndPullRequests: vi.fn() },
     pulls: { get: vi.fn(), listReviews: vi.fn() },
+    issues: { listEventsForTimeline: vi.fn() },
     checks: { listForRef: vi.fn() },
     repos: { getCombinedStatusForRef: vi.fn(), get: vi.fn() },
     activity: { listNotificationsForAuthenticatedUser: vi.fn() },
@@ -44,6 +45,7 @@ beforeEach(() => {
   cacheStore.clear();
   // Safe defaults
   mockOctokit.pulls.listReviews.mockResolvedValue({ data: [] });
+  mockOctokit.issues.listEventsForTimeline.mockResolvedValue({ data: [] });
   mockOctokit.repos.get.mockResolvedValue({
     data: { allow_auto_merge: false },
   });
@@ -280,75 +282,254 @@ describe("fetchNotifications", () => {
   });
 });
 
-describe("fetchReviews", () => {
-  function reviewSearchItem(over: Partial<Record<string, unknown>> = {}) {
-    return {
-      id: 1,
-      node_id: "PR_1",
-      number: 5,
-      title: "t",
-      html_url: "http://x",
-      repository_url: "https://api.github.com/repos/o/r",
-      created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-02T00:00:00Z",
-      user: { login: "bob", avatar_url: "" },
-      draft: false,
-      ...over,
-    };
+describe("fetchReviews — autoAssigned", () => {
+  // getInstance mock at the top of the file returns username "alice".
+  const USERNAME = "alice";
+  const PR_AUTHOR = "bob";
+  const PR_CREATED_AT = "2026-01-01T00:00:00Z";
+
+  type Reviewer = { login: string };
+  type Team = { slug: string };
+  type TimelineEvent = {
+    event: string;
+    actor?: { login: string; type?: string };
+    requested_reviewer?: Reviewer | null;
+    requested_team?: Team | null;
+    created_at?: string;
+  };
+
+  function setup(opts: {
+    requestedReviewers?: Reviewer[];
+    requestedTeams?: Team[];
+    timeline?: TimelineEvent[];
+    timelineError?: Error;
+  }) {
+    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 1,
+            node_id: "PR_1",
+            number: 5,
+            title: "t",
+            html_url: "http://x",
+            repository_url: "https://api.github.com/repos/o/r",
+            created_at: PR_CREATED_AT,
+            updated_at: "2026-01-02T00:00:00Z",
+            user: { login: PR_AUTHOR, avatar_url: "" },
+            draft: false,
+          },
+        ],
+      },
+    });
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: {
+        body: "",
+        head: { ref: "feat" },
+        base: { ref: "main" },
+        additions: 0,
+        deletions: 0,
+        commits: 0,
+        comments: 0,
+        review_comments: 0,
+        mergeable: true,
+        requested_reviewers: opts.requestedReviewers ?? [],
+        requested_teams: opts.requestedTeams ?? [],
+      },
+    });
+    if (opts.timelineError) {
+      mockOctokit.issues.listEventsForTimeline.mockRejectedValue(
+        opts.timelineError,
+      );
+    } else {
+      mockOctokit.issues.listEventsForTimeline.mockResolvedValue({
+        data: opts.timeline ?? [],
+      });
+    }
   }
 
-  it("marks requestedDirectly true when the user is in requested_reviewers", async () => {
-    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
-      data: { items: [reviewSearchItem()] },
-    });
-    mockOctokit.pulls.get.mockResolvedValue({
-      data: {
-        body: "",
-        head: { ref: "feat" },
-        base: { ref: "main" },
-        additions: 0,
-        deletions: 0,
-        commits: 0,
-        comments: 0,
-        review_comments: 0,
-        mergeable: true,
-        requested_reviewers: [{ login: "alice" }],
-        requested_teams: [],
-      },
-    });
+  async function getAutoAssigned() {
     const reviews = await fetchReviews("github");
-    expect(reviews[0].requestedDirectly).toBe(true);
+    return reviews[0].autoAssigned;
+  }
+
+  describe("direct path (user is in requested_reviewers)", () => {
+    const direct = (
+      actor: { login: string; type?: string },
+      created_at?: string,
+    ): TimelineEvent => ({
+      event: "review_requested",
+      actor,
+      requested_reviewer: { login: USERNAME },
+      created_at,
+    });
+
+    it("auto when PR author requests the user at PR creation", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [direct({ login: PR_AUTHOR }, PR_CREATED_AT)],
+      });
+      expect(await getAutoAssigned()).toBe(true);
+    });
+
+    it("auto when PR author requests the user within 2s of creation (boundary)", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [direct({ login: PR_AUTHOR }, "2026-01-01T00:00:01.500Z")],
+      });
+      expect(await getAutoAssigned()).toBe(true);
+    });
+
+    it("manual when PR author requests the user >2s after creation", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [direct({ login: PR_AUTHOR }, "2026-01-01T00:00:03Z")],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
+
+    it("manual when PR author manually requests the user much later", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [direct({ login: PR_AUTHOR }, "2026-01-01T00:10:00Z")],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
+
+    it("manual when a non-author human requests the user, even at PR creation", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [direct({ login: "dave" }, PR_CREATED_AT)],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
+
+    it("auto when a Bot-type actor requests the user (any timing)", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [
+          direct(
+            { login: "some-app[bot]", type: "Bot" },
+            "2026-01-01T05:00:00Z",
+          ),
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(true);
+    });
+
+    it("auto when actor login ends in [bot] even without a type field", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [
+          direct({ login: "github-actions[bot]" }, "2026-01-01T05:00:00Z"),
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(true);
+    });
+
+    it("manual when the only event targeting the user was added manually, even if other auto events exist for other reviewers", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [
+          // Auto event, but for someone else
+          {
+            event: "review_requested",
+            actor: { login: PR_AUTHOR },
+            requested_reviewer: { login: "carol" },
+            created_at: PR_CREATED_AT,
+          },
+          // Manual event targeting the user
+          direct({ login: "dave" }, "2026-01-01T01:00:00Z"),
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
+
+    it("manual when timeline has no review_requested events targeting the user", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
   });
 
-  it("marks requestedDirectly false when the user is only on a requested team", async () => {
-    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
-      data: { items: [reviewSearchItem()] },
+  describe("team path (user only via team membership)", () => {
+    const team = (
+      actor: { login: string; type?: string },
+      created_at?: string,
+    ): TimelineEvent => ({
+      event: "review_requested",
+      actor,
+      requested_team: { slug: "platform" },
+      created_at,
     });
-    mockOctokit.pulls.get.mockResolvedValue({
-      data: {
-        body: "",
-        head: { ref: "feat" },
-        base: { ref: "main" },
-        additions: 0,
-        deletions: 0,
-        commits: 0,
-        comments: 0,
-        review_comments: 0,
-        mergeable: true,
-        requested_reviewers: [{ login: "carol" }],
-        requested_teams: [{ slug: "platform" }],
-      },
+
+    const teamSetup = {
+      requestedReviewers: [{ login: "carol" }],
+      requestedTeams: [{ slug: "platform" }],
+    };
+
+    it("auto when PR author requests a team at PR creation", async () => {
+      setup({
+        ...teamSetup,
+        timeline: [team({ login: PR_AUTHOR }, PR_CREATED_AT)],
+      });
+      expect(await getAutoAssigned()).toBe(true);
     });
-    const reviews = await fetchReviews("github");
-    expect(reviews[0].requestedDirectly).toBe(false);
+
+    it("manual when PR author requests the team >2s after creation", async () => {
+      setup({
+        ...teamSetup,
+        timeline: [team({ login: PR_AUTHOR }, "2026-01-01T00:00:03Z")],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
+
+    it("manual when a non-author human requests the team", async () => {
+      setup({
+        ...teamSetup,
+        timeline: [team({ login: "dave" }, PR_CREATED_AT)],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
+
+    it("auto when a Bot actor requests the team", async () => {
+      setup({
+        ...teamSetup,
+        timeline: [
+          team(
+            { login: "github-actions[bot]", type: "Bot" },
+            "2026-01-01T05:00:00Z",
+          ),
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(true);
+    });
   });
 
-  it("defaults requestedDirectly to false when pulls.get fails", async () => {
-    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
-      data: { items: [reviewSearchItem()] },
+  describe("fallbacks", () => {
+    it("false when timeline fetch fails", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timelineError: new Error("404"),
+      });
+      expect(await getAutoAssigned()).toBe(false);
     });
-    mockOctokit.pulls.get.mockRejectedValue(new Error("404"));
-    const reviews = await fetchReviews("github");
-    expect(reviews[0].requestedDirectly).toBe(false);
+
+    it("false when timeline events lack created_at and actor is the PR author", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [
+          {
+            event: "review_requested",
+            actor: { login: PR_AUTHOR },
+            requested_reviewer: { login: USERNAME },
+            // no created_at
+          },
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
   });
 });

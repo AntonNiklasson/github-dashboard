@@ -13,7 +13,7 @@ import {
   mergeActionLabel,
 } from "./merge-decision";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
-import { showTeamReviewRequestsAtom } from "./filters";
+import { showCodeOwnerRequestsAtom } from "./filters";
 import { useChords } from "./use-chords";
 import {
   type Action,
@@ -678,8 +678,8 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const queryClient = useQueryClient();
   const { instances, prs, recentPrs, reviews, notifications } = source;
   const [dismissed, setDismissed] = useAtom(dismissedReviewsAtom);
-  const [showTeamReviewRequests, setShowTeamReviewRequests] = useAtom(
-    showTeamReviewRequestsAtom,
+  const [showCodeOwnerRequests, setShowCodeOwnerRequests] = useAtom(
+    showCodeOwnerRequestsAtom,
   );
   const [prSort, setPrSort] = useAtom(prSortAtom);
   const [reviewSort, setReviewSort] = useAtom(reviewSortAtom);
@@ -694,9 +694,9 @@ function Dashboard({ source }: { source: DashboardSource }) {
     () =>
       reviews.data
         .filter((r) => !isDismissed(dismissed, r.repo, r.number, r.updatedAt))
-        .filter((r) => showTeamReviewRequests || r.requestedDirectly !== false)
+        .filter((r) => showCodeOwnerRequests || r.autoAssigned !== true)
         .sort((a, b) => compareReviews(a, b, reviewSort)),
-    [reviews.data, dismissed, showTeamReviewRequests, reviewSort],
+    [reviews.data, dismissed, showCodeOwnerRequests, reviewSort],
   );
 
   const sortedNotifications = useMemo(
@@ -989,7 +989,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
         }
       } else if (e.key === "f" && activeSection === "reviews") {
         e.preventDefault();
-        setShowTeamReviewRequests((v) => !v);
+        setShowCodeOwnerRequests((v) => !v);
       } else if (e.key === "e" && activeSection === "reviews") {
         const r = reviewsRef.current[focusIndex];
         if (r) {
@@ -1124,24 +1124,24 @@ function Dashboard({ source }: { source: DashboardSource }) {
           <div className="flex gap-x-4">
             <label
               className="flex cursor-pointer items-center gap-1.5 select-none"
-              title="Includes CODEOWNERS auto-assignments and manual team requests — GitHub's API doesn't distinguish them."
+              title="Show reviews that CODEOWNERS auto-attached to you (directly or via a team). Manual user and team requests are always shown."
               onClick={(e) => e.stopPropagation()}
             >
               <input
                 type="checkbox"
-                checked={showTeamReviewRequests}
-                onChange={(e) => setShowTeamReviewRequests(e.target.checked)}
+                checked={showCodeOwnerRequests}
+                onChange={(e) => setShowCodeOwnerRequests(e.target.checked)}
                 className="h-3 w-3 rounded"
               />
               <span
                 className={
                   "text-[10px] uppercase tracking-tight " +
-                  (showTeamReviewRequests
+                  (showCodeOwnerRequests
                     ? "text-foreground"
                     : "text-muted-foreground/70")
                 }
               >
-                Auto requests
+                Code owners
               </span>
             </label>
             <SortControl
