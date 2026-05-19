@@ -56,6 +56,7 @@ function GeneralTab({
   setPort: (v: string) => void;
 }) {
   const [theme, setTheme] = useAtom(themeAtom);
+
   useEffect(() => applyTheme(theme), [theme]);
 
   return (
