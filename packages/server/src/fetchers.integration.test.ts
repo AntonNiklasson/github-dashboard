@@ -532,4 +532,74 @@ describe("fetchReviews — autoAssigned", () => {
       expect(await getAutoAssigned()).toBe(false);
     });
   });
+
+  describe("caching", () => {
+    const cacheKey = "github:auto-assigned:o/r/5";
+
+    it("skips the timeline fetch when the PR's updated_at matches the cached entry", async () => {
+      cacheStore.set(cacheKey, {
+        value: true,
+        updatedAt: "2026-01-02T00:00:00Z", // matches reviewSearchItem default
+      });
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [], // would yield false if it were used
+      });
+      expect(await getAutoAssigned()).toBe(true);
+      expect(mockOctokit.issues.listEventsForTimeline).not.toHaveBeenCalled();
+    });
+
+    it("refetches the timeline when the PR's updated_at differs from the cached entry", async () => {
+      cacheStore.set(cacheKey, {
+        value: true,
+        updatedAt: "2025-12-31T00:00:00Z", // stale
+      });
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [
+          {
+            event: "review_requested",
+            actor: { login: "dave" }, // non-author manual request
+            requested_reviewer: { login: USERNAME },
+            created_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+      expect(mockOctokit.issues.listEventsForTimeline).toHaveBeenCalledTimes(1);
+      // Cache should now reflect the fresh value and the new updated_at.
+      expect(cacheStore.get(cacheKey)).toEqual({
+        value: false,
+        updatedAt: "2026-01-02T00:00:00Z",
+      });
+    });
+
+    it("does not write to cache when the timeline fetch fails", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timelineError: new Error("404"),
+      });
+      expect(await getAutoAssigned()).toBe(false);
+      expect(cacheStore.has(cacheKey)).toBe(false);
+    });
+
+    it("populates the cache on a cache miss with a successful timeline fetch", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [
+          {
+            event: "review_requested",
+            actor: { login: PR_AUTHOR },
+            requested_reviewer: { login: USERNAME },
+            created_at: PR_CREATED_AT,
+          },
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(true);
+      expect(cacheStore.get(cacheKey)).toEqual({
+        value: true,
+        updatedAt: "2026-01-02T00:00:00Z",
+      });
+    });
+  });
 });
