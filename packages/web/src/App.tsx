@@ -1121,7 +1121,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
           nav.setFocusIndex(0);
         }}
         right={
-          <>
+          <div className="flex gap-x-4">
             <label
               className="flex cursor-pointer items-center gap-1.5 select-none"
               title="Includes CODEOWNERS auto-assignments and manual team requests — GitHub's API doesn't distinguish them."
@@ -1141,7 +1141,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
                     : "text-muted-foreground/70")
                 }
               >
-                Show auto requests
+                Auto requests
               </span>
             </label>
             <SortControl
@@ -1149,7 +1149,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
               value={reviewSort}
               onChange={setReviewSort}
             />
-          </>
+          </div>
         }
       >
         {reviews.isLoading ? (
