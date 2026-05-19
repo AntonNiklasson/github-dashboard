@@ -36,7 +36,7 @@ const sections: { title: string; shortcuts: [string, string][] }[] = [
       ["a", "Approve PR"],
       ["c", "Close PR"],
       ["e", "Dismiss review / notification"],
-      ["f", "Toggle CODEOWNERS-attached reviews"],
+      ["f", "Toggle CODEOWNERS-attached reviews (Reviews column)"],
       ["s", "Cycle sort dimension"],
       ["S", "Toggle sort direction"],
     ],

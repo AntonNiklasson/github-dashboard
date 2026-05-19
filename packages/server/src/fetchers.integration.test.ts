@@ -452,6 +452,43 @@ describe("fetchReviews — autoAssigned", () => {
       });
       expect(await getAutoAssigned()).toBe(false);
     });
+
+    it("manual when an auto request was removed and the user was manually re-requested", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [
+          // CODEOWNERS auto-attaches the user at PR creation.
+          direct({ login: PR_AUTHOR }, PR_CREATED_AT),
+          // The user is removed.
+          {
+            event: "review_request_removed",
+            actor: { login: USERNAME },
+            requested_reviewer: { login: USERNAME },
+            created_at: "2026-01-01T01:00:00Z",
+          },
+          // A non-author manually re-requests them later.
+          direct({ login: "dave" }, "2026-01-01T02:00:00Z"),
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(false);
+    });
+
+    it("auto when a manual request was removed and a bot re-attached the user", async () => {
+      setup({
+        requestedReviewers: [{ login: USERNAME }],
+        timeline: [
+          direct({ login: "dave" }, "2026-01-01T01:00:00Z"),
+          {
+            event: "review_request_removed",
+            actor: { login: USERNAME },
+            requested_reviewer: { login: USERNAME },
+            created_at: "2026-01-01T02:00:00Z",
+          },
+          direct({ login: "github-actions[bot]" }, "2026-01-01T03:00:00Z"),
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(true);
+    });
   });
 
   describe("team path (user only via team membership)", () => {
@@ -505,6 +542,23 @@ describe("fetchReviews — autoAssigned", () => {
         ],
       });
       expect(await getAutoAssigned()).toBe(true);
+    });
+
+    it("manual when an auto team request was removed and a human re-requested the team", async () => {
+      setup({
+        ...teamSetup,
+        timeline: [
+          team({ login: PR_AUTHOR }, PR_CREATED_AT),
+          {
+            event: "review_request_removed",
+            actor: { login: "dave" },
+            requested_team: { slug: "platform" },
+            created_at: "2026-01-01T01:00:00Z",
+          },
+          team({ login: "dave" }, "2026-01-01T02:00:00Z"),
+        ],
+      });
+      expect(await getAutoAssigned()).toBe(false);
     });
   });
 

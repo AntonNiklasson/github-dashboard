@@ -362,6 +362,11 @@ export async function fetchReviews(instanceId: string) {
       //     as the PR was opened (within 2s).
       // Manual requests by the PR author (later clicks of "Request review")
       // share the actor but not the timing, so they correctly stay visible.
+      //
+      // We classify the *current* attachment per reviewer/team — i.e. the most
+      // recent `review_requested` event not superseded by a
+      // `review_request_removed`. This way a CODEOWNERS auto-attach that was
+      // removed and then manually re-requested is correctly counted as manual.
       let autoAssigned: boolean;
       if (useCachedAuto && cachedAuto) {
         autoAssigned = cachedAuto.value;
@@ -373,13 +378,14 @@ export async function fetchReviews(instanceId: string) {
         const inRequestedReviewers =
           prData?.requested_reviewers?.some((r) => r?.login === username) ??
           false;
-        const timelineEvents = (timelineRes?.data ?? []) as Array<{
+        type TimelineEvent = {
           event?: string;
           created_at?: string;
           actor?: { login?: string; type?: string } | null;
           requested_reviewer?: { login?: string } | null;
           requested_team?: { slug?: string } | null;
-        }>;
+        };
+        const timelineEvents = (timelineRes?.data ?? []) as TimelineEvent[];
         const isAutoActor = (
           actor: { login?: string; type?: string } | null | undefined,
           eventCreatedAt?: string,
@@ -391,19 +397,30 @@ export async function fetchReviews(instanceId: string) {
           if (prCreatedMs == null || !eventCreatedAt) return false;
           return Math.abs(Date.parse(eventCreatedAt) - prCreatedMs) <= 2000;
         };
-        autoAssigned = inRequestedReviewers
-          ? timelineEvents.some(
-              (ev) =>
-                ev.event === "review_requested" &&
-                ev.requested_reviewer?.login === username &&
-                isAutoActor(ev.actor, ev.created_at),
-            )
-          : timelineEvents.some(
-              (ev) =>
-                ev.event === "review_requested" &&
-                ev.requested_team != null &&
-                isAutoActor(ev.actor, ev.created_at),
-            );
+        // Walk in chronological order (the timeline API returns events in
+        // order). The latest `review_requested` not followed by a matching
+        // `review_request_removed` is the current attachment.
+        const currentReviewerAttachment = new Map<string, TimelineEvent>();
+        const currentTeamAttachment = new Map<string, TimelineEvent>();
+        for (const ev of timelineEvents) {
+          const reviewer = ev.requested_reviewer?.login;
+          const team = ev.requested_team?.slug;
+          if (ev.event === "review_requested") {
+            if (reviewer) currentReviewerAttachment.set(reviewer, ev);
+            if (team) currentTeamAttachment.set(team, ev);
+          } else if (ev.event === "review_request_removed") {
+            if (reviewer) currentReviewerAttachment.delete(reviewer);
+            if (team) currentTeamAttachment.delete(team);
+          }
+        }
+        if (inRequestedReviewers) {
+          const ev = currentReviewerAttachment.get(username);
+          autoAssigned = ev != null && isAutoActor(ev.actor, ev.created_at);
+        } else {
+          autoAssigned = [...currentTeamAttachment.values()].some((ev) =>
+            isAutoActor(ev.actor, ev.created_at),
+          );
+        }
         // Only persist when the timeline fetch actually succeeded — a 404 /
         // throttle shouldn't burn a "false" into the cache and shadow a real
         // auto-assignment.
