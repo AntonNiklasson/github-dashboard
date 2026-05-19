@@ -18,7 +18,7 @@ vi.mock("./github-client.js", () => ({
   getInstance: async (id: string) => ({
     id,
     label: id,
-    baseUrl: "",
+    baseUrl: "https://api.github.com",
     token: "t",
     username: "alice",
   }),
@@ -37,8 +37,13 @@ vi.mock("./cache.js", () => ({
   },
 }));
 
-const { fetchPrs, fetchNotifications, fetchRecentPrs, fetchReviews } =
-  await import("./fetchers.js");
+const {
+  fetchPrs,
+  fetchNotifications,
+  fetchRecentPrs,
+  fetchReviews,
+  notificationHtmlUrl,
+} = await import("./fetchers.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -253,13 +258,17 @@ describe("fetchNotifications", () => {
     expect(notifs.map((n) => n.id)).toEqual(["1"]);
   });
 
-  it("shapes the payload for the UI", async () => {
+  it("shapes the payload for the UI and rewrites the subject URL to its HTML form", async () => {
     mockOctokit.activity.listNotificationsForAuthenticatedUser.mockResolvedValue(
       {
         data: [
           {
             id: "1",
-            subject: { title: "hello", type: "Issue", url: "http://x" },
+            subject: {
+              title: "hello",
+              type: "Issue",
+              url: "https://api.github.com/repos/o/r/issues/42",
+            },
             reason: "mention",
             repository: { full_name: "o/r" },
             updated_at: "2026-01-01T00:00:00Z",
@@ -277,8 +286,85 @@ describe("fetchNotifications", () => {
       repo: "o/r",
       updatedAt: "2026-01-01T00:00:00Z",
       unread: false,
-      url: "http://x",
+      url: "https://github.com/o/r/issues/42",
     });
+  });
+});
+
+describe("notificationHtmlUrl", () => {
+  const apiBase = "https://api.github.com";
+
+  it("rewrites issue API URLs to HTML form", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/issues/42",
+        "Issue",
+        "o/r",
+        apiBase,
+      ),
+    ).toBe("https://github.com/o/r/issues/42");
+  });
+
+  it("rewrites pulls API URLs (pulls → pull) for PRs", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/pulls/123",
+        "PullRequest",
+        "o/r",
+        apiBase,
+      ),
+    ).toBe("https://github.com/o/r/pull/123");
+  });
+
+  it("rewrites commits API URLs (commits → commit)", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/commits/abc123",
+        "Commit",
+        "o/r",
+        apiBase,
+      ),
+    ).toBe("https://github.com/o/r/commit/abc123");
+  });
+
+  it("falls back to the repo's releases page for Release subjects (the ID isn't UI-routable)", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/releases/999",
+        "Release",
+        "o/r",
+        apiBase,
+      ),
+    ).toBe("https://github.com/o/r/releases");
+  });
+
+  it("falls back to the repo's discussions page when subject.url is missing (Discussion)", () => {
+    expect(notificationHtmlUrl(null, "Discussion", "o/r", apiBase)).toBe(
+      "https://github.com/o/r/discussions",
+    );
+  });
+
+  it("falls back to the repo page when subject.url is missing and type is unknown", () => {
+    expect(notificationHtmlUrl(null, "CheckSuite", "o/r", apiBase)).toBe(
+      "https://github.com/o/r",
+    );
+  });
+
+  it("handles GHES URLs by stripping the /api/v3 prefix and keeping the host", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://ghe.example.com/api/v3/repos/o/r/pulls/7",
+        "PullRequest",
+        "o/r",
+        "https://ghe.example.com/api/v3",
+      ),
+    ).toBe("https://ghe.example.com/o/r/pull/7");
+  });
+
+  it("falls back to the repo page when subject.url is unparseable", () => {
+    expect(notificationHtmlUrl("not a url", "Issue", "o/r", apiBase)).toBe(
+      "https://github.com/o/r",
+    );
   });
 });
 

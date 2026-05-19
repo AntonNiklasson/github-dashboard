@@ -467,8 +467,62 @@ export async function fetchReviews(instanceId: string) {
   );
 }
 
+// Convert a GitHub *API* URL (e.g. https://api.github.com/repos/o/r/pulls/1)
+// into its corresponding *HTML* URL (https://github.com/o/r/pull/1).
+// The notifications API returns the subject's API URL on `subject.url` and
+// doesn't include an `html_url`, so we have to derive it ourselves.
+//
+// Handles github.com and GHES (where the API lives under `/api/v3`).
+// For subjects that don't have a usable URL (e.g. Discussion) or types we
+// can't address precisely (Release IDs aren't routable in the UI), we fall
+// back to a sensible repo-level page.
+export function notificationHtmlUrl(
+  apiUrl: string | null | undefined,
+  type: string | null | undefined,
+  repoFullName: string,
+  apiBaseUrl: string,
+): string {
+  const htmlBase = htmlBaseFromApiBase(apiBaseUrl);
+  const repoUrl = `${htmlBase}/${repoFullName}`;
+
+  if (!apiUrl) {
+    if (type === "Discussion") return `${repoUrl}/discussions`;
+    if (type === "Release") return `${repoUrl}/releases`;
+    return repoUrl;
+  }
+
+  let path: string;
+  try {
+    path = new URL(apiUrl).pathname;
+  } catch {
+    return repoUrl;
+  }
+
+  path = path.replace(/^\/api\/v3\/repos\//, "/").replace(/^\/repos\//, "/");
+  path = path
+    .replace(/^\/([^/]+\/[^/]+)\/pulls\//, "/$1/pull/")
+    .replace(/^\/([^/]+\/[^/]+)\/commits\//, "/$1/commit/");
+  // Release notification subjects point at /releases/{id}, which the GitHub
+  // UI doesn't route. Fall back to the repo's releases list.
+  const releaseMatch = path.match(/^\/([^/]+\/[^/]+)\/releases\/\d+$/);
+  if (releaseMatch) path = `/${releaseMatch[1]}/releases`;
+
+  return `${htmlBase}${path}`;
+}
+
+function htmlBaseFromApiBase(apiBaseUrl: string): string {
+  try {
+    const u = new URL(apiBaseUrl);
+    if (u.hostname === "api.github.com") return "https://github.com";
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return "https://github.com";
+  }
+}
+
 export async function fetchNotifications(instanceId: string) {
   const client = await getClient(instanceId);
+  const { baseUrl } = await getInstance(instanceId);
 
   const { data } = await client.activity.listNotificationsForAuthenticatedUser({
     all: true,
@@ -485,6 +539,11 @@ export async function fetchNotifications(instanceId: string) {
       repo: n.repository.full_name,
       updatedAt: n.updated_at,
       unread: n.unread,
-      url: n.subject.url,
+      url: notificationHtmlUrl(
+        n.subject.url,
+        n.subject.type,
+        n.repository.full_name,
+        baseUrl,
+      ),
     }));
 }
