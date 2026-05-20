@@ -11,9 +11,10 @@ export default defineConfig({
     },
   },
   server: {
-    port: 7200,
+    port: Number(process.env.GHD_WEB_PORT) || 7200,
+    strictPort: process.env.GHD_WEB_PORT != null,
     proxy: {
-      "/api": "http://localhost:7100",
+      "/api": `http://localhost:${process.env.GHD_API_PORT ?? 7100}`,
     },
   },
   test: {

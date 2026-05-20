@@ -1,6 +1,6 @@
 # Agent notes
 
-Monorepo: `packages/server` (Hono API, port 7100) + `packages/web` (Vite/React, port 7200, proxies `/api` to server).
+Monorepo: `packages/server` (Hono API) + `packages/web` (Vite/React, proxies `/api` to server) + `packages/desktop` (Electron). Electron is the dev orchestrator: `pnpm dev` builds the Electron main and launches it, which picks two free ports and spawns the server and Vite as children. Vite's `/api` proxy reads `GHD_API_PORT`. The current dev URL + ports are written to `.logs/ports.json` on startup.
 
 ## Validating your own work
 
@@ -10,11 +10,11 @@ Close the loop before declaring done. Available tools:
 - `pnpm test` — vitest in both packages
 - `pnpm lint` — oxlint
 - `pnpm fmt:check` — oxfmt
-- `pnpm dev` — runs server + web concurrently (long-running; start in background). Stdout/stderr is tee'd to `.logs/server.log` and `.logs/web.log` — tail or read these to inspect output. Logs reset on each start; accumulate across hot reloads within a session.
+- `pnpm dev` — Electron orchestrates server + Vite on random ports (long-running; start in background). Stdout/stderr is tee'd to `.logs/server.log`, `.logs/web.log`, and `.logs/desktop.log` — tail or read these to inspect output. Logs reset on each start; accumulate across hot reloads within a session.
 
-For UI/UX changes, type-checks aren't enough — drive the app via the **Playwright MCP** (`.mcp.json`):
+For UI/UX changes, type-checks aren't enough — drive the app via the **Playwright MCP** (`.mcp.json`). Read `.logs/ports.json` first to discover the current dev URL (ports are random each session):
 
-- `browser_navigate` to `http://localhost:7200`
+- `browser_navigate` to the `url` from `.logs/ports.json`
 - `browser_snapshot` for the accessibility tree (preferred over screenshots for assertions)
 - `browser_click`, `browser_type`, `browser_press_key` to exercise keyboard shortcuts
 - `browser_console_messages` to catch runtime errors
