@@ -49,24 +49,16 @@ import {
   type Section,
   useAllAuthoredPrs,
   useAllNotifications,
-  useAllRecentPrs,
   useAllReviewRequests,
   useAuthoredPrs,
   useColleaguePrs,
   useInstances,
   useKeyboardNav,
   useNotifications,
-  useRecentPrs,
   useReviewRequests,
 } from "./hooks";
 import { getInstanceColor } from "./instance-colors";
-import type {
-  Instance,
-  Notification,
-  PR,
-  RecentPR,
-  ReviewRequest,
-} from "./types";
+import type { Instance, Notification, PR, ReviewRequest } from "./types";
 import { applyTheme, themeAtom } from "./theme";
 import * as mutations from "./mutations";
 
@@ -398,8 +390,6 @@ function confirmAndMerge(
       instanceId: item.instanceId,
       repo: item.repo,
       number: item.number,
-      title: item.title,
-      url: item.url,
     })
     .catch(() => {});
 }
@@ -470,7 +460,7 @@ function getActionsForItem(
       onSelect: () => {
         const base = item.url.replace(/\/pull\/\d+.*$/, "");
         window.open(
-          `${base}/pulls?q=author%3A${item.author}+is%3Aopen+sort%3Aupdated-desc`,
+          `${base}/pulls?q=author%3A${item.author}+sort%3Aupdated-desc`,
           "_blank",
         );
       },
@@ -572,8 +562,6 @@ function getActionsForItem(
             instanceId: item.instanceId!,
             repo: item.repo!,
             number: item.number!,
-            title: item.title,
-            url: item.url,
           })
           .catch(() => {});
       },
@@ -591,7 +579,6 @@ interface DashboardSource {
     isFetching: boolean;
     error: Error | null;
   };
-  recentPrs: { data: RecentPR[] };
   reviews: {
     data: ReviewRequest[];
     isLoading: boolean;
@@ -608,7 +595,6 @@ interface DashboardSource {
 
 function MultiInstanceDashboard({ instances }: { instances: Instance[] }) {
   const prs = useAllAuthoredPrs(instances);
-  const recentPrs = useAllRecentPrs(instances);
   const reviews = useAllReviewRequests(instances);
   const notifications = useAllNotifications(instances);
   const source: DashboardSource = {
@@ -619,7 +605,6 @@ function MultiInstanceDashboard({ instances }: { instances: Instance[] }) {
       isFetching: prs.isFetching,
       error: prs.error as Error | null,
     },
-    recentPrs: { data: recentPrs.data },
     reviews: {
       data: reviews.data,
       isLoading: reviews.isLoading,
@@ -646,7 +631,6 @@ function SingleInstanceDashboard({
   const prs = authorFilter
     ? useColleaguePrs(instance.id, authorFilter)
     : useAuthoredPrs(instance.id);
-  const recentPrs = useRecentPrs(instance.id);
   const reviews = useReviewRequests(instance.id);
   const notifications = useNotifications(instance.id);
   const source: DashboardSource = {
@@ -657,7 +641,6 @@ function SingleInstanceDashboard({
       isFetching: prs.isFetching,
       error: (prs.error as Error | null) ?? null,
     },
-    recentPrs: { data: recentPrs.data ?? [] },
     reviews: {
       data: reviews.data ?? [],
       isLoading: reviews.isLoading,
@@ -676,7 +659,7 @@ function SingleInstanceDashboard({
 
 function Dashboard({ source }: { source: DashboardSource }) {
   const queryClient = useQueryClient();
-  const { instances, prs, recentPrs, reviews, notifications } = source;
+  const { instances, prs, reviews, notifications } = source;
   const [dismissed, setDismissed] = useAtom(dismissedReviewsAtom);
   const [showCodeOwnerRequests, setShowCodeOwnerRequests] = useAtom(
     showCodeOwnerRequestsAtom,
@@ -709,7 +692,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
 
   const sections: Section[] = ["prs", "reviews", "notifications"];
   const itemCounts = {
-    prs: sortedPrs.length + recentPrs.data.length,
+    prs: sortedPrs.length,
     reviews: filteredReviews.length,
     notifications: sortedNotifications.length,
   };
@@ -790,13 +773,11 @@ function Dashboard({ source }: { source: DashboardSource }) {
 
   const navRef = useRef(nav);
   const prsRef = useRef(sortedPrs);
-  const recentPrsRef = useRef(recentPrs.data);
   const reviewsRef = useRef(filteredReviews);
   const notificationsRef = useRef(sortedNotifications);
   const instancesRef = useRef(instances);
   navRef.current = nav;
   prsRef.current = sortedPrs;
-  recentPrsRef.current = recentPrs.data;
   reviewsRef.current = filteredReviews;
   notificationsRef.current = sortedNotifications;
   instancesRef.current = instances;
@@ -806,7 +787,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
       navRef.current.activeSection,
       navRef.current.focusIndex,
       prsRef.current,
-      recentPrsRef.current,
       reviewsRef.current,
       notificationsRef.current,
       instancesRef.current,
@@ -815,7 +795,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
     Math.max(
       0,
       ({
-        prs: prsRef.current.length + recentPrsRef.current.length,
+        prs: prsRef.current.length,
         reviews: reviewsRef.current.length,
         notifications: notificationsRef.current.length,
       }[navRef.current.activeSection] ?? 0) - 1,
@@ -958,8 +938,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
               instanceId: item.instanceId,
               repo: item.repo,
               number: item.number,
-              title: item.title,
-              url: item.url,
             })
             .catch(() => {});
         }
@@ -1090,7 +1068,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
             focusIndex={nav.focusIndex}
             isFocusedSection={nav.activeSection === "prs"}
             togglingDraftId={togglingDraftId ?? undefined}
-            recentPrs={recentPrs.data}
             editingPrNumber={editingPrNumber ?? undefined}
             onSaveTitle={async (prNumber, title) => {
               const pr = sortedPrs.find((p) => p.number === prNumber);
@@ -1285,7 +1262,6 @@ function getFocusedItem(
   section: Section,
   idx: number,
   prs: PR[],
-  recentPrs: RecentPR[],
   reviews: ReviewRequest[],
   notifications: Notification[],
   instances: Instance[],
@@ -1315,24 +1291,6 @@ function getFocusedItem(
       baseBranch: p.baseBranch,
       commentCount: p.commentCount,
       ciStatus: p.ciStatus,
-    };
-  }
-  if (section === "prs" && recentPrs[idx - prs.length]) {
-    const p = recentPrs[idx - prs.length];
-    const inst =
-      instances.find((i) => i.label === p.instanceLabel) ?? instances[0];
-    return {
-      url: p.url,
-      title: p.title,
-      section,
-      repo: p.repo,
-      number: p.number,
-      instanceId: inst?.id,
-      additions: p.additions,
-      deletions: p.deletions,
-      reviews: { approved: [], changesRequested: [] },
-      headBranch: p.headBranch,
-      readOnly: true,
     };
   }
   if (section === "reviews" && reviews[idx]) {

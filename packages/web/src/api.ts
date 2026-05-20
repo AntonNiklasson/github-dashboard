@@ -2,7 +2,6 @@ import type {
   Instance,
   Notification,
   PR,
-  RecentPR,
   ReviewRequest,
   SearchPR,
 } from "./types";
@@ -62,10 +61,6 @@ export const api = {
   instances: () => fetchJson<Instance[]>("/api/instances"),
   prs: (instanceId: string, fresh = false) =>
     fetchJson<PR[]>(`/api/${instanceId}/prs${fresh ? "?fresh=1" : ""}`),
-  recentPrs: (instanceId: string, fresh = false) =>
-    fetchJson<RecentPR[]>(
-      `/api/${instanceId}/recent-prs${fresh ? "?fresh=1" : ""}`,
-    ),
   reviews: (instanceId: string, fresh = false) =>
     fetchJson<ReviewRequest[]>(
       `/api/${instanceId}/reviews${fresh ? "?fresh=1" : ""}`,
