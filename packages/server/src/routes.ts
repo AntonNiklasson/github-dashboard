@@ -287,6 +287,41 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/auto-merge", async (c) => {
       if (/auto.?merge is not allowed/i.test(msg)) {
         return c.json({ error: "auto_merge_not_allowed" }, 422);
       }
+      // PR is already mergeable — GitHub refuses to queue auto-merge.
+      // Fall through to a direct squash merge to match user intent.
+      if (/clean status/i.test(msg)) {
+        const fullRepo = `${owner}/${repo}`;
+        try {
+          await client.pulls.merge({
+            owner,
+            repo,
+            pull_number: num,
+            merge_method: "squash",
+          });
+        } catch (mergeErr) {
+          const e = mergeErr as { response?: { data?: { message?: string } } };
+          const raw = e.response?.data?.message;
+          const message = raw
+            ? raw
+                .split("\n")
+                .map((l) => l.trim())
+                .filter((l) => l.length > 0)
+                .join(" — ")
+            : "Failed to merge PR";
+          return c.json({ error: "merge_rejected", message }, 422);
+        }
+
+        patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
+        patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
+        recordMutation(instanceId, {
+          kind: "removed",
+          repo: fullRepo,
+          number: num,
+        });
+        scheduleResync(instanceId, ["prs", "reviews", "recent-prs"]);
+
+        return c.json({ ok: true, merged: true });
+      }
       throw err;
     }
   }
