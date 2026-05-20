@@ -71,8 +71,8 @@ enterprise:
   token: ghp_...
 ```
 
-- **github** — github.com personal access token (needs `repo`, `notifications` scopes)
-- **enterprise** — optional GitHub Enterprise instance with its own token and base URL
+- **github** — github.com personal access token (needs `repo`, `notifications` scopes). [Create one with the scopes pre-selected](https://github.com/settings/tokens/new?scopes=repo,notifications&description=GitHub%20Dashboard).
+- **enterprise** — optional GitHub Enterprise instance with its own token and base URL (same scopes; on your GHE host: `https://<ghe-host>/settings/tokens/new?scopes=repo,notifications&description=GitHub%20Dashboard`)
 - **port** — server port (default 7100)
 
 Tokens can also be updated from the settings modal in the UI.
