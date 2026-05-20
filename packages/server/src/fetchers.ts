@@ -472,6 +472,10 @@ export async function fetchReviews(instanceId: string) {
 // The notifications API returns the subject's API URL on `subject.url` and
 // doesn't include an `html_url`, so we have to derive it ourselves.
 //
+// When `latestCommentUrl` is set, we append the matching fragment so the
+// link opens at the comment (e.g. #issuecomment-123) rather than the top
+// of the thread.
+//
 // Handles github.com and GHES (where the API lives under `/api/v3`).
 // For subjects that don't have a usable URL (e.g. Discussion) or types we
 // can't address precisely (Release IDs aren't routable in the UI), we fall
@@ -481,6 +485,7 @@ export function notificationHtmlUrl(
   type: string | null | undefined,
   repoFullName: string,
   apiBaseUrl: string,
+  latestCommentUrl?: string | null,
 ): string {
   const htmlBase = htmlBaseFromApiBase(apiBaseUrl);
   const repoUrl = `${htmlBase}/${repoFullName}`;
@@ -503,11 +508,37 @@ export function notificationHtmlUrl(
     .replace(/^\/([^/]+\/[^/]+)\/pulls\//, "/$1/pull/")
     .replace(/^\/([^/]+\/[^/]+)\/commits\//, "/$1/commit/");
   // Release notification subjects point at /releases/{id}, which the GitHub
-  // UI doesn't route. Fall back to the repo's releases list.
+  // UI doesn't route. Fall back to the repo's releases list — the comment
+  // fragment isn't meaningful on that page either.
   const releaseMatch = path.match(/^\/([^/]+\/[^/]+)\/releases\/\d+$/);
-  if (releaseMatch) path = `/${releaseMatch[1]}/releases`;
+  if (releaseMatch) return `${htmlBase}/${releaseMatch[1]}/releases`;
 
-  return `${htmlBase}${path}`;
+  const fragment = commentFragment(latestCommentUrl);
+  return `${htmlBase}${path}${fragment ?? ""}`;
+}
+
+// Map a comment's API URL to the matching HTML page fragment so the link
+// scrolls to the comment. Returns null for shapes we don't recognise — the
+// caller then renders the bare thread URL.
+function commentFragment(
+  commentApiUrl: string | null | undefined,
+): string | null {
+  if (!commentApiUrl) return null;
+  let path: string;
+  try {
+    path = new URL(commentApiUrl).pathname;
+  } catch {
+    return null;
+  }
+  path = path.replace(/^\/api\/v3/, "");
+  let m: RegExpMatchArray | null;
+  if ((m = path.match(/\/issues\/comments\/(\d+)$/)))
+    return `#issuecomment-${m[1]}`;
+  if ((m = path.match(/\/pulls\/comments\/(\d+)$/)))
+    return `#discussion_r${m[1]}`;
+  if ((m = path.match(/\/repos\/[^/]+\/[^/]+\/comments\/(\d+)$/)))
+    return `#commitcomment-${m[1]}`;
+  return null;
 }
 
 function htmlBaseFromApiBase(apiBaseUrl: string): string {
@@ -520,17 +551,56 @@ function htmlBaseFromApiBase(apiBaseUrl: string): string {
   }
 }
 
+// Notifications already represented elsewhere in the dashboard (My work,
+// Reviews, the PR itself) or that are pure noise. Dropping them at the
+// fetcher keeps the Notifications column focused on things that aren't
+// surfaced anywhere else.
+type NotificationShape = {
+  reason: string;
+  subject: { type: string | null };
+};
+
+const redundantRules: ReadonlyArray<(n: NotificationShape) => boolean> = [
+  // shown in the Reviews column
+  (n) => n.reason === "review_requested",
+  // visible on the PR itself
+  (n) => n.reason === "ci_activity",
+  // your own PR, shown in My work
+  (n) => n.subject.type === "PullRequest" && n.reason === "author",
+  // your own PR, shown in My work / Reviews
+  (n) => n.subject.type === "PullRequest" && n.reason === "state_change",
+  // auto-subscription noise
+  (n) => n.reason === "subscribed",
+];
+
+function isRedundantNotification(n: NotificationShape): boolean {
+  return redundantRules.some((rule) => rule(n));
+}
+
+// We pull a few pages so the filter has enough raw material — many items
+// are dropped as redundant (review_requested, ci_activity, …), and a single
+// page often leaves the kept set sparse. Pages are fetched in parallel; the
+// result is cached, so this only fires on cache miss / explicit refresh.
+const NOTIFICATION_PAGES = 3;
+const NOTIFICATIONS_PER_PAGE = 50;
+
 export async function fetchNotifications(instanceId: string) {
   const client = await getClient(instanceId);
   const { baseUrl } = await getInstance(instanceId);
 
-  const { data } = await client.activity.listNotificationsForAuthenticatedUser({
-    all: true,
-    per_page: 30,
-  });
+  const pages = await Promise.all(
+    Array.from({ length: NOTIFICATION_PAGES }, (_, i) =>
+      client.activity.listNotificationsForAuthenticatedUser({
+        all: true,
+        per_page: NOTIFICATIONS_PER_PAGE,
+        page: i + 1,
+      }),
+    ),
+  );
+  const data = pages.flatMap((r) => r.data);
 
   return data
-    .filter((n) => n.reason !== "review_requested")
+    .filter((n) => !isRedundantNotification(n))
     .map((n) => ({
       id: n.id,
       title: n.subject.title,
@@ -544,6 +614,7 @@ export async function fetchNotifications(instanceId: string) {
         n.subject.type,
         n.repository.full_name,
         baseUrl,
+        n.subject.latest_comment_url,
       ),
     }));
 }

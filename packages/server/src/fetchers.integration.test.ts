@@ -231,52 +231,95 @@ describe("fetchRecentPrs", () => {
 });
 
 describe("fetchNotifications", () => {
-  it("omits review_requested notifications", async () => {
-    mockOctokit.activity.listNotificationsForAuthenticatedUser.mockResolvedValue(
+  // fetchNotifications fans out across multiple pages — first call returns
+  // the test data, subsequent pages are empty.
+  const setNotifications = (data: unknown[]) => {
+    mockOctokit.activity.listNotificationsForAuthenticatedUser
+      .mockResolvedValueOnce({ data })
+      .mockResolvedValue({ data: [] });
+  };
+
+  it("omits notifications already represented elsewhere in the dashboard", async () => {
+    setNotifications([
       {
-        data: [
-          {
-            id: "1",
-            subject: { title: "x", type: "PullRequest", url: "http://x" },
-            reason: "mention",
-            repository: { full_name: "o/r" },
-            updated_at: "2026-01-01T00:00:00Z",
-            unread: true,
-          },
-          {
-            id: "2",
-            subject: { title: "y", type: "PullRequest", url: "http://y" },
-            reason: "review_requested",
-            repository: { full_name: "o/r" },
-            updated_at: "2026-01-02T00:00:00Z",
-            unread: true,
-          },
-        ],
+        id: "keep-mention",
+        subject: { title: "x", type: "PullRequest", url: "http://x" },
+        reason: "mention",
+        repository: { full_name: "o/r" },
+        updated_at: "2026-01-01T00:00:00Z",
+        unread: true,
       },
-    );
+      {
+        id: "keep-author-issue",
+        subject: { title: "issue I opened", type: "Issue", url: "http://i" },
+        reason: "author",
+        repository: { full_name: "o/r" },
+        updated_at: "2026-01-01T00:00:00Z",
+        unread: true,
+      },
+      {
+        id: "drop-review-requested",
+        subject: { title: "y", type: "PullRequest", url: "http://y" },
+        reason: "review_requested",
+        repository: { full_name: "o/r" },
+        updated_at: "2026-01-02T00:00:00Z",
+        unread: true,
+      },
+      {
+        id: "drop-ci",
+        subject: { title: "z", type: "CheckSuite", url: null },
+        reason: "ci_activity",
+        repository: { full_name: "o/r" },
+        updated_at: "2026-01-03T00:00:00Z",
+        unread: true,
+      },
+      {
+        id: "drop-author-pr",
+        subject: { title: "my pr", type: "PullRequest", url: "http://p" },
+        reason: "author",
+        repository: { full_name: "o/r" },
+        updated_at: "2026-01-04T00:00:00Z",
+        unread: true,
+      },
+      {
+        id: "drop-state-change-pr",
+        subject: { title: "merged pr", type: "PullRequest", url: "http://m" },
+        reason: "state_change",
+        repository: { full_name: "o/r" },
+        updated_at: "2026-01-05T00:00:00Z",
+        unread: true,
+      },
+      {
+        id: "drop-subscribed",
+        subject: { title: "sub", type: "Issue", url: "http://s" },
+        reason: "subscribed",
+        repository: { full_name: "o/r" },
+        updated_at: "2026-01-06T00:00:00Z",
+        unread: true,
+      },
+    ]);
     const notifs = await fetchNotifications("github");
-    expect(notifs.map((n) => n.id)).toEqual(["1"]);
+    expect(notifs.map((n) => n.id)).toEqual([
+      "keep-mention",
+      "keep-author-issue",
+    ]);
   });
 
   it("shapes the payload for the UI and rewrites the subject URL to its HTML form", async () => {
-    mockOctokit.activity.listNotificationsForAuthenticatedUser.mockResolvedValue(
+    setNotifications([
       {
-        data: [
-          {
-            id: "1",
-            subject: {
-              title: "hello",
-              type: "Issue",
-              url: "https://api.github.com/repos/o/r/issues/42",
-            },
-            reason: "mention",
-            repository: { full_name: "o/r" },
-            updated_at: "2026-01-01T00:00:00Z",
-            unread: false,
-          },
-        ],
+        id: "1",
+        subject: {
+          title: "hello",
+          type: "Issue",
+          url: "https://api.github.com/repos/o/r/issues/42",
+        },
+        reason: "mention",
+        repository: { full_name: "o/r" },
+        updated_at: "2026-01-01T00:00:00Z",
+        unread: false,
       },
-    );
+    ]);
     const [n] = await fetchNotifications("github");
     expect(n).toEqual({
       id: "1",
@@ -288,6 +331,27 @@ describe("fetchNotifications", () => {
       unread: false,
       url: "https://github.com/o/r/issues/42",
     });
+  });
+
+  it("fans out across multiple pages and merges the results", async () => {
+    const make = (id: string) => ({
+      id,
+      subject: { title: id, type: "Issue", url: `http://i/${id}` },
+      reason: "mention",
+      repository: { full_name: "o/r" },
+      updated_at: "2026-01-01T00:00:00Z",
+      unread: true,
+    });
+    mockOctokit.activity.listNotificationsForAuthenticatedUser
+      .mockResolvedValueOnce({ data: [make("p1-a"), make("p1-b")] })
+      .mockResolvedValueOnce({ data: [make("p2-a")] })
+      .mockResolvedValueOnce({ data: [make("p3-a")] });
+
+    const notifs = await fetchNotifications("github");
+    expect(notifs.map((n) => n.id)).toEqual(["p1-a", "p1-b", "p2-a", "p3-a"]);
+    expect(
+      mockOctokit.activity.listNotificationsForAuthenticatedUser,
+    ).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -365,6 +429,78 @@ describe("notificationHtmlUrl", () => {
     expect(notificationHtmlUrl("not a url", "Issue", "o/r", apiBase)).toBe(
       "https://github.com/o/r",
     );
+  });
+
+  it("appends an issuecomment fragment when latest_comment_url points at an issue comment", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/issues/42",
+        "Issue",
+        "o/r",
+        apiBase,
+        "https://api.github.com/repos/o/r/issues/comments/9001",
+      ),
+    ).toBe("https://github.com/o/r/issues/42#issuecomment-9001");
+  });
+
+  it("appends a discussion_r fragment for PR review comments", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/pulls/7",
+        "PullRequest",
+        "o/r",
+        apiBase,
+        "https://api.github.com/repos/o/r/pulls/comments/555",
+      ),
+    ).toBe("https://github.com/o/r/pull/7#discussion_r555");
+  });
+
+  it("appends a commitcomment fragment for commit comments", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/commits/abc",
+        "Commit",
+        "o/r",
+        apiBase,
+        "https://api.github.com/repos/o/r/comments/77",
+      ),
+    ).toBe("https://github.com/o/r/commit/abc#commitcomment-77");
+  });
+
+  it("handles GHES comment URLs by stripping the /api/v3 prefix", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://ghe.example.com/api/v3/repos/o/r/pulls/7",
+        "PullRequest",
+        "o/r",
+        "https://ghe.example.com/api/v3",
+        "https://ghe.example.com/api/v3/repos/o/r/issues/comments/12",
+      ),
+    ).toBe("https://ghe.example.com/o/r/pull/7#issuecomment-12");
+  });
+
+  it("ignores latest_comment_url when it doesn't match a known shape", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/issues/42",
+        "Issue",
+        "o/r",
+        apiBase,
+        "https://api.github.com/repos/o/r/reviews/9001",
+      ),
+    ).toBe("https://github.com/o/r/issues/42");
+  });
+
+  it("does not append a comment fragment when falling back to a list page (Release)", () => {
+    expect(
+      notificationHtmlUrl(
+        "https://api.github.com/repos/o/r/releases/999",
+        "Release",
+        "o/r",
+        apiBase,
+        "https://api.github.com/repos/o/r/issues/comments/9001",
+      ),
+    ).toBe("https://github.com/o/r/releases");
   });
 });
 
