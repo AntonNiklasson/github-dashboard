@@ -77,6 +77,20 @@ enterprise:
 
 Tokens can also be updated from the settings modal in the UI.
 
+## Notifications
+
+The Notifications column is intentionally narrower than GitHub's own inbox — it drops items that are either already represented elsewhere in the dashboard or are pure noise:
+
+| Reason | Subject | Why it's dropped |
+|---|---|---|
+| `review_requested` | any | Shown in the Reviews column |
+| `ci_activity` | any | Visible on the PR itself |
+| `author` | `PullRequest` | Your own PR, shown in My work |
+| `state_change` | `PullRequest` | Your own PR, shown in My work / Reviews |
+| `subscribed` | any | Auto-subscription noise |
+
+Everything else (mentions, team mentions, assignments, comments on threads you participate in, security alerts, …) flows through unchanged.
+
 ## Architecture
 
 ```mermaid
