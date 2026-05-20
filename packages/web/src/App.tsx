@@ -460,7 +460,7 @@ function getActionsForItem(
       onSelect: () => {
         const base = item.url.replace(/\/pull\/\d+.*$/, "");
         window.open(
-          `${base}/pulls?q=author%3A${item.author}+is%3Aopen+sort%3Aupdated-desc`,
+          `${base}/pulls?q=author%3A${item.author}+sort%3Aupdated-desc`,
           "_blank",
         );
       },
