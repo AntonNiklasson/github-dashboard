@@ -37,13 +37,8 @@ vi.mock("./cache.js", () => ({
   },
 }));
 
-const {
-  fetchPrs,
-  fetchNotifications,
-  fetchRecentPrs,
-  fetchReviews,
-  notificationHtmlUrl,
-} = await import("./fetchers.js");
+const { fetchPrs, fetchNotifications, fetchReviews, notificationHtmlUrl } =
+  await import("./fetchers.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -214,19 +209,6 @@ describe("fetchPrs", () => {
     });
     const prs = await fetchPrs("github");
     expect(prs[0].autoMergeAllowed).toBe(false);
-  });
-});
-
-describe("fetchRecentPrs", () => {
-  it("queries closed PRs from the last week", async () => {
-    mockOctokit.search.issuesAndPullRequests.mockResolvedValue({
-      data: { items: [] },
-    });
-    await fetchRecentPrs("github");
-    const q = mockOctokit.search.issuesAndPullRequests.mock.calls[0][0].q;
-    expect(q).toContain("author:alice");
-    expect(q).toContain("state:closed");
-    expect(q).toMatch(/closed:>=\d{4}-\d{2}-\d{2}/);
   });
 });
 

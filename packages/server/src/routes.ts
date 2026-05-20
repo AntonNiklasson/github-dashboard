@@ -12,7 +12,6 @@ import {
 import {
   fetchNotifications,
   fetchPrs,
-  fetchRecentPrs,
   fetchReviews,
   latestCheckRunsByName,
 } from "./fetchers.js";
@@ -183,18 +182,6 @@ api.get("/:instanceId/prs", async (c) => {
   return c.json(data);
 });
 
-// Recently closed/merged PRs (today)
-api.get("/:instanceId/recent-prs", async (c) => {
-  const { instanceId } = c.req.param();
-  const fresh = c.req.query("fresh") === "1";
-  const data = await cachedOrFetch(
-    `${instanceId}:recent-prs`,
-    () => fetchRecentPrs(instanceId),
-    fresh,
-  );
-  return c.json(data);
-});
-
 // PRs awaiting my review
 api.get("/:instanceId/reviews", async (c) => {
   const { instanceId } = c.req.param();
@@ -330,7 +317,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
   patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
   patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
   recordMutation(instanceId, { kind: "removed", repo: fullRepo, number: num });
-  scheduleResync(instanceId, ["prs", "reviews", "recent-prs"]);
+  scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true });
 });
@@ -352,7 +339,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/close", async (c) => {
   patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
   patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
   recordMutation(instanceId, { kind: "removed", repo: fullRepo, number: num });
-  scheduleResync(instanceId, ["prs", "reviews", "recent-prs"]);
+  scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true });
 });

@@ -81,22 +81,6 @@ export interface Notification {
   instanceLabel?: string;
 }
 
-export interface RecentPR {
-  id: number;
-  number: number;
-  title: string;
-  url: string;
-  repo: string;
-  updatedAt: string;
-  merged: boolean;
-  headBranch?: string;
-  additions?: number;
-  deletions?: number;
-  commits?: number;
-  instanceId?: string;
-  instanceLabel?: string;
-}
-
 export interface SearchPR {
   id: number;
   number: number;

@@ -13,7 +13,6 @@ const { cacheStore, configStub, fetchersStub, mockOctokit, octokitHolder } =
       },
       fetchersStub: {
         fetchPrs: vi.fn(),
-        fetchRecentPrs: vi.fn(),
         fetchReviews: vi.fn(),
         fetchNotifications: vi.fn(),
         latestCheckRunsByName: <T extends { name: string }>(runs: T[]): T[] => {
@@ -337,11 +336,10 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/auto-merge", () => {
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
-  it("merges with squash and resyncs prs, reviews, recent-prs", async () => {
+  it("merges with squash and resyncs prs, reviews", async () => {
     mockOctokit.pulls.merge.mockResolvedValue({});
     fetchersStub.fetchPrs.mockResolvedValue([]);
     fetchersStub.fetchReviews.mockResolvedValue([]);
-    fetchersStub.fetchRecentPrs.mockResolvedValue([]);
     const res = await call("/github/prs/o/r/5/merge", { method: "POST" });
     expect(res.status).toBe(200);
     expect(mockOctokit.pulls.merge).toHaveBeenCalledWith({
@@ -353,7 +351,6 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
     await waitForPendingResyncs();
     expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
     expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
-    expect(fetchersStub.fetchRecentPrs).toHaveBeenCalledWith("github");
   });
 
   it("forwards GitHub's full error message (joining non-empty lines) when merge is rejected", async () => {
@@ -385,7 +382,6 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
       { id: 11, repo: "o/r", number: 5, title: "x" },
       { id: 12, repo: "o/r", number: 7, title: "other" },
     ]);
-    cacheStore.set("github:recent-prs", []);
     mockOctokit.pulls.merge.mockResolvedValue({});
 
     // Simulate GitHub eventual consistency: search index still returns the PR.
@@ -397,7 +393,6 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
       { id: 11, repo: "o/r", number: 5, title: "x" },
       { id: 12, repo: "o/r", number: 7, title: "other" },
     ]);
-    fetchersStub.fetchRecentPrs.mockResolvedValue([]);
 
     const res = await call("/github/prs/o/r/5/merge", { method: "POST" });
     expect(res.status).toBe(200);
@@ -413,12 +408,11 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
-  it("sets state=closed and resyncs prs, reviews, recent-prs", async () => {
+  it("sets state=closed and resyncs prs, reviews", async () => {
     cacheStore.set("github:prs", [{ id: 1 }]);
     cacheStore.set("github:reviews", [{ id: 2 }]);
     fetchersStub.fetchPrs.mockResolvedValue([]);
     fetchersStub.fetchReviews.mockResolvedValue([]);
-    fetchersStub.fetchRecentPrs.mockResolvedValue([{ id: 5, state: "closed" }]);
     mockOctokit.pulls.update.mockResolvedValue({});
     const res = await call("/github/prs/o/r/5/close", { method: "POST" });
     expect(res.status).toBe(200);
@@ -431,7 +425,6 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
     await waitForPendingResyncs();
     expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
     expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
-    expect(fetchersStub.fetchRecentPrs).toHaveBeenCalledWith("github");
   });
 
   it("removes the closed PR from cached prs/reviews even when GitHub still reports it as open", async () => {
@@ -442,7 +435,6 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
     cacheStore.set("github:reviews", [
       { id: 11, repo: "o/r", number: 5, title: "x" },
     ]);
-    cacheStore.set("github:recent-prs", []);
     mockOctokit.pulls.update.mockResolvedValue({});
 
     fetchersStub.fetchPrs.mockResolvedValue([
@@ -452,7 +444,6 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
     fetchersStub.fetchReviews.mockResolvedValue([
       { id: 11, repo: "o/r", number: 5, title: "x" },
     ]);
-    fetchersStub.fetchRecentPrs.mockResolvedValue([]);
 
     const res = await call("/github/prs/o/r/5/close", { method: "POST" });
     expect(res.status).toBe(200);

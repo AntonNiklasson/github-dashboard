@@ -1,27 +1,21 @@
 import { setCached } from "./cache.js";
 import { getInstances } from "./config.js";
-import {
-  fetchNotifications,
-  fetchPrs,
-  fetchRecentPrs,
-  fetchReviews,
-} from "./fetchers.js";
+import { fetchNotifications, fetchPrs, fetchReviews } from "./fetchers.js";
 
 const SYNC_INTERVAL = 30_000; // 30s
 
-export type ResyncKey = "prs" | "recent-prs" | "reviews" | "notifications";
+export type ResyncKey = "prs" | "reviews" | "notifications";
 
 const RESYNC_FETCHERS: Record<
   ResyncKey,
   (instanceId: string) => Promise<unknown>
 > = {
   prs: fetchPrs,
-  "recent-prs": fetchRecentPrs,
   reviews: fetchReviews,
   notifications: fetchNotifications,
 };
 
-const ALL_KEYS: ResyncKey[] = ["prs", "recent-prs", "reviews", "notifications"];
+const ALL_KEYS: ResyncKey[] = ["prs", "reviews", "notifications"];
 
 const pending = new Set<Promise<unknown>>();
 

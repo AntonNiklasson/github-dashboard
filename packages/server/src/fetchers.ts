@@ -257,54 +257,6 @@ export async function fetchPrs(instanceId: string) {
   return prs.filter((pr) => pr.author === username);
 }
 
-export async function fetchRecentPrs(instanceId: string) {
-  const client = await getClient(instanceId);
-  const { username } = await getInstance(instanceId);
-
-  const today = new Date();
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-
-  const { data } = await client.search.issuesAndPullRequests({
-    q: `author:${username} type:pr state:closed closed:>=${weekAgo}`,
-    sort: "updated",
-    order: "desc",
-    per_page: 20,
-  });
-
-  // Fetch detailed PR data for each result
-  const prs = await Promise.all(
-    data.items.map(async (item) => {
-      const [owner, repo] = item.repository_url.split("/").slice(-2);
-      const prNumber = item.number;
-
-      const prRes = await client.pulls
-        .get({ owner, repo, pull_number: prNumber })
-        .catch(() => null);
-
-      const prData = prRes?.data;
-
-      return {
-        id: item.id,
-        number: item.number,
-        title: item.title,
-        url: item.html_url,
-        repo: `${owner}/${repo}`,
-        createdAt: item.created_at,
-        updatedAt: item.updated_at,
-        merged: item.pull_request?.merged_at != null,
-        headBranch: prData?.head.ref ?? "",
-        additions: prData?.additions ?? 0,
-        deletions: prData?.deletions ?? 0,
-        commits: prData?.commits ?? 0,
-      };
-    }),
-  );
-
-  return prs;
-}
-
 export async function fetchReviews(instanceId: string) {
   const client = await getClient(instanceId);
   const { username } = await getInstance(instanceId);

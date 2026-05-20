@@ -1,13 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type {
-  Instance,
-  Notification,
-  PR,
-  RecentPR,
-  ReviewRequest,
-} from "./types";
+import type { Instance, Notification, PR, ReviewRequest } from "./types";
 
 const POLL_INTERVAL = 10_000; // 10s
 
@@ -36,20 +30,6 @@ export function useAuthoredPrs(instanceId: string) {
       const f = freshRef.current;
       freshRef.current = false;
       return api.prs(instanceId, f);
-    },
-    refetchInterval: POLL_INTERVAL,
-    enabled: !!instanceId,
-  });
-}
-
-export function useRecentPrs(instanceId: string) {
-  const freshRef = useFreshRef();
-  return useQuery({
-    queryKey: ["recent-prs", instanceId],
-    queryFn: () => {
-      const f = freshRef.current;
-      freshRef.current = false;
-      return api.recentPrs(instanceId, f);
     },
     refetchInterval: POLL_INTERVAL,
     enabled: !!instanceId,
@@ -121,36 +101,6 @@ export function useAllAuthoredPrs(instances: Instance[]) {
   const refetchAll = () => queries.forEach((q) => q.refetch());
 
   return { data, isLoading, isFetching, error, refetchAll };
-}
-
-export function useAllRecentPrs(instances: Instance[]) {
-  const freshRef = useFreshRef();
-  const queries = useQueries({
-    queries: instances.map((inst) => ({
-      queryKey: ["recent-prs", inst.id],
-      queryFn: () => {
-        const f = freshRef.current;
-        freshRef.current = false;
-        return api.recentPrs(inst.id, f);
-      },
-      refetchInterval: POLL_INTERVAL,
-    })),
-  });
-
-  const data = useMemo(() => {
-    const merged: RecentPR[] = [];
-    for (let i = 0; i < queries.length; i++) {
-      const items = queries[i].data;
-      if (!items) continue;
-      const { id, label } = instances[i];
-      for (const item of items) {
-        merged.push({ ...item, instanceId: id, instanceLabel: label });
-      }
-    }
-    return merged.sort(byUpdatedDesc);
-  }, [queries, instances]);
-
-  return { data };
 }
 
 export function useAllReviewRequests(instances: Instance[]) {
