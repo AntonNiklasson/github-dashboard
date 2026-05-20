@@ -11,6 +11,46 @@ import { Text } from "./Text";
 
 type Tab = "general" | "github" | "enterprise";
 
+const tokenScopesQuery =
+  "scopes=repo,notifications&description=GitHub%20Dashboard";
+
+function tokenCreateUrl(host: string) {
+  return `${host.replace(/\/$/, "")}/settings/tokens/new?${tokenScopesQuery}`;
+}
+
+function gheTokenCreateUrl(baseUrl: string): string | undefined {
+  try {
+    return tokenCreateUrl(new URL(baseUrl).origin);
+  } catch {
+    return undefined;
+  }
+}
+
+function TokenHelp({ url }: { url?: string }) {
+  return (
+    <p>
+      <Text size="small" variant="secondary">
+        Needs <code>repo</code> and <code>notifications</code> scopes
+        {url ? (
+          <>
+            {" — "}
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              create one with the scopes pre-selected
+            </a>
+          </>
+        ) : (
+          "."
+        )}
+      </Text>
+    </p>
+  );
+}
+
 const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Settings className="h-4 w-4" /> },
   { id: "github", label: "GitHub.com", icon: <Globe className="h-4 w-4" /> },
@@ -126,6 +166,7 @@ function GitHubTab({
           aria-describedby={fieldErrors.ghToken ? "gh-token-error" : undefined}
         />
         <FieldError message={fieldErrors.ghToken} />
+        <TokenHelp url={tokenCreateUrl("https://github.com")} />
       </div>
     </div>
   );
@@ -210,6 +251,7 @@ function EnterpriseTab({
               }
             />
             <FieldError message={fieldErrors.gheToken} />
+            <TokenHelp url={gheTokenCreateUrl(gheBaseUrl)} />
           </div>
         </div>
       )}
