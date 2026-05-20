@@ -52,7 +52,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump + tag
+      - name: Bump + commit
         id: bump
         run: |
           set -x
@@ -60,7 +60,7 @@ jobs:
           current=$(node -p "require('./packages/desktop/package.json').version")
           # `npm version` from a workspace member silently skipped its git
           # commit/tag side effects in CI (see run 26024176128). Drive the
-          # version bump with --no-git-tag-version and do the commit/tag here
+          # version bump with --no-git-tag-version and do the commit here
           # so it's explicit and visible in the log.
           cd packages/desktop
           if [ "$mode" = "rc" ]; then
@@ -82,12 +82,26 @@ jobs:
           cd ../..
           git add packages/desktop/package.json
           git commit -m "release: desktop $new_version"
-          git tag -a "$new_version" -m "release: desktop $new_version"
           echo "ref=$new_version" >> "$GITHUB_OUTPUT"
-          git log -2 --oneline
-          git tag --list 'v*' | tail -3
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git log -1 --oneline
 
-      - run: git push --follow-tags
+      - name: Push commit
+        # RELEASE_TOKEN (a PAT) is needed to bypass the "main requires PR"
+        # ruleset on this push.
+        run: git push
+
+      - name: Create tag via API
+        # Create the tag with GITHUB_TOKEN — not the PAT — so the resulting
+        # ref push does NOT fire this workflow's `push: tags` trigger. A PAT
+        # push would spawn a duplicate run that races us on the same draft
+        # release (see run 26151944923).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST "/repos/${{ github.repository }}/git/refs" \
+            -f "ref=refs/tags/${{ steps.bump.outputs.ref }}" \
+            -f "sha=${{ steps.bump.outputs.sha }}"
 
   build:
     name: Build (macOS)
