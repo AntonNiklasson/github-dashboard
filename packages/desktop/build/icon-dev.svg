@@ -1,0 +1,22 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dev variant of icon.svg. Same squircle + dot motif, recoloured so a
+       dev build is obvious in the dock / app switcher next to a release
+       build, with a "DEV" badge in the bottom-right corner. -->
+  <defs>
+    <clipPath id="squircle">
+      <rect x="100" y="100" width="824" height="824" rx="184" ry="184"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect x="100" y="100" width="824" height="824" fill="#1e1b4b"/>
+
+    <circle cx="342" cy="512" r="130" fill="#22c55e"/>
+    <circle cx="682" cy="512" r="130" fill="#f59e0b"/>
+
+    <g transform="translate(820 820) rotate(-45)">
+      <rect x="-280" y="-50" width="560" height="100" fill="#ef4444"/>
+      <text x="0" y="26" text-anchor="middle" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="72" font-weight="800" fill="#ffffff" letter-spacing="8">DEV</text>
+    </g>
+  </g>
+</svg>
