@@ -47,7 +47,7 @@ Do this research in parallel across comments where possible (use the Task tool f
 
 ## Step 3: Present assessment
 
-Use `EnterPlanMode` to present results. Lead with the summary, then group by verdict.
+Lead with the summary, then group by verdict.
 
 ### Output format
 
