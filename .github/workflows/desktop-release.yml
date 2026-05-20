@@ -165,7 +165,8 @@ jobs:
           repo="${{ github.repository }}"
           base_url="https://github.com/${repo}/releases/download/${tag}"
           changelog=$(gh api -X POST "/repos/${repo}/releases/generate-notes" \
-            -f tag_name="$tag" --jq '.body')
+            -f tag_name="$tag" --jq '.body' \
+            | node .github/scripts/group-changelog.mjs)
           {
             echo "## Download"
             echo
