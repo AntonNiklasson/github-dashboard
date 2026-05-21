@@ -1,9 +1,0 @@
-<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <!-- Dev variant of icon.svg. Same squircle + dot motif, rendered
-       monochrome so a running dev build is distinguishable from a
-       released build in the dock / app switcher. -->
-  <rect x="100" y="100" width="824" height="824" rx="184" ry="184" fill="#0d0d0d"/>
-
-  <circle cx="342" cy="512" r="130" fill="#9ca3af"/>
-  <circle cx="682" cy="512" r="130" fill="#4b5563"/>
-</svg>
