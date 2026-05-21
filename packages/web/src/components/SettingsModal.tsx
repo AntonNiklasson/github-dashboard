@@ -29,21 +29,19 @@ function TokenHelp({ url }: { url?: string }) {
   return (
     <p>
       <Text size="small" variant="secondary">
-        Needs <code>repo</code> and <code>notifications</code> scopes
-        {url ? (
+        Needs <code>repo</code> and <code>notifications</code> scopes.
+        {url && (
           <>
-            {" — "}
+            {" "}
             <a
               href={url}
               target="_blank"
               rel="noopener noreferrer"
               className="underline hover:text-foreground"
             >
-              create one with the scopes pre-selected
+              Click here to create the token.
             </a>
           </>
-        ) : (
-          "."
         )}
       </Text>
     </p>
