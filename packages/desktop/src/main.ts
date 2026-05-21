@@ -62,6 +62,7 @@ async function createWindow(): Promise<void> {
     width: 1400,
     height: 900,
     show: false,
+    icon: path.join(__dirname, "..", "build", "icon.png"),
     titleBarStyle: "hidden",
     trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
@@ -204,10 +205,10 @@ ipcMain.handle("ghd:install-update", () => {
 app.whenReady().then(async () => {
   // In packaged builds the dock icon comes from Contents/Resources/icon.icns
   // via Info.plist. In dev we run via `electron .`, which falls back to the
-  // Electron framework icon — set the dev-flavoured icon explicitly so a
-  // running dev build is distinguishable from a released build in the dock.
+  // Electron framework icon — set it explicitly so the dock never shows the
+  // Electron placeholder.
   if (process.platform === "darwin" && !app.isPackaged) {
-    app.dock?.setIcon(path.join(__dirname, "..", "build", "icon-dev.png"));
+    app.dock?.setIcon(path.join(__dirname, "..", "build", "icon.png"));
   }
   Menu.setApplicationMenu(buildAppMenu());
   await createWindow();

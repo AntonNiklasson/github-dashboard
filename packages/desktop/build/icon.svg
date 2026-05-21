@@ -1,8 +1,20 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a1a"/>
+      <stop offset="100%" stop-color="#050505"/>
+    </linearGradient>
+  </defs>
+
   <!-- Per Apple HIG, the visible squircle sits inside a ~824px grid with
        transparent padding so the icon doesn't fill the dock tile. -->
-  <rect x="100" y="100" width="824" height="824" rx="184" ry="184" fill="#0d0d0d"/>
+  <rect x="100" y="100" width="824" height="824" rx="184" ry="184" fill="url(#bg)"/>
 
-  <circle cx="342" cy="512" r="130" fill="#22c55e"/>
-  <circle cx="682" cy="512" r="130" fill="#f59e0b"/>
+  <!-- Lucide git-pull-request icon (24x24 viewBox), scaled and centered. -->
+  <g transform="translate(272 272) scale(20)" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="18" cy="18" r="3"/>
+    <circle cx="6" cy="6" r="3"/>
+    <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+    <path d="M6 9v12"/>
+  </g>
 </svg>
