@@ -88,7 +88,6 @@ async function createWindow(): Promise<void> {
   } else {
     // Dev: assumes `pnpm dev` is running concurrently (Vite on 7200, Hono on 7100).
     await mainWindow.loadURL(DEV_WEB_URL);
-    mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 }
 
