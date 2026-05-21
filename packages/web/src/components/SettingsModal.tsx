@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAtom } from "jotai";
-import { toast } from "sonner";
-import { Settings, Globe, Building2 } from "lucide-react";
+import { Settings, Globe, Building2, CheckCircle2 } from "lucide-react";
 import { api, type ConfigData, ConfigValidationError } from "../api";
 import { type Theme, applyTheme, themeAtom } from "../theme";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Text } from "./Text";
@@ -91,9 +90,11 @@ function FieldError({ message }: { message?: string }) {
 function GeneralTab({
   port,
   setPort,
+  onSave,
 }: {
   port: string;
   setPort: (v: string) => void;
+  onSave: () => void;
 }) {
   const [theme, setTheme] = useAtom(themeAtom);
 
@@ -131,6 +132,7 @@ function GeneralTab({
             placeholder="7100"
             value={port}
             onChange={(e) => setPort(e.target.value)}
+            onBlur={onSave}
           />
         </div>
       </div>
@@ -143,11 +145,13 @@ function GitHubTab({
   ghToken,
   setGhToken,
   fieldErrors,
+  onSave,
 }: {
   initial?: ConfigData;
   ghToken: string;
   setGhToken: (v: string) => void;
   fieldErrors: FieldErrors;
+  onSave: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -161,6 +165,7 @@ function GitHubTab({
           }
           value={ghToken}
           onChange={(e) => setGhToken(e.target.value)}
+          onBlur={onSave}
           required={!initial?.github?.token}
           aria-invalid={!!fieldErrors.ghToken}
           aria-describedby={fieldErrors.ghToken ? "gh-token-error" : undefined}
@@ -183,6 +188,7 @@ function EnterpriseTab({
   gheToken,
   setGheToken,
   fieldErrors,
+  onSave,
 }: {
   initial?: ConfigData;
   gheEnabled: boolean;
@@ -194,6 +200,7 @@ function EnterpriseTab({
   gheToken: string;
   setGheToken: (v: string) => void;
   fieldErrors: FieldErrors;
+  onSave: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -209,28 +216,28 @@ function EnterpriseTab({
 
       {gheEnabled && (
         <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="ghe-label">Label</Label>
-              <Input
-                id="ghe-label"
-                type="text"
-                placeholder="GHE"
-                value={gheLabel}
-                onChange={(e) => setGheLabel(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="ghe-base-url">Base URL</Label>
-              <Input
-                id="ghe-base-url"
-                type="text"
-                placeholder="https://ghe.example.com/api/v3"
-                value={gheBaseUrl}
-                onChange={(e) => setGheBaseUrl(e.target.value)}
-                required={gheEnabled}
-              />
-            </div>
+          <div className="space-y-1">
+            <Label htmlFor="ghe-label">Label</Label>
+            <Input
+              id="ghe-label"
+              type="text"
+              placeholder="GHE"
+              value={gheLabel}
+              onChange={(e) => setGheLabel(e.target.value)}
+              onBlur={onSave}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="ghe-base-url">Base URL</Label>
+            <Input
+              id="ghe-base-url"
+              type="text"
+              placeholder="https://ghe.example.com/api/v3"
+              value={gheBaseUrl}
+              onChange={(e) => setGheBaseUrl(e.target.value)}
+              onBlur={onSave}
+              required={gheEnabled}
+            />
           </div>
           <div className="space-y-1">
             <Label htmlFor="ghe-token">Personal access token</Label>
@@ -244,6 +251,7 @@ function EnterpriseTab({
               }
               value={gheToken}
               onChange={(e) => setGheToken(e.target.value)}
+              onBlur={onSave}
               required={gheEnabled && !initial?.enterprise?.token}
               aria-invalid={!!fieldErrors.gheToken}
               aria-describedby={
@@ -282,6 +290,35 @@ interface SettingsModalProps {
   onOpenChange: (open: boolean) => void;
   config?: ConfigData;
   onSaved: () => void;
+  // First-run mode opens straight on the GitHub tab so the token field is
+  // visible immediately. The container decides whether the dialog can also
+  // be dismissed (via `dismissible`).
+  firstRun?: boolean;
+  dismissible?: boolean;
+}
+
+interface FormState {
+  ghToken: string;
+  gheEnabled: boolean;
+  gheLabel: string;
+  gheBaseUrl: string;
+  gheToken: string;
+  port: string;
+}
+
+function buildConfig(s: FormState): ConfigData {
+  const config: ConfigData = {
+    github: { token: s.ghToken },
+    port: Number(s.port) || 7100,
+  };
+  if (s.gheEnabled && s.gheBaseUrl) {
+    config.enterprise = {
+      label: s.gheLabel || "GHE",
+      baseUrl: s.gheBaseUrl,
+      token: s.gheToken,
+    };
+  }
+  return config;
 }
 
 export function SettingsModal({
@@ -289,9 +326,12 @@ export function SettingsModal({
   onOpenChange,
   config: initial,
   onSaved,
+  firstRun = false,
+  dismissible = true,
 }: SettingsModalProps) {
-  const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>("general");
+  const [activeTab, setActiveTab] = useState<Tab>(
+    firstRun ? "github" : "general",
+  );
 
   const [ghToken, setGhToken] = useState("");
   const [gheEnabled, setGheEnabled] = useState(!!initial?.enterprise);
@@ -302,70 +342,119 @@ export function SettingsModal({
   const [gheToken, setGheToken] = useState("");
   const [port, setPort] = useState(String(initial?.port ?? 7100));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [savedAt, setSavedAt] = useState<number | null>(null);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const lastSavedJsonRef = useRef(
+    JSON.stringify(
+      buildConfig({
+        ghToken: "",
+        gheEnabled: !!initial?.enterprise,
+        gheLabel: initial?.enterprise?.label ?? "",
+        gheBaseUrl: initial?.enterprise?.baseUrl ?? "",
+        gheToken: "",
+        port: String(initial?.port ?? 7100),
+      }),
+    ),
+  );
+
+  const saveCurrent = async () => {
+    const cfg = buildConfig({
+      ghToken,
+      gheEnabled,
+      gheLabel,
+      gheBaseUrl,
+      gheToken,
+      port,
+    });
+    const cfgJson = JSON.stringify(cfg);
+    if (cfgJson === lastSavedJsonRef.current) return;
+
     setFieldErrors({});
-    setSaving(true);
-
-    const config: ConfigData = {
-      github: {
-        token: ghToken,
-      },
-      port: Number(port) || 7100,
-    };
-
-    if (gheEnabled && gheBaseUrl) {
-      config.enterprise = {
-        label: gheLabel || "GHE",
-        baseUrl: gheBaseUrl,
-        token: gheToken,
-      };
-    }
-
     try {
-      await api.saveConfig(config);
-      toast("Settings saved");
-      onOpenChange(false);
+      await api.saveConfig(cfg);
+      lastSavedJsonRef.current = cfgJson;
+      setSavedAt(Date.now());
       onSaved();
     } catch (err) {
       if (err instanceof ConfigValidationError) {
         setFieldErrors(parseFieldErrors(err.errors));
       }
-    } finally {
-      setSaving(false);
     }
   };
 
+  // Skip the first render so just opening the modal doesn't trigger a save;
+  // subsequent toggles do.
+  const skipGheToggleSave = useRef(true);
+
+  useEffect(() => {
+    if (skipGheToggleSave.current) {
+      skipGheToggleSave.current = false;
+      return;
+    }
+    saveCurrent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gheEnabled]);
+
+  useEffect(() => {
+    if (!savedAt) return;
+    const t = setTimeout(() => setSavedAt(null), 3000);
+    return () => clearTimeout(t);
+  }, [savedAt]);
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl p-0 gap-0">
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      disablePointerDismissal={!dismissible}
+    >
+      <DialogContent
+        className="sm:max-w-2xl p-0 gap-0"
+        showCloseButton={dismissible}
+      >
         <DialogTitle className="sr-only">Settings</DialogTitle>
-        <form onSubmit={handleSave} className="flex min-h-[400px]">
+        <div className="flex min-h-[400px]">
           {/* sidebar */}
-          <nav className="flex w-48 shrink-0 flex-col gap-1 border-r p-3">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-left transition-colors ${
-                  activeTab === tab.id
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                }`}
-              >
-                {tab.icon}
-                <Text bold={activeTab === tab.id}>{tab.label}</Text>
-              </button>
-            ))}
+          <nav className="flex w-48 shrink-0 flex-col border-r p-3">
+            <div className="flex flex-1 flex-col gap-1">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 rounded-md px-3 py-2 text-left transition-colors ${
+                    activeTab === tab.id
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  {tab.icon}
+                  <Text bold={activeTab === tab.id}>{tab.label}</Text>
+                </button>
+              ))}
+            </div>
+            <div
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 transition-opacity duration-500",
+                savedAt ? "opacity-100" : "opacity-0",
+              )}
+              aria-live="polite"
+            >
+              <CheckCircle2 className="size-3.5 text-emerald-500" />
+              <Text size="small" variant="secondary">
+                Settings saved
+              </Text>
+            </div>
           </nav>
 
           {/* content */}
           <div className="flex flex-1 flex-col">
             <div className="flex-1 p-6">
               {activeTab === "general" && (
-                <GeneralTab port={port} setPort={setPort} />
+                <GeneralTab
+                  port={port}
+                  setPort={setPort}
+                  onSave={saveCurrent}
+                />
               )}
               {activeTab === "github" && (
                 <GitHubTab
@@ -373,6 +462,7 @@ export function SettingsModal({
                   ghToken={ghToken}
                   setGhToken={setGhToken}
                   fieldErrors={fieldErrors}
+                  onSave={saveCurrent}
                 />
               )}
               {activeTab === "enterprise" && (
@@ -387,16 +477,12 @@ export function SettingsModal({
                   gheToken={gheToken}
                   setGheToken={setGheToken}
                   fieldErrors={fieldErrors}
+                  onSave={saveCurrent}
                 />
               )}
             </div>
-            <div className="border-t p-4">
-              <Button type="submit" disabled={saving} className="w-full">
-                <Text bold>{saving ? "Saving..." : "Save"}</Text>
-              </Button>
-            </div>
           </div>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { ArrowUpCircle, Settings } from "lucide-react";
+import { ArrowUpCircle, Settings, Wrench } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AutoMergeNotAllowedError, api, type ConfigResponse } from "./api";
@@ -26,11 +26,12 @@ import { Text } from "./components/Text";
 import { type KeyGroup, WhichKey } from "./components/WhichKey";
 import { ErrorMessage } from "./components/ErrorMessage";
 import { NotificationList } from "./components/NotificationList";
-import { OnboardingScreen } from "./components/OnboardingScreen";
 import { PrList } from "./components/PrList";
 import { ReviewList } from "./components/ReviewList";
 import { SectionHeader } from "./components/SectionHeader";
 import { SettingsModal } from "./components/SettingsModal";
+import { DxMenu } from "./dx/DxMenu";
+import { buildDxItems } from "./dx/actions";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { Skeleton } from "./components/Skeleton";
 import { SortControl } from "./components/SortControl";
@@ -100,6 +101,7 @@ export function App() {
   const { data: instances, isLoading, error } = useInstances();
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dxOpen, setDxOpen] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [theme] = useAtom(themeAtom);
   const headerRef = useRef<HTMLElement>(null);
@@ -163,6 +165,13 @@ export function App() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const filterParam = urlParams.get("filter");
+  const forceOnboarding = urlParams.get("onboarding") === "1";
+  const noInstances = !!instances && instances.length === 0;
+  const isFirstRun = forceOnboarding || noInstances;
+
+  useEffect(() => {
+    if (isFirstRun) setSettingsOpen(true);
+  }, [isFirstRun]);
 
   // `,` shortcut for settings
   useEffect(() => {
@@ -175,6 +184,18 @@ export function App() {
       if (e.key === ",") {
         e.preventDefault();
         setSettingsOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // ⌘K / Ctrl+K toggles the DX menu
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setDxOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", handler);
@@ -215,25 +236,6 @@ export function App() {
     return (
       <div className="p-6">
         <Skeleton count={5} />
-      </div>
-    );
-  }
-
-  if (configRes && !configRes.exists) {
-    return (
-      <OnboardingScreen
-        onComplete={() => {
-          queryClient.invalidateQueries({ queryKey: ["config"] });
-          queryClient.invalidateQueries({ queryKey: ["instances"] });
-        }}
-      />
-    );
-  }
-
-  if (error || !instances) {
-    return (
-      <div className="p-6">
-        <ErrorMessage message={error?.message ?? "Failed to load instances"} />
       </div>
     );
   }
@@ -297,6 +299,16 @@ export function App() {
                 <Text bold>Update available</Text>
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setDxOpen((v) => !v)}
+              title="Dev tools (⌘K)"
+              className="h-7 gap-1.5"
+            >
+              <Wrench className="size-3.5" />
+              <Text bold>Dev tools</Text>
+            </Button>
             <a
               href="https://github.com/AntonNiklasson/github-dashboard"
               target="_blank"
@@ -321,29 +333,51 @@ export function App() {
       </header>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === "all" && instances.length > 1 ? (
-          <MultiInstanceDashboard instances={instances} />
-        ) : (
-          <SingleInstanceDashboard
-            instance={
-              (activeTab === "all"
-                ? instances[0]
-                : instances.find((i) => i.id === activeTab)) ?? instances[0]
-            }
-            authorFilter={filterParam ?? undefined}
-          />
-        )}
+        {error ? (
+          <div className="p-6">
+            <ErrorMessage
+              message={error.message ?? "Failed to load instances"}
+            />
+          </div>
+        ) : instances && instances.length > 0 ? (
+          activeTab === "all" && instances.length > 1 ? (
+            <MultiInstanceDashboard instances={instances} />
+          ) : (
+            <SingleInstanceDashboard
+              instance={
+                (activeTab === "all"
+                  ? instances[0]
+                  : instances.find((i) => i.id === activeTab)) ?? instances[0]
+              }
+              authorFilter={filterParam ?? undefined}
+            />
+          )
+        ) : null}
       </div>
 
       <SettingsModal
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={(v) => {
+          if (!v && noInstances) return;
+          setSettingsOpen(v);
+          if (!v && forceOnboarding) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("onboarding");
+            window.history.replaceState(null, "", url.toString());
+          }
+        }}
         config={configRes?.config}
         onSaved={() => {
           queryClient.invalidateQueries({ queryKey: ["config"] });
           queryClient.invalidateQueries({ queryKey: ["instances"] });
         }}
+        firstRun={isFirstRun}
+        dismissible={!noInstances}
       />
+
+      {dxOpen && (
+        <DxMenu items={buildDxItems()} onClose={() => setDxOpen(false)} />
+      )}
     </div>
   );
 }
