@@ -26,7 +26,6 @@ import { Text } from "./components/Text";
 import { type KeyGroup, WhichKey } from "./components/WhichKey";
 import { ErrorMessage } from "./components/ErrorMessage";
 import { NotificationList } from "./components/NotificationList";
-import { OnboardingScreen } from "./components/OnboardingScreen";
 import { PrList } from "./components/PrList";
 import { ReviewList } from "./components/ReviewList";
 import { SectionHeader } from "./components/SectionHeader";
@@ -167,6 +166,12 @@ export function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const filterParam = urlParams.get("filter");
   const forceOnboarding = urlParams.get("onboarding") === "1";
+  const noInstances = !!instances && instances.length === 0;
+  const isFirstRun = forceOnboarding || noInstances;
+
+  useEffect(() => {
+    if (isFirstRun) setSettingsOpen(true);
+  }, [isFirstRun]);
 
   // `,` shortcut for settings
   useEffect(() => {
@@ -231,35 +236,6 @@ export function App() {
     return (
       <div className="p-6">
         <Skeleton count={5} />
-      </div>
-    );
-  }
-
-  if (forceOnboarding || (configRes && !configRes.exists)) {
-    const canDismiss = forceOnboarding && configRes?.exists;
-    return (
-      <OnboardingScreen
-        onComplete={() => {
-          queryClient.invalidateQueries({ queryKey: ["config"] });
-          queryClient.invalidateQueries({ queryKey: ["instances"] });
-        }}
-        onCancel={
-          canDismiss
-            ? () => {
-                const url = new URL(window.location.href);
-                url.searchParams.delete("onboarding");
-                window.location.assign(url.toString());
-              }
-            : undefined
-        }
-      />
-    );
-  }
-
-  if (error || !instances) {
-    return (
-      <div className="p-6">
-        <ErrorMessage message={error?.message ?? "Failed to load instances"} />
       </div>
     );
   }
@@ -357,28 +333,46 @@ export function App() {
       </header>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === "all" && instances.length > 1 ? (
-          <MultiInstanceDashboard instances={instances} />
-        ) : (
-          <SingleInstanceDashboard
-            instance={
-              (activeTab === "all"
-                ? instances[0]
-                : instances.find((i) => i.id === activeTab)) ?? instances[0]
-            }
-            authorFilter={filterParam ?? undefined}
-          />
-        )}
+        {error ? (
+          <div className="p-6">
+            <ErrorMessage
+              message={error.message ?? "Failed to load instances"}
+            />
+          </div>
+        ) : instances && instances.length > 0 ? (
+          activeTab === "all" && instances.length > 1 ? (
+            <MultiInstanceDashboard instances={instances} />
+          ) : (
+            <SingleInstanceDashboard
+              instance={
+                (activeTab === "all"
+                  ? instances[0]
+                  : instances.find((i) => i.id === activeTab)) ?? instances[0]
+              }
+              authorFilter={filterParam ?? undefined}
+            />
+          )
+        ) : null}
       </div>
 
       <SettingsModal
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={(v) => {
+          if (!v && noInstances) return;
+          setSettingsOpen(v);
+          if (!v && forceOnboarding) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("onboarding");
+            window.history.replaceState(null, "", url.toString());
+          }
+        }}
         config={configRes?.config}
         onSaved={() => {
           queryClient.invalidateQueries({ queryKey: ["config"] });
           queryClient.invalidateQueries({ queryKey: ["instances"] });
         }}
+        firstRun={isFirstRun}
+        dismissible={!noInstances}
       />
 
       {dxOpen && (
