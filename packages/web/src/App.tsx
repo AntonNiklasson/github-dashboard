@@ -102,21 +102,17 @@ export function App() {
   const theme = configRes?.theme ?? "system";
   const headerRef = useRef<HTMLElement>(null);
 
-  const reloadConfig = async () => {
-    try {
-      const next = await api.reloadConfig();
-      queryClient.setQueryData(["config"], next);
-    } catch {
-      toast.error("Failed to reload config.");
-    }
-  };
-
   useEffect(() => {
-    return window.electron?.onReloadConfig(reloadConfig);
-    // reloadConfig is recreated each render but is safe to re-subscribe to
-    // — the cleanup function unsubscribes the previous listener.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const reload = async () => {
+      try {
+        const next = await api.reloadConfig();
+        queryClient.setQueryData(["config"], next);
+      } catch {
+        toast.error("Failed to reload config.");
+      }
+    };
+    return window.electron?.onReloadConfig(reload);
+  }, [queryClient]);
 
   useLayoutEffect(() => {
     const el = headerRef.current;
