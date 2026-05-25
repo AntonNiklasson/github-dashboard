@@ -1,7 +1,0 @@
-github:
-  token: ghp_...
-
-enterprise:
-  label: GHE
-  domain: ghe.example.com
-  token: ghp_...
