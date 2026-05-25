@@ -2,7 +2,7 @@
   "name": "@github-dashboard/desktop",
   "productName": "GitHub Dashboard",
   "private": true,
-  "version": "0.0.2-rc.0",
+  "version": "0.0.2",
   "description": "Electron desktop wrapper for github-dashboard",
   "main": "dist/main.js",
   "scripts": {
