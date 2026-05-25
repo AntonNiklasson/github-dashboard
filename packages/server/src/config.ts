@@ -178,7 +178,11 @@ export function openInDefaultApp(path: string): void {
       : platform === "win32"
         ? ["cmd", ["/c", "start", "", path]]
         : ["xdg-open", [path]];
-  spawn(cmd, args, { detached: true, stdio: "ignore" }).unref();
+  const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+  // Swallow ENOENT (e.g. xdg-open missing on a minimal Linux) so it doesn't
+  // crash the server — the user just won't get an editor pop-up.
+  child.on("error", () => {});
+  child.unref();
 }
 
 async function probeInstance(
