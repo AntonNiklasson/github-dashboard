@@ -4,7 +4,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { loadCache } from "./cache.js";
-import { getPort, resolveInstances } from "./config.js";
+import { getConfigStatus, getPort } from "./config.js";
 import { api } from "./routes.js";
 import { startSync } from "./sync.js";
 
@@ -55,20 +55,30 @@ function mimeFor(path: string): string {
 
 const port = getPort();
 console.log(`Server running on http://localhost:${port}`);
-serve({ fetch: app.fetch, port });
+const server = serve({ fetch: app.fetch, port });
+
+// Without these the process can outlive its parent shell (tsx watch + the
+// sync interval keep the event loop alive). Close the server first so
+// in-flight requests get a chance to finish — particularly mutations like
+// merge/approve in the packaged desktop app — then exit. The 2s timeout
+// fallback keeps Ctrl-C feeling instant if a request is wedged.
+let shuttingDown = false;
+const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const force = setTimeout(() => process.exit(0), 2000);
+  force.unref();
+  server.close(() => process.exit(0));
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+process.on("SIGHUP", shutdown);
 
 if (process.env.DEMO === "1") {
   console.log("DEMO mode: serving fixtures from .cache-demo, sync disabled");
-  resolveInstances();
+  getConfigStatus();
 } else {
-  // Resolve usernames from tokens, then start syncing
-  resolveInstances()
-    .then(() => startSync())
-    .catch((err) => {
-      console.error(
-        "Failed to resolve instances:",
-        err instanceof Error ? err.message : err,
-      );
-      startSync();
-    });
+  // Probe config + tokens, then start syncing regardless — sync skips
+  // instances that didn't resolve.
+  getConfigStatus().finally(() => startSync());
 }
