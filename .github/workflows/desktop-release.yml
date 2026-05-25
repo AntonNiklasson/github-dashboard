@@ -165,7 +165,8 @@ jobs:
           repo="${{ github.repository }}"
           base_url="https://github.com/${repo}/releases/download/${tag}"
           changelog=$(gh api -X POST "/repos/${repo}/releases/generate-notes" \
-            -f tag_name="$tag" --jq '.body')
+            -f tag_name="$tag" --jq '.body' \
+            | node .github/scripts/release-notes.mjs)
           {
             echo "## Download"
             echo
@@ -175,6 +176,8 @@ jobs:
             echo "Other files in the asset list are consumed by the in-app auto-updater."
             echo
             echo "---"
+            echo
+            echo "## Changes"
             echo
             echo "$changelog"
           } > /tmp/notes.md
