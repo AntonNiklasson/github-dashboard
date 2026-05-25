@@ -45,7 +45,7 @@ Pre-built macOS app is available from the [Releases page](https://github.com/Ant
 
 ## Configuration
 
-On first launch the dashboard scaffolds `~/.config/github-dashboard/config.yml` (honors `$XDG_CONFIG_HOME` if set) and opens it in your default editor. Fill in your token(s) and reload.
+The dashboard reads `~/.config/github-dashboard/config.yml` (honors `$XDG_CONFIG_HOME` if set). On first launch the Welcome screen offers a "Set it up for me!" button that scaffolds the file and opens it in your default editor.
 
 The config file:
 
