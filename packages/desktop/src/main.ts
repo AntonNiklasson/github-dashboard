@@ -43,12 +43,14 @@ async function startEmbeddedServer(): Promise<void> {
 }
 
 async function waitForServer(): Promise<void> {
-  const url = `http://localhost:${serverPort}/api/instances`;
+  // /api/config always responds 200 with a status payload — fine as a
+  // readiness probe regardless of whether the user's config is valid.
+  const url = `http://localhost:${serverPort}/api/config`;
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url);
-      if (res.ok || res.status === 500) return;
+      if (res.ok) return;
     } catch {
       // ignore — server still booting
     }
