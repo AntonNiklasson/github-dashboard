@@ -1,16 +1,23 @@
 # Agent notes
 
-Monorepo: `packages/server` (Hono API, port 7100) + `packages/web` (Vite/React, port 7200, proxies `/api` to server).
+Monorepo, three packages:
+
+- `packages/server` — Hono API, port 7100. Disk-backed cache; polls GitHub every ~30s and serves the browser from cache.
+- `packages/web` — Vite/React (React 19, Tailwind v4, Jotai, TanStack Query, base-ui, shadcn). Port 7200, proxies `/api` to the server.
+- `packages/desktop` — Electron wrapper. Bundles the built server (`scripts/bundle-server.mjs`) and the web `dist/` into the app; not needed for most agent work.
+
+A pre-commit hook (`.husky/pre-commit`) runs `pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm test` — fix issues at the source rather than bypassing with `--no-verify`.
 
 ## Validating your own work
 
 Close the loop before declaring done. Available tools:
 
-- `pnpm typecheck` — TS across both packages
-- `pnpm test` — vitest in both packages
+- `pnpm typecheck` — tsgo across all packages (`pnpm -r typecheck`)
+- `pnpm test` — vitest in `server` and `web` (desktop has no tests)
 - `pnpm lint` — oxlint
-- `pnpm fmt:check` — oxfmt
-- `pnpm dev:web` — runs server + web concurrently (long-running; start in background). For agent work prefer this over `pnpm dev`, which also spawns an Electron window. Stdout/stderr is tee'd to `.logs/server.log` and `.logs/web.log` — tail or read these to inspect output. Logs reset on each start; accumulate across hot reloads within a session.
+- `pnpm fmt:check` / `pnpm fmt` — oxfmt
+- `pnpm dev:web` — runs server + web concurrently (long-running; start in background). For agent work prefer this over `pnpm dev`, which also rebuilds and spawns an Electron window. Stdout/stderr is tee'd to `.logs/server.log` and `.logs/web.log` — tail or read these to inspect output. Logs reset on each start; accumulate across hot reloads within a session.
+- `pnpm demo:web` — same as `dev:web` but with `DEMO=1`, which serves canned fixtures instead of hitting GitHub. Useful when iterating on UI without real tokens.
 
 For UI/UX changes, type-checks aren't enough — drive the app via the **Playwright MCP** (`.mcp.json`):
 
