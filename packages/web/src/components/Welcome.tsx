@@ -121,6 +121,8 @@ function titleFor(error: ConfigError): string {
       return `${error.domain} — placeholder token`;
     case "auth":
       return `${error.domain} — token rejected`;
+    case "unreachable":
+      return `${error.domain} — unreachable`;
   }
 }
 
@@ -158,7 +160,7 @@ function ErrorBody({ error }: { error: ConfigError }) {
       </Text>
     );
   }
-  if (error.kind === "auth") {
+  if (error.kind === "auth" || error.kind === "unreachable") {
     return <Text size="small">{error.message}</Text>;
   }
   return null;

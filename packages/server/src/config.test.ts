@@ -298,6 +298,89 @@ describe("getConfigStatus", () => {
       },
     );
   });
+
+  it("classifies network errors as unreachable, not auth", async () => {
+    const { octokitStub } = await import("./test-utils/octokit-mock.js");
+    await withOctokit(
+      octokitStub({
+        throws: Object.assign(
+          new Error("getaddrinfo ENOTFOUND ghe.example.com"),
+          {
+            code: "ENOTFOUND",
+          },
+        ),
+      }),
+      async () => {
+        const { getConfigStatus, resolveConfigPath } = await freshConfig();
+        (await fsMock()).__store.set(
+          resolveConfigPath(),
+          "instances:\n  - domain: ghe.example.com\n    token: ghe_test\n",
+        );
+        const status = await getConfigStatus();
+        expect(status.kind).toBe("error");
+        if (status.kind === "error") {
+          expect(status.errors[0]).toMatchObject({
+            kind: "unreachable",
+            domain: "ghe.example.com",
+            message: expect.stringContaining("DNS"),
+          });
+        }
+      },
+    );
+  });
+
+  it("collapses HTML maintenance-page bodies into a one-line message", async () => {
+    const { octokitStub } = await import("./test-utils/octokit-mock.js");
+    const htmlBody =
+      "<!DOCTYPE html>\n<html><head><title>GitHub Enterprise is currently down for maintenance</title></head><body>" +
+      "x".repeat(5000) +
+      "</body></html>";
+    await withOctokit(
+      octokitStub({
+        throws: Object.assign(new Error(htmlBody), { status: 503 }),
+      }),
+      async () => {
+        const { getConfigStatus, resolveConfigPath } = await freshConfig();
+        (await fsMock()).__store.set(
+          resolveConfigPath(),
+          "instances:\n  - domain: ghe.example.com\n    token: ghe_test\n",
+        );
+        const status = await getConfigStatus();
+        expect(status.kind).toBe("error");
+        if (status.kind === "error") {
+          const err = status.errors[0];
+          expect(err.kind).toBe("unreachable");
+          if (err.kind === "unreachable") {
+            expect(err.message.length).toBeLessThan(200);
+            expect(err.message).toMatch(/HTML page/);
+          }
+        }
+      },
+    );
+  });
+
+  it("caps long error messages even when not recognized as HTML or network", async () => {
+    const { octokitStub } = await import("./test-utils/octokit-mock.js");
+    await withOctokit(
+      octokitStub({
+        throws: new Error("x".repeat(10000)),
+      }),
+      async () => {
+        const { getConfigStatus, resolveConfigPath } = await freshConfig();
+        (await fsMock()).__store.set(
+          resolveConfigPath(),
+          "instances:\n  - domain: ghe.example.com\n    token: ghe_test\n",
+        );
+        const status = await getConfigStatus();
+        if (status.kind === "error") {
+          const err = status.errors[0];
+          if (err.kind === "unreachable" || err.kind === "auth") {
+            expect(err.message.length).toBeLessThanOrEqual(250);
+          }
+        }
+      },
+    );
+  });
 });
 
 describe("resolveConfigPath", () => {

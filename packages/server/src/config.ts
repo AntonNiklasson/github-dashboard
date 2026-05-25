@@ -38,7 +38,8 @@ export type ConfigError =
   | { kind: "missing_tokens" }
   | { kind: "duplicate_domain"; domain: string }
   | { kind: "placeholder_token"; domain: string }
-  | { kind: "auth"; domain: string; message: string };
+  | { kind: "auth"; domain: string; message: string }
+  | { kind: "unreachable"; domain: string; message: string };
 
 // The literal token from `exampleConfig` — short-circuit auth attempts so a
 // freshly-scaffolded file produces a friendlier message than "401 Unauthorized".
@@ -185,22 +186,85 @@ export function openInDefaultApp(path: string): void {
   child.unref();
 }
 
+type ProbeResult =
+  | { ok: true; username: string }
+  | { ok: false; kind: "auth" | "unreachable"; message: string };
+
 async function probeInstance(
   token: string,
   baseUrl: string,
-): Promise<{ ok: true; username: string } | { ok: false; message: string }> {
+): Promise<ProbeResult> {
   try {
     const client = new Octokit({ auth: token, baseUrl });
     const { data } = await client.users.getAuthenticated();
     return { ok: true, username: data.login };
   } catch (err) {
-    const e = err as { status?: number; message?: string };
-    const message =
-      e.status === 401
-        ? "Token rejected (401 Unauthorized)"
-        : (e.message ?? "Authentication failed");
-    return { ok: false, message };
+    return classifyProbeError(err);
   }
+}
+
+function classifyProbeError(err: unknown): ProbeResult & { ok: false } {
+  const e = err as { status?: number; message?: string; code?: string };
+
+  if (e.status === 401) {
+    return {
+      ok: false,
+      kind: "auth",
+      message: "Token rejected (401 Unauthorized)",
+    };
+  }
+  if (e.status === 403) {
+    return {
+      ok: false,
+      kind: "auth",
+      message: "Token forbidden (403) — check scopes",
+    };
+  }
+
+  // Network-layer failures: DNS, refused connection, timeouts, resets.
+  const networkCodes: Record<string, string> = {
+    ENOTFOUND: "DNS lookup failed — domain not found",
+    ECONNREFUSED: "Connection refused — is the server running?",
+    ETIMEDOUT: "Connection timed out",
+    ECONNRESET: "Connection reset",
+    EHOSTUNREACH: "Host unreachable",
+  };
+  if (e.code && e.code in networkCodes) {
+    return { ok: false, kind: "unreachable", message: networkCodes[e.code] };
+  }
+
+  // GHES under maintenance returns the whole HTML maintenance page as the
+  // body. Echoing that into the error UI would dump kilobytes of HTML; detect
+  // it and surface a one-line summary instead.
+  if (e.message && /^\s*<(?:!doctype|!--|html)/i.test(e.message)) {
+    const status = e.status ? ` (HTTP ${e.status})` : "";
+    return {
+      ok: false,
+      kind: "unreachable",
+      message: `Server returned an HTML page${status} — likely down for maintenance`,
+    };
+  }
+
+  if (e.status && e.status >= 500) {
+    return {
+      ok: false,
+      kind: "unreachable",
+      message: `Server error (HTTP ${e.status})`,
+    };
+  }
+  if (e.status === 404) {
+    return {
+      ok: false,
+      kind: "unreachable",
+      message: "API endpoint not found (404) — check the domain",
+    };
+  }
+
+  // Final fallback: hard-cap whatever message came back so we never dump a
+  // multi-kilobyte body into the UI.
+  const raw = e.message ?? "Authentication failed";
+  const message = raw.length > 200 ? `${raw.slice(0, 200).trim()}…` : raw;
+  return { ok: false, kind: "unreachable", message };
 }
 
 async function resolveStatus(): Promise<ConfigStatus> {
@@ -257,7 +321,11 @@ async function resolveStatus(): Promise<ConfigStatus> {
         username: res.username,
       });
     } else {
-      errors.push({ kind: "auth", domain: entry.domain, message: res.message });
+      errors.push({
+        kind: res.kind,
+        domain: entry.domain,
+        message: res.message,
+      });
     }
   }
 

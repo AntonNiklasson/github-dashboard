@@ -19,7 +19,8 @@ export type ConfigError =
   | { kind: "missing_tokens" }
   | { kind: "duplicate_domain"; domain: string }
   | { kind: "placeholder_token"; domain: string }
-  | { kind: "auth"; domain: string; message: string };
+  | { kind: "auth"; domain: string; message: string }
+  | { kind: "unreachable"; domain: string; message: string };
 
 export type ConfigStatus =
   | { kind: "ready"; instances: Instance[] }
