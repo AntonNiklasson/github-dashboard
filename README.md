@@ -33,7 +33,6 @@ Pre-built macOS app is available from the [Releases page](https://github.com/Ant
 | `a` | Approve PR |
 | `c` | Close PR |
 | `e` | Dismiss review / notification |
-| `,` | Settings |
 | `?` | Show shortcut help |
 
 ### Inside the detail panel
@@ -44,38 +43,27 @@ Pre-built macOS app is available from the [Releases page](https://github.com/Ant
 | `j` / `k` or `↓` / `↑` | Scroll |
 | `Esc` | Close panel |
 
-## Setup
-
-```bash
-pnpm install
-cp config.yaml.example config.yaml
-# edit config.yaml with your token(s)
-pnpm dev
-```
-
-The server starts on port 7100 by default (configurable in `config.yaml`). Alternatively, skip editing the file and configure everything through the onboarding UI in the browser.
-
 ## Configuration
 
-All configuration lives in `config.yaml`:
+The dashboard reads `~/.config/github-dashboard/config.yml` (honors `$XDG_CONFIG_HOME` if set). On first launch the Welcome screen offers a "Set it up for me!" button that scaffolds the file and opens it in your default editor.
+
+The config file:
 
 ```yaml
-port: 7100
-
-github:
-  token: ghp_...
-
-enterprise:
-  label: GHE
-  baseUrl: https://ghe.example.com/api/v3
-  token: ghp_...
+theme: system
+instances: # one or more
+  - domain: github.com
+    token: ghp_...
+  - domain: ghe.example.com
+    label: GHE
+    token: ghp_...
 ```
 
-- **github** — github.com personal access token (needs `repo`, `notifications` scopes). [Create one with the scopes pre-selected](https://github.com/settings/tokens/new?scopes=repo,notifications&description=GitHub%20Dashboard).
-- **enterprise** — optional GitHub Enterprise instance with its own token and base URL (same scopes; on your GHE host: `https://<ghe-host>/settings/tokens/new?scopes=repo,notifications&description=GitHub%20Dashboard`)
-- **port** — server port (default 7100)
-
-Tokens can also be updated from the settings modal in the UI.
+- **instances** — at least one GitHub instance. List as many as you like (github.com and any number of GHES installs).
+  - **domain** — `github.com` or your GHES host. Accepts a bare host (`ghe.example.com`), a URL (`https://ghe.example.com`), or the full API base — `https://` and `/api/v3` are filled in automatically. For github.com, the API base is set to `https://api.github.com`.
+  - **token** — personal access token (needs `repo`, `notifications` scopes). For github.com, [create one with the scopes pre-selected](https://github.com/settings/tokens/new?scopes=repo,notifications&description=GitHub%20Dashboard).
+  - **label** — optional display name in the tab strip. Defaults to the domain.
+- **theme** — `system` (default), `light`, or `dark`
 
 ## Notifications
 
@@ -115,3 +103,11 @@ sequenceDiagram
 ```
 
 The server keeps a disk-backed cache of the last sync and serves the browser from that, so the UI stays snappy and the API is hit at a predictable cadence regardless of how many tabs are open.
+
+## Developing locally
+
+```bash
+pnpm install
+pnpm dev       # full target: server + web + Electron
+pnpm dev:web   # browser-only, no Electron window
+```

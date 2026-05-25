@@ -14,14 +14,6 @@ function useFreshRef() {
   return ref;
 }
 
-export function useInstances() {
-  return useQuery({
-    queryKey: ["instances"],
-    queryFn: api.instances,
-    staleTime: Infinity,
-  });
-}
-
 export function useAuthoredPrs(instanceId: string) {
   const freshRef = useFreshRef();
   return useQuery({

@@ -1,52 +1,52 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { cacheStore, configStub, fetchersStub, mockOctokit, octokitHolder } =
-  vi.hoisted(() => {
-    return {
-      cacheStore: new Map<string, unknown>(),
-      configStub: {
-        configExists: vi.fn(),
-        readConfig: vi.fn(),
-        writeConfig: vi.fn(),
-        resolveInstances: vi.fn(),
-        getInstances: vi.fn(),
+const { cacheStore, configStub, fetchersStub, mockOctokit } = vi.hoisted(() => {
+  return {
+    cacheStore: new Map<string, unknown>(),
+    configStub: {
+      createConfigFromExample: vi.fn(),
+      exampleConfig: "port: 7100\n",
+      getConfigStatus: vi.fn(),
+      invalidateConfigStatus: vi.fn(),
+      openInDefaultApp: vi.fn(),
+      readConfig: vi.fn<() => Record<string, unknown> | null>(() => null),
+      resolveConfigPath: vi.fn(() => "/test/config.yml"),
+    },
+    fetchersStub: {
+      fetchPrs: vi.fn(),
+      fetchReviews: vi.fn(),
+      fetchNotifications: vi.fn(),
+      latestCheckRunsByName: <T extends { name: string }>(runs: T[]): T[] => {
+        const m = new Map<string, T>();
+        for (const r of runs) m.set(r.name, r);
+        return [...m.values()];
       },
-      fetchersStub: {
-        fetchPrs: vi.fn(),
-        fetchReviews: vi.fn(),
-        fetchNotifications: vi.fn(),
-        latestCheckRunsByName: <T extends { name: string }>(runs: T[]): T[] => {
-          const m = new Map<string, T>();
-          for (const r of runs) m.set(r.name, r);
-          return [...m.values()];
-        },
+    },
+    mockOctokit: {
+      users: { getAuthenticated: vi.fn() },
+      activity: { markThreadAsDone: vi.fn() },
+      pulls: {
+        createReview: vi.fn(),
+        get: vi.fn(),
+        update: vi.fn(),
+        merge: vi.fn(),
+        listFiles: vi.fn(),
+        listCommits: vi.fn(),
+        listReviewComments: vi.fn(),
       },
-      mockOctokit: {
-        users: { getAuthenticated: vi.fn() },
-        activity: { markThreadAsDone: vi.fn() },
-        pulls: {
-          createReview: vi.fn(),
-          get: vi.fn(),
-          update: vi.fn(),
-          merge: vi.fn(),
-          listFiles: vi.fn(),
-          listCommits: vi.fn(),
-          listReviewComments: vi.fn(),
-        },
-        issues: { listComments: vi.fn(), createComment: vi.fn() },
-        checks: { listForRef: vi.fn() },
-        repos: { getCombinedStatusForRef: vi.fn() },
-        actions: {
-          listWorkflowRunsForRepo: vi.fn(),
-          reRunWorkflow: vi.fn(),
-          reRunWorkflowFailedJobs: vi.fn(),
-        },
-        search: { issuesAndPullRequests: vi.fn() },
-        graphql: vi.fn(),
+      issues: { listComments: vi.fn(), createComment: vi.fn() },
+      checks: { listForRef: vi.fn() },
+      repos: { getCombinedStatusForRef: vi.fn() },
+      actions: {
+        listWorkflowRunsForRepo: vi.fn(),
+        reRunWorkflow: vi.fn(),
+        reRunWorkflowFailedJobs: vi.fn(),
       },
-      octokitHolder: { ctor: null as unknown },
-    };
-  });
+      search: { issuesAndPullRequests: vi.fn() },
+      graphql: vi.fn(),
+    },
+  };
+});
 
 vi.mock("./cache.js", () => ({
   getCached: (key: string) => cacheStore.get(key) ?? null,
@@ -55,6 +55,14 @@ vi.mock("./cache.js", () => ({
   },
   patchCache: <T>(key: string, fn: (data: T | null) => T) => {
     cacheStore.set(key, fn((cacheStore.get(key) ?? null) as T | null));
+  },
+  cachedInstanceIds: () => {
+    const ids = new Set<string>();
+    for (const key of cacheStore.keys()) {
+      const m = key.match(/^([^:]+):(prs|reviews|notifications)$/);
+      if (m) ids.add(m[1]);
+    }
+    return Array.from(ids);
   },
 }));
 
@@ -73,18 +81,8 @@ vi.mock("./github-client.js", () => ({
   clearClients: () => {},
 }));
 
-vi.mock("@octokit/rest", async () => {
-  const { octokitStub } = await import("./test-utils/octokit-mock.js");
-  octokitHolder.ctor = octokitStub({ login: "alice" });
-  return {
-    get Octokit() {
-      return octokitHolder.ctor;
-    },
-  };
-});
-
 // Import after mocks are registered
-const { api, maskToken } = await import("./routes.js");
+const { api } = await import("./routes.js");
 const { waitForPendingResyncs } = await import("./sync.js");
 
 function call(
@@ -105,125 +103,173 @@ beforeEach(async () => {
   vi.unstubAllEnvs();
 });
 
-describe("maskToken", () => {
-  it("masks long tokens keeping the last 4 chars", () => {
-    expect(maskToken("ghp_abcdefghij")).toBe("****ghij");
-  });
-
-  it("fully masks tokens of 4 chars or less", () => {
-    expect(maskToken("abcd")).toBe("****");
-    expect(maskToken("abc")).toBe("****");
-    expect(maskToken("")).toBe("****");
-  });
-});
-
 describe("GET /config", () => {
-  it("returns DEMO shape when DEMO=1", async () => {
-    vi.stubEnv("DEMO", "1");
+  it("returns the resolved status alongside path + example, stripping tokens", async () => {
+    configStub.getConfigStatus.mockResolvedValue({
+      kind: "ready",
+      instances: [
+        {
+          id: "github",
+          label: "gh",
+          baseUrl: "https://api.github.com",
+          token: "SECRET",
+          username: "alice",
+        },
+      ],
+    });
     const res = await call("/config");
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.exists).toBe(true);
-    expect(body.config.github.token).toMatch(/^\*+/);
-  });
-
-  it("returns exists:false when config missing", async () => {
-    configStub.configExists.mockReturnValue(false);
-    const res = await call("/config");
-    const body = await res.json();
-    expect(body).toEqual({ exists: false });
-  });
-
-  it("masks github + enterprise tokens", async () => {
-    configStub.configExists.mockReturnValue(true);
-    configStub.readConfig.mockReturnValue({
-      github: { token: "ghp_secretvalue" },
-      enterprise: {
-        label: "Work",
-        baseUrl: "https://ghe.example.com/api/v3",
-        token: "ghe_secretvalue",
+    expect(body).toEqual({
+      path: "/test/config.yml",
+      example: "port: 7100\n",
+      theme: "system",
+      status: {
+        kind: "ready",
+        instances: [{ id: "github", label: "gh", username: "alice" }],
       },
-      port: 7100,
+    });
+    expect(JSON.stringify(body)).not.toContain("SECRET");
+  });
+
+  it("surfaces the user's theme preference from the config file", async () => {
+    configStub.readConfig.mockReturnValue({ theme: "dark" });
+    configStub.getConfigStatus.mockResolvedValue({
+      kind: "ready",
+      instances: [],
     });
     const res = await call("/config");
     const body = await res.json();
-    expect(body.config.github.token).toBe("****alue");
-    expect(body.config.enterprise.token).toBe("****alue");
-    expect(body.config.enterprise.baseUrl).toBe(
-      "https://ghe.example.com/api/v3",
-    );
+    expect(body.theme).toBe("dark");
+  });
+
+  it("surfaces a list of errors when the config isn't ready", async () => {
+    configStub.getConfigStatus.mockResolvedValue({
+      kind: "error",
+      errors: [
+        {
+          kind: "auth",
+          domain: "github.com",
+          message: "Token rejected (401 Unauthorized)",
+        },
+        {
+          kind: "auth",
+          domain: "ghe.example.com",
+          message: "Token rejected (401 Unauthorized)",
+        },
+      ],
+    });
+    const res = await call("/config");
+    const body = await res.json();
+    expect(body.status.kind).toBe("error");
+    expect(body.status.errors).toHaveLength(2);
+    expect(body.status.errors[0]).toMatchObject({
+      kind: "auth",
+      domain: "github.com",
+    });
+    expect(body.status.errors[1]).toMatchObject({
+      kind: "auth",
+      domain: "ghe.example.com",
+    });
   });
 });
 
-describe("PUT /config", () => {
-  it("rejects with 422 when github token is invalid", async () => {
-    const { octokitStub } = await import("./test-utils/octokit-mock.js");
-    const original = octokitHolder.ctor;
-    octokitHolder.ctor = octokitStub({ throws: new Error("401") });
-    configStub.readConfig.mockReturnValue(null);
-    const res = await call("/config", {
-      method: "PUT",
-      body: { github: { token: "bad" } },
+describe("POST /config/create", () => {
+  it("writes the example file, invalidates the status cache, and opens it", async () => {
+    configStub.createConfigFromExample.mockReturnValue({
+      created: true,
+      path: "/test/config.yml",
     });
-    expect(res.status).toBe(422);
-    const body = await res.json();
-    expect(body.errors).toContain("GitHub.com token is invalid");
-    expect(configStub.writeConfig).not.toHaveBeenCalled();
-    octokitHolder.ctor = original;
-  });
-
-  it("preserves existing token when incoming is empty string", async () => {
-    configStub.readConfig.mockReturnValue({ github: { token: "existing" } });
-    configStub.resolveInstances.mockResolvedValue([]);
-    const res = await call("/config", {
-      method: "PUT",
-      body: { github: { token: "" } },
+    const res = await call("/config/create", { method: "POST" });
+    expect(await res.json()).toEqual({
+      created: true,
+      path: "/test/config.yml",
     });
-    expect(res.status).toBe(200);
-    expect(configStub.writeConfig).toHaveBeenCalledWith(
-      expect.objectContaining({
-        github: expect.objectContaining({ token: "existing" }),
-      }),
+    expect(configStub.invalidateConfigStatus).toHaveBeenCalled();
+    expect(configStub.openInDefaultApp).toHaveBeenCalledWith(
+      "/test/config.yml",
     );
   });
 
-  it("clears cached data after successful save", async () => {
-    configStub.readConfig.mockReturnValue(null);
-    configStub.resolveInstances.mockResolvedValue([
-      {
-        id: "github",
-        label: "gh",
-        baseUrl: "",
-        token: "t",
-        username: "alice",
-      },
-    ]);
-    cacheStore.set("github:prs", [{ id: 1 }]);
-    await call("/config", {
-      method: "PUT",
-      body: {},
+  it("does nothing when the file already exists", async () => {
+    configStub.createConfigFromExample.mockReturnValue({
+      created: false,
+      path: "/test/config.yml",
     });
+    const res = await call("/config/create", { method: "POST" });
+    expect(await res.json()).toEqual({
+      created: false,
+      path: "/test/config.yml",
+    });
+    expect(configStub.invalidateConfigStatus).not.toHaveBeenCalled();
+    expect(configStub.openInDefaultApp).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /config/reload", () => {
+  it("invalidates cached status, clears data caches when ready, and returns the new status", async () => {
+    configStub.getConfigStatus.mockResolvedValue({
+      kind: "ready",
+      instances: [
+        {
+          id: "github",
+          label: "gh",
+          baseUrl: "https://api.github.com",
+          token: "SECRET",
+          username: "alice",
+        },
+      ],
+    });
+    cacheStore.set("github:prs", [{ id: 1 }]);
+    cacheStore.set("github:reviews", [{ id: 2 }]);
+    cacheStore.set("github:notifications", [{ id: 3 }]);
+    const res = await call("/config/reload", { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(configStub.invalidateConfigStatus).toHaveBeenCalled();
     expect(cacheStore.get("github:prs")).toBeNull();
     expect(cacheStore.get("github:reviews")).toBeNull();
     expect(cacheStore.get("github:notifications")).toBeNull();
-  });
-});
-
-describe("GET /instances", () => {
-  it("returns id/label/username without exposing tokens", async () => {
-    configStub.getInstances.mockResolvedValue([
-      {
-        id: "github",
-        label: "gh",
-        baseUrl: "",
-        token: "SECRET",
-        username: "alice",
-      },
-    ]);
-    const res = await call("/instances");
     const body = await res.json();
-    expect(body).toEqual([{ id: "github", label: "gh", username: "alice" }]);
+    expect(body.status).toEqual({
+      kind: "ready",
+      instances: [{ id: "github", label: "gh", username: "alice" }],
+    });
     expect(JSON.stringify(body)).not.toContain("SECRET");
+  });
+
+  it("clears caches for instances no longer in the new payload", async () => {
+    configStub.getConfigStatus.mockResolvedValue({
+      kind: "ready",
+      instances: [
+        {
+          id: "github",
+          label: "gh",
+          baseUrl: "https://api.github.com",
+          token: "T",
+          username: "alice",
+        },
+      ],
+    });
+    cacheStore.set("ghe:prs", [{ id: 9 }]);
+    cacheStore.set("ghe:reviews", [{ id: 10 }]);
+    cacheStore.set("ghe:notifications", [{ id: 11 }]);
+    await call("/config/reload", { method: "POST" });
+    expect(cacheStore.get("ghe:prs")).toBeNull();
+    expect(cacheStore.get("ghe:reviews")).toBeNull();
+    expect(cacheStore.get("ghe:notifications")).toBeNull();
+  });
+
+  it("leaves caches alone when reloading into an error state", async () => {
+    configStub.getConfigStatus.mockResolvedValue({
+      kind: "error",
+      errors: [{ kind: "missing_tokens" }],
+    });
+    cacheStore.set("github:prs", [{ id: 1 }]);
+    const res = await call("/config/reload", { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(cacheStore.get("github:prs")).toEqual([{ id: 1 }]);
+    const body = await res.json();
+    expect(body.status.errors[0].kind).toBe("missing_tokens");
   });
 });
 

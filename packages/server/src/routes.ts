@@ -1,13 +1,18 @@
 import { Hono } from "hono";
-import { Octokit } from "@octokit/rest";
-import { getCached, patchCache, setCached } from "./cache.js";
 import {
-  type ConfigSchema,
-  configExists,
-  getInstances,
+  cachedInstanceIds,
+  getCached,
+  patchCache,
+  setCached,
+} from "./cache.js";
+import {
+  createConfigFromExample,
+  exampleConfig,
+  getConfigStatus,
+  invalidateConfigStatus,
+  openInDefaultApp,
   readConfig,
-  resolveInstances,
-  writeConfig,
+  resolveConfigPath,
 } from "./config.js";
 import {
   fetchNotifications,
@@ -55,119 +60,68 @@ async function cachedOrFetch<T>(
   return data;
 }
 
-export function maskToken(token: string): string {
-  if (token.length <= 4) return "****";
-  return "****" + token.slice(-4);
+async function configPayload() {
+  const status = await getConfigStatus();
+  // Strip tokens before sending — the web only needs id/label/username.
+  const safeStatus =
+    status.kind === "ready"
+      ? {
+          kind: "ready" as const,
+          instances: status.instances.map((i) => ({
+            id: i.id,
+            label: i.label,
+            username: i.username,
+          })),
+        }
+      : status;
+  // Theme comes from the permissive read so we can still apply the user's
+  // preference even when the config has token/auth errors and the dashboard
+  // is parked on the Welcome screen.
+  const theme = readConfig()?.theme ?? "system";
+  return {
+    path: resolveConfigPath(),
+    example: exampleConfig,
+    theme,
+    status: safeStatus,
+  };
 }
 
-// Config endpoints
-api.get("/config", (c) => {
-  if (process.env.DEMO === "1") {
-    return c.json({
-      exists: true,
-      config: {
-        github: { token: "****demo" },
-        enterprise: {
-          label: "GHE",
-          baseUrl: "https://ghe.example.com/api/v3",
-          token: "****demo",
-        },
-        port: 7100,
-      },
-    });
-  }
-  if (!configExists()) {
-    return c.json({ exists: false });
-  }
-  const config = readConfig();
-  if (!config) return c.json({ exists: false });
-
-  const masked: ConfigSchema = { ...config };
-  if (masked.github?.token) {
-    masked.github = { ...masked.github, token: maskToken(masked.github.token) };
-  }
-  if (masked.enterprise?.token) {
-    masked.enterprise = {
-      ...masked.enterprise,
-      token: maskToken(masked.enterprise.token),
-    };
-  }
-  return c.json({ exists: true, config: masked });
+// Single config endpoint. The web hits this on load and again on every
+// "Reload config" click; the response carries either the resolved instances
+// or a list of errors explaining why the dashboard can't start.
+api.get("/config", async (c) => {
+  return c.json(await configPayload());
 });
 
-api.put("/config", async (c) => {
-  const incoming = await c.req.json<ConfigSchema>();
-  const existing = readConfig();
-
-  // Empty token string means keep existing
-  if (
-    incoming.github &&
-    incoming.github.token === "" &&
-    existing?.github?.token
-  ) {
-    incoming.github.token = existing.github.token;
-  }
-  if (
-    incoming.enterprise &&
-    incoming.enterprise.token === "" &&
-    existing?.enterprise?.token
-  ) {
-    incoming.enterprise.token = existing.enterprise.token;
-  }
-
-  // Validate tokens before saving
-  const errors: string[] = [];
-
-  if (incoming.github?.token) {
-    try {
-      const client = new Octokit({
-        auth: incoming.github.token,
-        baseUrl: "https://api.github.com",
-      });
-      await client.users.getAuthenticated();
-    } catch {
-      errors.push("GitHub.com token is invalid");
-    }
-  }
-
-  if (incoming.enterprise?.token && incoming.enterprise?.baseUrl) {
-    try {
-      const client = new Octokit({
-        auth: incoming.enterprise.token,
-        baseUrl: incoming.enterprise.baseUrl,
-      });
-      await client.users.getAuthenticated();
-    } catch {
-      errors.push("GitHub Enterprise token is invalid");
-    }
-  }
-
-  if (errors.length > 0) {
-    return c.json({ ok: false, errors }, 422);
-  }
-
-  writeConfig(incoming);
+api.post("/config/reload", async (c) => {
+  // Snapshot cached instance IDs *before* invalidating so we can wipe caches
+  // for instances the user removed from config — they won't appear in the
+  // new payload but their stale data would otherwise survive.
+  const previousIds = cachedInstanceIds();
+  invalidateConfigStatus();
   clearClients();
-
-  // Re-resolve usernames from new tokens
-  const instances = await resolveInstances();
-
-  // Clear all cached data so next sync/request fetches fresh
-  for (const inst of instances) {
-    setCached(`${inst.id}:prs`, null);
-    setCached(`${inst.id}:reviews`, null);
-    setCached(`${inst.id}:notifications`, null);
+  const payload = await configPayload();
+  if (payload.status.kind === "ready") {
+    const ids = new Set([
+      ...previousIds,
+      ...payload.status.instances.map((i) => i.id),
+    ]);
+    for (const id of ids) {
+      setCached(`${id}:prs`, null);
+      setCached(`${id}:reviews`, null);
+      setCached(`${id}:notifications`, null);
+    }
   }
-
-  return c.json({ ok: true });
+  return c.json(payload);
 });
 
-// List configured instances (no tokens)
-api.get("/instances", async (c) => {
-  const instances = await getInstances();
-  return c.json(
-    instances.map((i) => ({ id: i.id, label: i.label, username: i.username })),
-  );
+api.post("/config/create", (c) => {
+  const result = createConfigFromExample();
+  if (result.created) {
+    invalidateConfigStatus();
+    openInDefaultApp(result.path);
+  }
+  return c.json(result);
 });
 
 // Authored PRs with CI + review status

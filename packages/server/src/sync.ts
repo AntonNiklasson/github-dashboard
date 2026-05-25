@@ -156,6 +156,8 @@ async function syncAll() {
 export function startSync() {
   // Initial sync immediately
   syncAll();
-  // Then repeat
-  setInterval(syncAll, SYNC_INTERVAL);
+  // Then repeat. unref() so the interval alone doesn't keep the event loop
+  // alive on shutdown — the HTTP listener does that, and gets closed
+  // explicitly when we exit.
+  setInterval(syncAll, SYNC_INTERVAL).unref();
 }

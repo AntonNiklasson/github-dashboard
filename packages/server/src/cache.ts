@@ -69,3 +69,15 @@ export function cacheAge(key: string): number | null {
   if (!entry) return null;
   return Date.now() - new Date(entry.updatedAt).getTime();
 }
+
+// Pull the prefix from every `<id>:prs|reviews|notifications` key. Used by
+// /api/config/reload to find instances whose caches need clearing — including
+// ones that were removed from the new config payload.
+export function cachedInstanceIds(): string[] {
+  const ids = new Set<string>();
+  for (const key of store.keys()) {
+    const match = key.match(/^([^:]+):(prs|reviews|notifications)$/);
+    if (match) ids.add(match[1]);
+  }
+  return Array.from(ids);
+}

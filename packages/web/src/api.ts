@@ -12,29 +12,25 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
-export interface ConfigData {
-  github?: {
-    token: string;
-  };
-  enterprise?: {
-    label: string;
-    baseUrl: string;
-    token: string;
-  };
-  port?: number;
-}
+export type ConfigError =
+  | { kind: "not_found"; path: string }
+  | { kind: "parse"; message: string }
+  | { kind: "schema"; path: string; message: string }
+  | { kind: "missing_tokens" }
+  | { kind: "duplicate_domain"; domain: string }
+  | { kind: "placeholder_token"; domain: string }
+  | { kind: "auth"; domain: string; message: string }
+  | { kind: "unreachable"; domain: string; message: string };
+
+export type ConfigStatus =
+  | { kind: "ready"; instances: Instance[] }
+  | { kind: "error"; errors: ConfigError[] };
 
 export interface ConfigResponse {
-  exists: boolean;
-  config?: ConfigData;
-}
-
-export class ConfigValidationError extends Error {
-  errors: string[];
-  constructor(errors: string[]) {
-    super(errors.join(", "));
-    this.errors = errors;
-  }
+  path: string;
+  example: string;
+  theme: "system" | "light" | "dark";
+  status: ConfigStatus;
 }
 
 export class AutoMergeNotAllowedError extends Error {
@@ -45,20 +41,16 @@ export class AutoMergeNotAllowedError extends Error {
 
 export const api = {
   getConfig: () => fetchJson<ConfigResponse>("/api/config"),
-  saveConfig: async (config: ConfigData) => {
-    const res = await fetch("/api/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
-    });
-    const body = await res.json();
-    if (!res.ok) {
-      if (body.errors) throw new ConfigValidationError(body.errors);
-      throw new Error(`${res.status} ${res.statusText}`);
-    }
-    return body;
+  createConfig: async () => {
+    const res = await fetch("/api/config/create", { method: "POST" });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<{ created: boolean; path: string }>;
   },
-  instances: () => fetchJson<Instance[]>("/api/instances"),
+  reloadConfig: async (): Promise<ConfigResponse> => {
+    const res = await fetch("/api/config/reload", { method: "POST" });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
   prs: (instanceId: string, fresh = false) =>
     fetchJson<PR[]>(`/api/${instanceId}/prs${fresh ? "?fresh=1" : ""}`),
   reviews: (instanceId: string, fresh = false) =>

@@ -43,12 +43,14 @@ async function startEmbeddedServer(): Promise<void> {
 }
 
 async function waitForServer(): Promise<void> {
-  const url = `http://localhost:${serverPort}/api/instances`;
+  // /api/config always responds 200 with a status payload — fine as a
+  // readiness probe regardless of whether the user's config is valid.
+  const url = `http://localhost:${serverPort}/api/config`;
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url);
-      if (res.ok || res.status === 500) return;
+      if (res.ok) return;
     } catch {
       // ignore — server still booting
     }
@@ -130,10 +132,10 @@ function simulateUpdate(): void {
 
 function buildAppMenu(): Menu {
   const isMac = process.platform === "darwin";
-  const settingsItem: MenuItemConstructorOptions = {
-    label: "Settings…",
-    accelerator: "CmdOrCtrl+,",
-    click: () => mainWindow?.webContents.send("ghd:open-settings"),
+  const reloadConfigItem: MenuItemConstructorOptions = {
+    label: "Reload config",
+    accelerator: "CmdOrCtrl+Shift+,",
+    click: () => mainWindow?.webContents.send("ghd:reload-config"),
   };
 
   const template: MenuItemConstructorOptions[] = [
@@ -144,7 +146,7 @@ function buildAppMenu(): Menu {
             submenu: [
               { role: "about" },
               { type: "separator" },
-              settingsItem,
+              reloadConfigItem,
               { type: "separator" },
               { role: "services" },
               { type: "separator" },
@@ -160,8 +162,8 @@ function buildAppMenu(): Menu {
     {
       label: "File",
       submenu: [
-        // On non-mac, settings lives here since there's no app menu.
-        ...(isMac ? [] : [settingsItem, { type: "separator" } as const]),
+        // On non-mac, the reload item lives here since there's no app menu.
+        ...(isMac ? [] : [reloadConfigItem, { type: "separator" } as const]),
         isMac ? { role: "close" } : { role: "quit" },
       ],
     },

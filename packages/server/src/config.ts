@@ -1,7 +1,10 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { parse, stringify } from "yaml";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { Octokit } from "@octokit/rest";
+import { parse } from "yaml";
+import { z } from "zod";
 
 export interface GitHubInstance {
   id: string;
@@ -11,119 +14,371 @@ export interface GitHubInstance {
   username: string;
 }
 
-export interface ConfigSchema {
-  github?: {
-    token: string;
-  };
-  enterprise?: {
-    label: string;
-    baseUrl: string;
-    token: string;
-  };
-  port?: number;
+// Stable, URL-safe identifier derived from the domain — used in `/api/:instanceId/*`
+// routes and as the cache-key prefix. Renaming an instance's label doesn't
+// invalidate caches; changing the domain (correctly) does.
+export function instanceIdFromDomain(domain: string): string {
+  return domain
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-export const CONFIG_PATH = process.env.GHD_DATA_DIR
-  ? resolve(process.env.GHD_DATA_DIR, "config.yaml")
-  : resolve(import.meta.dirname, "../../../config.yaml");
+const instanceSchemaZ = z.object({
+  domain: z
+    .string()
+    .min(1, "domain is required")
+    .refine((d) => instanceIdFromDomain(d).length > 0, {
+      message: "domain must be a hostname (e.g. github.com)",
+    }),
+  token: z.string().min(1, "token is required"),
+  label: z.string().optional(),
+});
+
+const configSchemaZ = z.object({
+  theme: z.enum(["system", "light", "dark"]).optional(),
+  instances: z.array(instanceSchemaZ).optional(),
+});
+
+export type ConfigSchema = z.infer<typeof configSchemaZ>;
+
+// Each error stands alone — we collect every problem we can identify in a
+// single pass so the user sees the full picture (e.g. both tokens rejected
+// at once rather than one error at a time). `domain` is whatever the user
+// typed in config so error messages can refer back to it directly.
+export type ConfigError =
+  | { kind: "not_found"; path: string }
+  | { kind: "parse"; message: string }
+  | { kind: "schema"; path: string; message: string }
+  | { kind: "missing_tokens" }
+  | { kind: "duplicate_domain"; domain: string }
+  | { kind: "placeholder_token"; domain: string }
+  | { kind: "auth"; domain: string; message: string }
+  | { kind: "unreachable"; domain: string; message: string };
+
+// The literal token from `exampleConfig` — short-circuit auth attempts so a
+// freshly-scaffolded file produces a friendlier message than "401 Unauthorized".
+const placeholderToken = "ghp_...";
+
+export type ConfigStatus =
+  | { kind: "ready"; instances: GitHubInstance[] }
+  | { kind: "error"; errors: ConfigError[] };
+
+export const exampleConfig = `theme: system
+instances: # one or more
+  - domain: github.com
+    token: ghp_...
+  - domain: ghe.example.com
+    label: GHE
+    token: ghp_...
+`;
+
+export function resolveConfigPath(): string {
+  const base = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  return join(base, "github-dashboard", "config.yml");
+}
 
 export function configExists(): boolean {
-  return existsSync(CONFIG_PATH);
+  return existsSync(resolveConfigPath());
 }
 
+// Permissive read used by hot paths that don't care about diagnostics
+// (e.g. getPort). Returns null on any failure.
 export function readConfig(): ConfigSchema | null {
-  if (!configExists()) return null;
+  const path = resolveConfigPath();
+  if (!existsSync(path)) return null;
   try {
-    const raw = readFileSync(CONFIG_PATH, "utf-8");
-    return parse(raw) as ConfigSchema;
+    const parsed = configSchemaZ.safeParse(parse(readFileSync(path, "utf-8")));
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
 }
 
-export function writeConfig(config: ConfigSchema): void {
-  writeFileSync(CONFIG_PATH, stringify(config), "utf-8");
+function loadConfigStrict():
+  | { ok: true; config: ConfigSchema }
+  | { ok: false; errors: ConfigError[] } {
+  const path = resolveConfigPath();
+  if (!existsSync(path)) {
+    return { ok: false, errors: [{ kind: "not_found", path }] };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parse(readFileSync(path, "utf-8"));
+  } catch (err) {
+    return {
+      ok: false,
+      errors: [{ kind: "parse", message: sanitizeYamlError(err) }],
+    };
+  }
+
+  const result = configSchemaZ.safeParse(parsed);
+  if (!result.success) {
+    return {
+      ok: false,
+      errors: result.error.issues.map((i) => ({
+        kind: "schema" as const,
+        path: i.path.join(".") || "(root)",
+        message: i.message,
+      })),
+    };
+  }
+
+  const config = result.data;
+  if (!config.instances || config.instances.length === 0) {
+    return { ok: false, errors: [{ kind: "missing_tokens" }] };
+  }
+
+  return { ok: true, config };
 }
 
-// Cached resolved instances (token → username lookup is async)
-let cachedInstances: GitHubInstance[] | null = null;
-
-async function fetchUsername(token: string, baseUrl: string): Promise<string> {
-  const client = new Octokit({ auth: token, baseUrl });
-  const { data } = await client.users.getAuthenticated();
-  return data.login;
+// The yaml parser echoes the offending source line in `err.message`, which
+// can include a token if the malformed line is `token: ghp_...`. Strip it
+// down to position info only.
+function sanitizeYamlError(err: unknown): string {
+  const e = err as { linePos?: Array<{ line: number; col: number }> };
+  const pos = e.linePos?.[0];
+  if (pos) {
+    return `YAML parse error at line ${pos.line}, column ${pos.col}`;
+  }
+  return "Invalid YAML syntax";
 }
 
-export async function resolveInstances(): Promise<GitHubInstance[]> {
+export function createConfigFromExample(): {
+  created: boolean;
+  path: string;
+} {
+  const path = resolveConfigPath();
+  if (existsSync(path)) return { created: false, path };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, exampleConfig, "utf-8");
+  return { created: true, path };
+}
+
+// Octokit needs the full API base for each instance: github.com lives at
+// https://api.github.com (no /api/v3 suffix), while GHES lives at
+// https://<host>/api/v3. Accept any of `github.com`, `https://github.com`,
+// `ghe.example.com`, `https://ghe.example.com/api/v3`, etc.
+function domainToApiBase(domain: string): string {
+  const trimmed = domain.trim();
+  const withScheme = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  try {
+    const url = new URL(withScheme);
+    const host = url.host.toLowerCase();
+    if (host === "github.com" || host === "www.github.com") {
+      return "https://api.github.com";
+    }
+    // Reduce to scheme + host (+ port). Any path the user typed is discarded
+    // — GHES's API always lives at `/api/v3` on the origin.
+    return `${url.origin}/api/v3`;
+  } catch {
+    // Fall back to the raw input so probeInstance surfaces the parse error.
+    return withScheme;
+  }
+}
+
+export function openInDefaultApp(path: string): void {
+  const platform = process.platform;
+  const isWin = platform === "win32";
+  // On Windows, `cmd /c start` parses its arguments inside cmd.exe — an
+  // unquoted path with spaces (`C:\Users\First Last\...`) gets split. Wrap
+  // the path in literal double-quotes and pass them through verbatim.
+  const [cmd, args]: [string, string[]] =
+    platform === "darwin"
+      ? ["open", [path]]
+      : isWin
+        ? ["cmd", ["/c", "start", "", `"${path}"`]]
+        : ["xdg-open", [path]];
+  const child = spawn(cmd, args, {
+    detached: true,
+    stdio: "ignore",
+    windowsVerbatimArguments: isWin,
+  });
+  // Swallow ENOENT (e.g. xdg-open missing on a minimal Linux) so it doesn't
+  // crash the server — the user just won't get an editor pop-up.
+  child.on("error", () => {});
+  child.unref();
+}
+
+type ProbeResult =
+  | { ok: true; username: string }
+  | { ok: false; kind: "auth" | "unreachable"; message: string };
+
+async function probeInstance(
+  token: string,
+  baseUrl: string,
+): Promise<ProbeResult> {
+  try {
+    const client = new Octokit({ auth: token, baseUrl });
+    const { data } = await client.users.getAuthenticated();
+    return { ok: true, username: data.login };
+  } catch (err) {
+    return classifyProbeError(err);
+  }
+}
+
+function classifyProbeError(err: unknown): ProbeResult & { ok: false } {
+  const e = err as { status?: number; message?: string; code?: string };
+
+  if (e.status === 401) {
+    return {
+      ok: false,
+      kind: "auth",
+      message: "Token rejected (401 Unauthorized)",
+    };
+  }
+  if (e.status === 403) {
+    return {
+      ok: false,
+      kind: "auth",
+      message: "Token forbidden (403) — check scopes",
+    };
+  }
+
+  // Network-layer failures: DNS, refused connection, timeouts, resets.
+  const networkCodes: Record<string, string> = {
+    ENOTFOUND: "DNS lookup failed — domain not found",
+    ECONNREFUSED: "Connection refused — is the server running?",
+    ETIMEDOUT: "Connection timed out",
+    ECONNRESET: "Connection reset",
+    EHOSTUNREACH: "Host unreachable",
+  };
+  if (e.code && e.code in networkCodes) {
+    return { ok: false, kind: "unreachable", message: networkCodes[e.code] };
+  }
+
+  // GHES under maintenance returns the whole HTML maintenance page as the
+  // body. Echoing that into the error UI would dump kilobytes of HTML; detect
+  // it and surface a one-line summary instead.
+  if (e.message && /^\s*<(?:!doctype|!--|html)/i.test(e.message)) {
+    const status = e.status ? ` (HTTP ${e.status})` : "";
+    return {
+      ok: false,
+      kind: "unreachable",
+      message: `Server returned an HTML page${status} — likely down for maintenance`,
+    };
+  }
+
+  if (e.status && e.status >= 500) {
+    return {
+      ok: false,
+      kind: "unreachable",
+      message: `Server error (HTTP ${e.status})`,
+    };
+  }
+  if (e.status === 404) {
+    return {
+      ok: false,
+      kind: "unreachable",
+      message: "API endpoint not found (404) — check the domain",
+    };
+  }
+
+  // Final fallback: hard-cap whatever message came back so we never dump a
+  // multi-kilobyte body into the UI.
+  const raw = e.message ?? "Authentication failed";
+  const message = raw.length > 200 ? `${raw.slice(0, 200).trim()}…` : raw;
+  return { ok: false, kind: "unreachable", message };
+}
+
+async function resolveStatus(): Promise<ConfigStatus> {
   if (process.env.DEMO === "1") {
-    cachedInstances = [
-      {
-        id: "github",
-        label: "github.com",
-        baseUrl: "https://api.github.com",
-        token: "",
-        username: "octocat",
-      },
-      {
-        id: "ghe",
-        label: "GHE",
-        baseUrl: "https://ghe.example.com/api/v3",
-        token: "",
-        username: "octocat",
-      },
-    ];
-    return cachedInstances;
+    return {
+      kind: "ready",
+      instances: [
+        {
+          id: "github-com",
+          label: "github.com",
+          baseUrl: "https://api.github.com",
+          token: "",
+          username: "octocat",
+        },
+        {
+          id: "ghe-example-com",
+          label: "GHE",
+          baseUrl: "https://ghe.example.com/api/v3",
+          token: "",
+          username: "octocat",
+        },
+      ],
+    };
   }
 
-  const config = readConfig();
-  if (!config) {
-    cachedInstances = [];
-    return [];
-  }
+  const loaded = loadConfigStrict();
+  if (!loaded.ok) return { kind: "error", errors: loaded.errors };
 
   const instances: GitHubInstance[] = [];
+  const errors: ConfigError[] = [];
+  const seenIds = new Set<string>();
 
-  if (config.github?.token) {
-    const username = await fetchUsername(
-      config.github.token,
-      "https://api.github.com",
-    );
-    instances.push({
-      id: "github",
-      label: "github.com",
-      baseUrl: "https://api.github.com",
-      token: config.github.token,
-      username,
-    });
+  for (const entry of loaded.config.instances ?? []) {
+    const id = instanceIdFromDomain(entry.domain);
+    if (seenIds.has(id)) {
+      errors.push({ kind: "duplicate_domain", domain: entry.domain });
+      continue;
+    }
+    seenIds.add(id);
+
+    if (entry.token === placeholderToken) {
+      errors.push({ kind: "placeholder_token", domain: entry.domain });
+      continue;
+    }
+
+    const baseUrl = domainToApiBase(entry.domain);
+    const res = await probeInstance(entry.token, baseUrl);
+    if (res.ok) {
+      instances.push({
+        id,
+        label: entry.label || entry.domain,
+        baseUrl,
+        token: entry.token,
+        username: res.username,
+      });
+    } else {
+      errors.push({
+        kind: res.kind,
+        domain: entry.domain,
+        message: res.message,
+      });
+    }
   }
 
-  if (config.enterprise?.token && config.enterprise?.baseUrl) {
-    const username = await fetchUsername(
-      config.enterprise.token,
-      config.enterprise.baseUrl,
-    );
-    instances.push({
-      id: "ghe",
-      label: config.enterprise.label || "GHE",
-      baseUrl: config.enterprise.baseUrl,
-      token: config.enterprise.token,
-      username,
-    });
-  }
+  return errors.length > 0
+    ? { kind: "error", errors }
+    : { kind: "ready", instances };
+}
 
-  cachedInstances = instances;
-  return instances;
+let cachedStatus: ConfigStatus | null = null;
+let inFlight: Promise<ConfigStatus> | null = null;
+
+export function invalidateConfigStatus(): void {
+  cachedStatus = null;
+  inFlight = null;
+}
+
+export async function getConfigStatus(): Promise<ConfigStatus> {
+  if (cachedStatus) return cachedStatus;
+  if (inFlight) return inFlight;
+  inFlight = resolveStatus().then((status) => {
+    cachedStatus = status;
+    inFlight = null;
+    return status;
+  });
+  return inFlight;
 }
 
 export async function getInstances(): Promise<GitHubInstance[]> {
-  if (!cachedInstances) {
-    return resolveInstances();
-  }
-  return cachedInstances;
+  const status = await getConfigStatus();
+  return status.kind === "ready" ? status.instances : [];
 }
 
 export function getPort(): number {
   if (process.env.PORT) return Number(process.env.PORT);
-  const config = readConfig();
-  return config?.port ?? 7100;
+  return 7100;
 }

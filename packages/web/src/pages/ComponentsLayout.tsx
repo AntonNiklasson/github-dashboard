@@ -1,7 +1,4 @@
-import { useEffect } from "react";
-import { useAtom } from "jotai";
 import { ThemeSelect } from "../components/ThemeSelect";
-import { applyTheme, themeAtom } from "../theme";
 
 interface Props {
   title: string;
@@ -15,9 +12,6 @@ const tabs = [
 ];
 
 export function ComponentsLayout({ title, description, children }: Props) {
-  const [theme] = useAtom(themeAtom);
-  useEffect(() => applyTheme(theme), [theme]);
-
   const active = window.location.pathname;
 
   return (
