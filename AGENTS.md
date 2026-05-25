@@ -10,7 +10,7 @@ Close the loop before declaring done. Available tools:
 - `pnpm test` — vitest in both packages
 - `pnpm lint` — oxlint
 - `pnpm fmt:check` — oxfmt
-- `pnpm dev` — runs server + web concurrently (long-running; start in background). Stdout/stderr is tee'd to `.logs/server.log` and `.logs/web.log` — tail or read these to inspect output. Logs reset on each start; accumulate across hot reloads within a session.
+- `pnpm dev:web` — runs server + web concurrently (long-running; start in background). For agent work prefer this over `pnpm dev`, which also spawns an Electron window. Stdout/stderr is tee'd to `.logs/server.log` and `.logs/web.log` — tail or read these to inspect output. Logs reset on each start; accumulate across hot reloads within a session.
 
 For UI/UX changes, type-checks aren't enough — drive the app via the **Playwright MCP** (`.mcp.json`):
 
@@ -23,7 +23,7 @@ For UI/UX changes, type-checks aren't enough — drive the app via the **Playwri
 
 Typical loop: edit → dev server hot-reloads → snapshot/interact → check console + `.logs/*` → iterate.
 
-A `config.yaml` with valid tokens already exists locally; don't overwrite it.
+A config file with valid tokens already exists at `~/.config/github-dashboard/config.yml`; don't overwrite it.
 
 ## Code style
 
