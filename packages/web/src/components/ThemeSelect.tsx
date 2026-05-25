@@ -1,6 +1,5 @@
-import { useAtom } from "jotai";
-import { useEffect } from "react";
-import { type Theme, applyTheme, themeAtom } from "../theme";
+import { useEffect, useState } from "react";
+import { type Theme, applyTheme } from "../theme";
 
 const options: { value: Theme; label: string }[] = [
   { value: "system", label: "System" },
@@ -8,8 +7,10 @@ const options: { value: Theme; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
+// Local-only theme picker used by the component showcase pages. The main app
+// reads theme from the config file — see packages/server/src/config.ts.
 export function ThemeSelect() {
-  const [theme, setTheme] = useAtom(themeAtom);
+  const [theme, setTheme] = useState<Theme>("system");
 
   useEffect(() => {
     applyTheme(theme);

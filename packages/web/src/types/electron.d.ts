@@ -1,5 +1,5 @@
 interface ElectronBridge {
-  onOpenSettings(cb: () => void): () => void;
+  onReloadConfig(cb: () => void): () => void;
   onUpdateAvailable(cb: () => void): () => void;
   hasPendingUpdate(): Promise<boolean>;
   installUpdate(): Promise<void>;

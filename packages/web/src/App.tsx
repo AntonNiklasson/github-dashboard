@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { ArrowUpCircle, Settings, Wrench } from "lucide-react";
+import { ArrowUpCircle, Loader2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AutoMergeNotAllowedError, api, type ConfigResponse } from "./api";
@@ -29,9 +29,7 @@ import { NotificationList } from "./components/NotificationList";
 import { PrList } from "./components/PrList";
 import { ReviewList } from "./components/ReviewList";
 import { SectionHeader } from "./components/SectionHeader";
-import { SettingsModal } from "./components/SettingsModal";
-import { DxMenu } from "./dx/DxMenu";
-import { buildDxItems } from "./dx/actions";
+import { Welcome } from "./components/Welcome";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { Skeleton } from "./components/Skeleton";
 import { SortControl } from "./components/SortControl";
@@ -53,14 +51,13 @@ import {
   useAllReviewRequests,
   useAuthoredPrs,
   useColleaguePrs,
-  useInstances,
   useKeyboardNav,
   useNotifications,
   useReviewRequests,
 } from "./hooks";
 import { getInstanceColor } from "./instance-colors";
 import type { Instance, Notification, PR, ReviewRequest } from "./types";
-import { applyTheme, themeAtom } from "./theme";
+import { applyTheme } from "./theme";
 import * as mutations from "./mutations";
 
 type Tab = "all" | string;
@@ -98,13 +95,28 @@ export function App() {
       queryFn: api.getConfig,
     });
   const queryClient = useQueryClient();
-  const { data: instances, isLoading, error } = useInstances();
+  const instances =
+    configRes?.status.kind === "ready" ? configRes.status.instances : [];
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [dxOpen, setDxOpen] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [theme] = useAtom(themeAtom);
+  const theme = configRes?.theme ?? "system";
   const headerRef = useRef<HTMLElement>(null);
+
+  const reloadConfig = async () => {
+    try {
+      const next = await api.reloadConfig();
+      queryClient.setQueryData(["config"], next);
+    } catch {
+      toast.error("Failed to reload config.");
+    }
+  };
+
+  useEffect(() => {
+    return window.electron?.onReloadConfig(reloadConfig);
+    // reloadConfig is recreated each render but is safe to re-subscribe to
+    // — the cleanup function unsubscribes the previous listener.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useLayoutEffect(() => {
     const el = headerRef.current;
@@ -121,10 +133,6 @@ export function App() {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    return window.electron?.onOpenSettings(() => setSettingsOpen(true));
   }, []);
 
   useEffect(() => {
@@ -165,53 +173,15 @@ export function App() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const filterParam = urlParams.get("filter");
-  const forceOnboarding = urlParams.get("onboarding") === "1";
-  const noInstances = !!instances && instances.length === 0;
-  const isFirstRun = forceOnboarding || noInstances;
+  const showWelcome = configRes?.status.kind === "error";
 
-  useEffect(() => {
-    if (isFirstRun) setSettingsOpen(true);
-  }, [isFirstRun]);
-
-  // `,` shortcut for settings
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      )
-        return;
-      if (e.key === ",") {
-        e.preventDefault();
-        setSettingsOpen(true);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  // ⌘K / Ctrl+K toggles the DX menu
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setDxOpen((v) => !v);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  const instanceTabs =
-    instances?.map((i) => ({ id: i.id, label: i.label })) ?? [];
+  const instanceTabs = instances.map((i) => ({ id: i.id, label: i.label }));
   const tabs: { id: Tab; label: string }[] = [
     ...(instanceTabs.length > 1 ? [{ id: "all" as Tab, label: "All" }] : []),
     ...instanceTabs,
   ];
 
   useEffect(() => {
-    if (!instances) return;
-
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Tab" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (
@@ -232,10 +202,11 @@ export function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [instances, activeTab, tabs]);
 
-  if (configLoading || isLoading) {
+  if (configLoading) {
     return (
-      <div className="p-6">
-        <Skeleton count={5} />
+      <div className="flex h-screen items-center justify-center gap-2">
+        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        <Text variant="secondary">Checking configuration…</Text>
       </div>
     );
   }
@@ -299,16 +270,6 @@ export function App() {
                 <Text bold>Update available</Text>
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setDxOpen((v) => !v)}
-              title="Dev tools (⌘K)"
-              className="h-7 gap-1.5"
-            >
-              <Wrench className="size-3.5" />
-              <Text bold>Dev tools</Text>
-            </Button>
             <a
               href="https://github.com/AntonNiklasson/github-dashboard"
               target="_blank"
@@ -318,28 +279,20 @@ export function App() {
             >
               <GithubMark />
             </a>
-            {!IS_ELECTRON && (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                onClick={() => setSettingsOpen(true)}
-                title="Settings (,)"
-              >
-                <Settings />
-              </Button>
-            )}
           </div>
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {error ? (
-          <div className="p-6">
-            <ErrorMessage
-              message={error.message ?? "Failed to load instances"}
-            />
-          </div>
-        ) : instances && instances.length > 0 ? (
+        {showWelcome && configRes ? (
+          <Welcome
+            path={configRes.path}
+            example={configRes.example}
+            errors={
+              configRes.status.kind === "error" ? configRes.status.errors : []
+            }
+          />
+        ) : instances.length > 0 ? (
           activeTab === "all" && instances.length > 1 ? (
             <MultiInstanceDashboard instances={instances} />
           ) : (
@@ -354,30 +307,6 @@ export function App() {
           )
         ) : null}
       </div>
-
-      <SettingsModal
-        open={settingsOpen}
-        onOpenChange={(v) => {
-          if (!v && noInstances) return;
-          setSettingsOpen(v);
-          if (!v && forceOnboarding) {
-            const url = new URL(window.location.href);
-            url.searchParams.delete("onboarding");
-            window.history.replaceState(null, "", url.toString());
-          }
-        }}
-        config={configRes?.config}
-        onSaved={() => {
-          queryClient.invalidateQueries({ queryKey: ["config"] });
-          queryClient.invalidateQueries({ queryKey: ["instances"] });
-        }}
-        firstRun={isFirstRun}
-        dismissible={!noInstances}
-      />
-
-      {dxOpen && (
-        <DxMenu items={buildDxItems()} onClose={() => setDxOpen(false)} />
-      )}
     </div>
   );
 }
