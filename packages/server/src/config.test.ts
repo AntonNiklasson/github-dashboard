@@ -6,10 +6,35 @@ vi.mock("node:fs", async () => {
   return createFsMock();
 });
 
+const octokitHolder = vi.hoisted(
+  (): { ctor: new (args?: unknown) => unknown } => ({
+    // Filled in after the mock module loads.
+    ctor: class {},
+  }),
+);
+
 vi.mock("@octokit/rest", async () => {
   const { octokitStub } = await import("./test-utils/octokit-mock.js");
-  return { Octokit: octokitStub({ login: "alice" }) };
+  octokitHolder.ctor = octokitStub({ login: "alice" });
+  return {
+    get Octokit() {
+      return octokitHolder.ctor;
+    },
+  };
 });
+
+async function withOctokit<T>(
+  ctor: new (args?: unknown) => unknown,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = octokitHolder.ctor;
+  octokitHolder.ctor = ctor;
+  try {
+    return await fn();
+  } finally {
+    octokitHolder.ctor = previous;
+  }
+}
 
 async function freshConfig() {
   vi.resetModules();
@@ -33,20 +58,19 @@ describe("readConfig", () => {
   });
 
   it("parses a valid YAML config", async () => {
-    const { readConfig, CONFIG_PATH } = await freshConfig();
+    const { readConfig, resolveConfigPath } = await freshConfig();
     (await fsMock()).__store.set(
-      CONFIG_PATH,
-      "github:\n  token: ghp_test\nport: 9000\n",
+      resolveConfigPath(),
+      "instances:\n  - domain: github.com\n    token: ghp_test\n",
     );
     const config = readConfig();
-    expect(config?.github?.token).toBe("ghp_test");
-    expect(config?.port).toBe(9000);
+    expect(config?.instances?.[0]?.token).toBe("ghp_test");
   });
 
   it("returns null on invalid YAML rather than throwing", async () => {
-    const { readConfig, CONFIG_PATH } = await freshConfig();
+    const { readConfig, resolveConfigPath } = await freshConfig();
     (await fsMock()).__store.set(
-      CONFIG_PATH,
+      resolveConfigPath(),
       "github:\n  token: [unterminated",
     );
     expect(readConfig()).toBeNull();
@@ -60,103 +84,304 @@ describe("getPort", () => {
     expect(getPort()).toBe(9999);
   });
 
-  it("falls back to config.port when env missing", async () => {
-    const { getPort, CONFIG_PATH } = await freshConfig();
-    (await fsMock()).__store.set(CONFIG_PATH, "port: 8000\n");
-    expect(getPort()).toBe(8000);
-  });
-
-  it("defaults to 7100 when no config and no env", async () => {
+  it("defaults to 7100 when no env", async () => {
     const { getPort } = await freshConfig();
     expect(getPort()).toBe(7100);
   });
 });
 
-describe("resolveInstances", () => {
-  it("returns hardcoded fixtures in DEMO mode", async () => {
+describe("getConfigStatus", () => {
+  it("returns demo fixtures in DEMO mode", async () => {
     vi.stubEnv("DEMO", "1");
-    const { resolveInstances } = await freshConfig();
-    const instances = await resolveInstances();
-    expect(instances.map((i) => i.id)).toEqual(["github", "ghe"]);
-    expect(instances[0].username).toBe("octocat");
+    const { getConfigStatus } = await freshConfig();
+    const status = await getConfigStatus();
+    expect(status.kind).toBe("ready");
+    if (status.kind === "ready") {
+      expect(status.instances.map((i) => i.id)).toEqual([
+        "github-com",
+        "ghe-example-com",
+      ]);
+    }
   });
 
-  it("returns empty list when no config", async () => {
-    const { resolveInstances } = await freshConfig();
-    expect(await resolveInstances()).toEqual([]);
-  });
-
-  it("resolves github.com instance from config", async () => {
-    const { resolveInstances, CONFIG_PATH } = await freshConfig();
-    (await fsMock()).__store.set(CONFIG_PATH, "github:\n  token: ghp_test\n");
-    const instances = await resolveInstances();
-    expect(instances).toHaveLength(1);
-    expect(instances[0]).toMatchObject({
-      id: "github",
-      label: "github.com",
-      token: "ghp_test",
-      username: "alice",
+  it("reports not_found when the file is missing", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
+    const status = await getConfigStatus();
+    expect(status).toEqual({
+      kind: "error",
+      errors: [{ kind: "not_found", path: resolveConfigPath() }],
     });
   });
 
-  it("resolves enterprise instance with custom label + baseUrl", async () => {
-    const { resolveInstances, CONFIG_PATH } = await freshConfig();
+  it("reports a parse error for malformed YAML", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
     (await fsMock()).__store.set(
-      CONFIG_PATH,
-      "enterprise:\n  label: Work\n  baseUrl: https://ghe.example.com/api/v3\n  token: ghe_test\n",
+      resolveConfigPath(),
+      "github:\n  token: [unterminated",
     );
-    const instances = await resolveInstances();
-    expect(instances).toHaveLength(1);
-    expect(instances[0]).toMatchObject({
-      id: "ghe",
-      label: "Work",
-      baseUrl: "https://ghe.example.com/api/v3",
-      token: "ghe_test",
+    const status = await getConfigStatus();
+    expect(status.kind).toBe("error");
+    if (status.kind === "error") {
+      expect(status.errors[0].kind).toBe("parse");
+    }
+  });
+
+  it("reports schema violations when fields are the wrong type", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
+    (await fsMock()).__store.set(
+      resolveConfigPath(),
+      "theme: not-a-theme\ninstances:\n  - domain: github.com\n    token: ghp_test\n",
+    );
+    const status = await getConfigStatus();
+    expect(status.kind).toBe("error");
+    if (status.kind === "error") {
+      expect(status.errors.some((e) => e.kind === "schema")).toBe(true);
+    }
+  });
+
+  it("reports missing_tokens when the instances list is empty or absent", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
+    (await fsMock()).__store.set(resolveConfigPath(), "theme: dark\n");
+    const status = await getConfigStatus();
+    expect(status).toEqual({
+      kind: "error",
+      errors: [{ kind: "missing_tokens" }],
     });
   });
 
-  it("falls back to label 'GHE' when not set", async () => {
-    const { resolveInstances, CONFIG_PATH } = await freshConfig();
+  it("resolves both instances when both tokens are valid", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
     (await fsMock()).__store.set(
-      CONFIG_PATH,
-      "enterprise:\n  baseUrl: https://ghe.example.com/api/v3\n  token: ghe_test\n",
+      resolveConfigPath(),
+      "instances:\n  - domain: github.com\n    token: ghp_test\n  - domain: ghe.example.com\n    label: GHE\n    token: ghe_test\n",
     );
-    const instances = await resolveInstances();
-    expect(instances[0].label).toBe("GHE");
+    const status = await getConfigStatus();
+    expect(status.kind).toBe("ready");
+    if (status.kind === "ready") {
+      expect(status.instances.map((i) => i.id)).toEqual([
+        "github-com",
+        "ghe-example-com",
+      ]);
+      expect(status.instances.find((i) => i.id === "github-com")?.baseUrl).toBe(
+        "https://api.github.com",
+      );
+      expect(
+        status.instances.find((i) => i.id === "ghe-example-com")?.baseUrl,
+      ).toBe("https://ghe.example.com/api/v3");
+    }
   });
 
-  it("skips enterprise when baseUrl missing", async () => {
-    const { resolveInstances, CONFIG_PATH } = await freshConfig();
+  it("falls back to the domain as label when label is omitted", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
     (await fsMock()).__store.set(
-      CONFIG_PATH,
-      "enterprise:\n  token: ghe_test\n",
+      resolveConfigPath(),
+      "instances:\n  - domain: ghe.example.com\n    token: ghe_test\n",
     );
-    const instances = await resolveInstances();
-    expect(instances).toEqual([]);
+    const status = await getConfigStatus();
+    expect(status.kind).toBe("ready");
+    if (status.kind === "ready") {
+      expect(status.instances[0]?.label).toBe("ghe.example.com");
+    }
   });
 
-  it("resolves both instances when both configured", async () => {
-    const { resolveInstances, CONFIG_PATH } = await freshConfig();
+  it("flags duplicate domains", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
     (await fsMock()).__store.set(
-      CONFIG_PATH,
-      "github:\n  token: ghp_test\nenterprise:\n  baseUrl: https://ghe.example.com/api/v3\n  token: ghe_test\n",
+      resolveConfigPath(),
+      "instances:\n  - domain: github.com\n    token: ghp_a\n  - domain: github.com\n    token: ghp_b\n",
     );
-    const instances = await resolveInstances();
-    expect(instances.map((i) => i.id)).toEqual(["github", "ghe"]);
+    const status = await getConfigStatus();
+    expect(status.kind).toBe("error");
+    if (status.kind === "error") {
+      expect(
+        status.errors.some(
+          (e) => e.kind === "duplicate_domain" && e.domain === "github.com",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it.each([
+    ["github.com", "https://api.github.com"],
+    ["https://github.com", "https://api.github.com"],
+    ["www.github.com", "https://api.github.com"],
+    ["ghe.example.com", "https://ghe.example.com/api/v3"],
+    ["https://ghe.example.com", "https://ghe.example.com/api/v3"],
+    ["https://ghe.example.com/", "https://ghe.example.com/api/v3"],
+    ["https://ghe.example.com/api/v3", "https://ghe.example.com/api/v3"],
+    ["http://ghe.example.com", "http://ghe.example.com/api/v3"],
+    ["ghe.example.com:8443", "https://ghe.example.com:8443/api/v3"],
+    [
+      "https://ghe.example.com:8443/api/v3",
+      "https://ghe.example.com:8443/api/v3",
+    ],
+  ])("normalizes domain %s → %s", async (input, expected) => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
+    (await fsMock()).__store.set(
+      resolveConfigPath(),
+      `instances:\n  - domain: ${input}\n    token: ghe_test\n`,
+    );
+    const status = await getConfigStatus();
+    expect(status.kind).toBe("ready");
+    if (status.kind === "ready") {
+      expect(status.instances[0]?.baseUrl).toBe(expected);
+    }
+  });
+
+  it("rejects an invalid theme value as a schema error", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
+    (await fsMock()).__store.set(
+      resolveConfigPath(),
+      "theme: midnight\ninstances:\n  - domain: github.com\n    token: ghp_test\n",
+    );
+    const status = await getConfigStatus();
+    expect(status.kind).toBe("error");
+    if (status.kind === "error") {
+      expect(
+        status.errors.some((e) => e.kind === "schema" && e.path === "theme"),
+      ).toBe(true);
+    }
+  });
+
+  it("accepts a valid theme value", async () => {
+    const { readConfig, resolveConfigPath } = await freshConfig();
+    (await fsMock()).__store.set(
+      resolveConfigPath(),
+      "theme: dark\ninstances:\n  - domain: github.com\n    token: ghp_test\n",
+    );
+    expect(readConfig()?.theme).toBe("dark");
+  });
+
+  it("flags placeholder tokens without attempting auth", async () => {
+    // If we accidentally hit GitHub here the octokit stub would return alice;
+    // the test asserts we get a `placeholder_token` error, proving we never
+    // even constructed an Octokit for the placeholder.
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
+    (await fsMock()).__store.set(
+      resolveConfigPath(),
+      "instances:\n  - domain: github.com\n    token: ghp_...\n  - domain: ghe.example.com\n    token: ghp_...\n",
+    );
+    const status = await getConfigStatus();
+    expect(status).toEqual({
+      kind: "error",
+      errors: [
+        { kind: "placeholder_token", domain: "github.com" },
+        { kind: "placeholder_token", domain: "ghe.example.com" },
+      ],
+    });
+  });
+
+  it("collects auth failures from every rejected token in one pass", async () => {
+    const { octokitStub } = await import("./test-utils/octokit-mock.js");
+    await withOctokit(
+      octokitStub({
+        throws: Object.assign(new Error("Bad credentials"), { status: 401 }),
+      }),
+      async () => {
+        const { getConfigStatus, resolveConfigPath } = await freshConfig();
+        (await fsMock()).__store.set(
+          resolveConfigPath(),
+          "instances:\n  - domain: github.com\n    token: ghp_bad\n  - domain: ghe.example.com\n    token: ghe_bad\n",
+        );
+        const status = await getConfigStatus();
+        expect(status.kind).toBe("error");
+        if (status.kind === "error") {
+          expect(status.errors).toHaveLength(2);
+          expect(status.errors).toEqual([
+            expect.objectContaining({ kind: "auth", domain: "github.com" }),
+            expect.objectContaining({
+              kind: "auth",
+              domain: "ghe.example.com",
+            }),
+          ]);
+        }
+      },
+    );
   });
 });
 
-describe("getInstances caching", () => {
-  it("memoizes after the first resolve", async () => {
-    const { getInstances, resolveInstances, CONFIG_PATH } = await freshConfig();
-    (await fsMock()).__store.set(CONFIG_PATH, "github:\n  token: ghp_test\n");
+describe("resolveConfigPath", () => {
+  it("uses XDG_CONFIG_HOME when set", async () => {
+    vi.stubEnv("XDG_CONFIG_HOME", "/xdg");
+    const { resolveConfigPath } = await freshConfig();
+    expect(resolveConfigPath()).toBe("/xdg/github-dashboard/config.yml");
+  });
 
-    await resolveInstances();
-    // Remove the config — cached value should still return
+  it("falls back to $HOME/.config when XDG_CONFIG_HOME is unset", async () => {
+    vi.stubEnv("XDG_CONFIG_HOME", "");
+    vi.stubEnv("HOME", "/home/test");
+    const { resolveConfigPath } = await freshConfig();
+    expect(resolveConfigPath()).toBe(
+      "/home/test/.config/github-dashboard/config.yml",
+    );
+  });
+});
+
+describe("createConfigFromExample", () => {
+  it("writes the example yaml when no file exists", async () => {
+    vi.stubEnv("XDG_CONFIG_HOME", "/xdg");
+    const { createConfigFromExample, exampleConfig } = await freshConfig();
+    const result = createConfigFromExample();
+    expect(result).toEqual({
+      created: true,
+      path: "/xdg/github-dashboard/config.yml",
+    });
+    const fs = await fsMock();
+    expect(fs.mkdirSync).toHaveBeenCalledWith("/xdg/github-dashboard", {
+      recursive: true,
+    });
+    expect(fs.__store.get("/xdg/github-dashboard/config.yml")).toBe(
+      exampleConfig,
+    );
+  });
+
+  it("leaves an existing file untouched", async () => {
+    vi.stubEnv("XDG_CONFIG_HOME", "/xdg");
+    const { createConfigFromExample } = await freshConfig();
+    const fs = await fsMock();
+    fs.__store.set("/xdg/github-dashboard/config.yml", "theme: dark\n");
+    const result = createConfigFromExample();
+    expect(result).toEqual({
+      created: false,
+      path: "/xdg/github-dashboard/config.yml",
+    });
+    expect(fs.__store.get("/xdg/github-dashboard/config.yml")).toBe(
+      "theme: dark\n",
+    );
+  });
+});
+
+describe("invalidateConfigStatus", () => {
+  it("clears the cached status so the next call re-resolves", async () => {
+    const { getConfigStatus, invalidateConfigStatus, resolveConfigPath } =
+      await freshConfig();
+    (await fsMock()).__store.set(
+      resolveConfigPath(),
+      "instances:\n  - domain: github.com\n    token: ghp_test\n",
+    );
+    const first = await getConfigStatus();
+    expect(first.kind).toBe("ready");
+
+    // Delete the file and invalidate — next call should reflect missing file
     (await fsMock()).__store.clear();
+    invalidateConfigStatus();
+    const second = await getConfigStatus();
+    expect(second.kind).toBe("error");
+    if (second.kind === "error") {
+      expect(second.errors[0].kind).toBe("not_found");
+    }
+  });
 
-    const again = await getInstances();
-    expect(again).toHaveLength(1);
-    expect(again[0].token).toBe("ghp_test");
+  it("memoizes between invalidations", async () => {
+    const { getConfigStatus, resolveConfigPath } = await freshConfig();
+    (await fsMock()).__store.set(
+      resolveConfigPath(),
+      "instances:\n  - domain: github.com\n    token: ghp_test\n",
+    );
+    await getConfigStatus();
+    // Wipe the disk — without invalidate, cached result still wins.
+    (await fsMock()).__store.clear();
+    const again = await getConfigStatus();
+    expect(again.kind).toBe("ready");
   });
 });

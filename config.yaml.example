@@ -1,10 +1,7 @@
-port: 7100
-
 github:
   token: ghp_...
 
 enterprise:
   label: GHE
-  baseUrl: https://ghe.example.com/api/v3
+  domain: ghe.example.com
   token: ghp_...
-
