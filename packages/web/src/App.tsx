@@ -89,11 +89,14 @@ function GithubMark() {
 }
 
 export function App() {
-  const { data: configRes, isLoading: configLoading } =
-    useQuery<ConfigResponse>({
-      queryKey: ["config"],
-      queryFn: api.getConfig,
-    });
+  const {
+    data: configRes,
+    isLoading: configLoading,
+    error: configError,
+  } = useQuery<ConfigResponse>({
+    queryKey: ["config"],
+    queryFn: api.getConfig,
+  });
   const queryClient = useQueryClient();
   const instances =
     configRes?.status.kind === "ready" ? configRes.status.instances : [];
@@ -203,6 +206,14 @@ export function App() {
       <div className="flex h-screen items-center justify-center gap-2">
         <Loader2 className="size-4 animate-spin text-muted-foreground" />
         <Text variant="secondary">Checking configuration…</Text>
+      </div>
+    );
+  }
+
+  if (configError && !configRes) {
+    return (
+      <div className="flex h-screen items-center justify-center p-8">
+        <ErrorMessage message={configError.message} />
       </div>
     );
   }
