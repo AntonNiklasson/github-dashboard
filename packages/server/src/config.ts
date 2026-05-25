@@ -14,8 +14,26 @@ export interface GitHubInstance {
   username: string;
 }
 
+// Stable, URL-safe identifier derived from the domain — used in `/api/:instanceId/*`
+// routes and as the cache-key prefix. Renaming an instance's label doesn't
+// invalidate caches; changing the domain (correctly) does.
+export function instanceIdFromDomain(domain: string): string {
+  return domain
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 const instanceSchemaZ = z.object({
-  domain: z.string().min(1, "domain is required"),
+  domain: z
+    .string()
+    .min(1, "domain is required")
+    .refine((d) => instanceIdFromDomain(d).length > 0, {
+      message: "domain must be a hostname (e.g. github.com)",
+    }),
   token: z.string().min(1, "token is required"),
   label: z.string().optional(),
 });
@@ -94,12 +112,7 @@ function loadConfigStrict():
   } catch (err) {
     return {
       ok: false,
-      errors: [
-        {
-          kind: "parse",
-          message: err instanceof Error ? err.message : String(err),
-        },
-      ],
+      errors: [{ kind: "parse", message: sanitizeYamlError(err) }],
     };
   }
 
@@ -123,17 +136,16 @@ function loadConfigStrict():
   return { ok: true, config };
 }
 
-// Stable, URL-safe identifier derived from the domain — used in `/api/:instanceId/*`
-// routes and as the cache-key prefix. Renaming an instance's label doesn't
-// invalidate caches; changing the domain (correctly) does.
-export function instanceIdFromDomain(domain: string): string {
-  return domain
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/\/.*$/, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+// The yaml parser echoes the offending source line in `err.message`, which
+// can include a token if the malformed line is `token: ghp_...`. Strip it
+// down to position info only.
+function sanitizeYamlError(err: unknown): string {
+  const e = err as { linePos?: Array<{ line: number; col: number }> };
+  const pos = e.linePos?.[0];
+  if (pos) {
+    return `YAML parse error at line ${pos.line}, column ${pos.col}`;
+  }
+  return "Invalid YAML syntax";
 }
 
 export function createConfigFromExample(): {
@@ -173,13 +185,21 @@ function domainToApiBase(domain: string): string {
 
 export function openInDefaultApp(path: string): void {
   const platform = process.platform;
+  const isWin = platform === "win32";
+  // On Windows, `cmd /c start` parses its arguments inside cmd.exe — an
+  // unquoted path with spaces (`C:\Users\First Last\...`) gets split. Wrap
+  // the path in literal double-quotes and pass them through verbatim.
   const [cmd, args]: [string, string[]] =
     platform === "darwin"
       ? ["open", [path]]
-      : platform === "win32"
-        ? ["cmd", ["/c", "start", "", path]]
+      : isWin
+        ? ["cmd", ["/c", "start", "", `"${path}"`]]
         : ["xdg-open", [path]];
-  const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+  const child = spawn(cmd, args, {
+    detached: true,
+    stdio: "ignore",
+    windowsVerbatimArguments: isWin,
+  });
   // Swallow ENOENT (e.g. xdg-open missing on a minimal Linux) so it doesn't
   // crash the server — the user just won't get an editor pop-up.
   child.on("error", () => {});
