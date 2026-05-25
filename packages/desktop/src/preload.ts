@@ -1,10 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("electron", {
-  onOpenSettings: (cb: () => void): (() => void) => {
+  onReloadConfig: (cb: () => void): (() => void) => {
     const listener = () => cb();
-    ipcRenderer.on("ghd:open-settings", listener);
-    return () => ipcRenderer.off("ghd:open-settings", listener);
+    ipcRenderer.on("ghd:reload-config", listener);
+    return () => ipcRenderer.off("ghd:reload-config", listener);
   },
   onUpdateAvailable: (cb: () => void): (() => void) => {
     const listener = () => cb();

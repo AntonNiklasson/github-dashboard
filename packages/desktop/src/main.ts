@@ -129,10 +129,10 @@ function simulateUpdate(): void {
 
 function buildAppMenu(): Menu {
   const isMac = process.platform === "darwin";
-  const settingsItem: MenuItemConstructorOptions = {
-    label: "Settings…",
-    accelerator: "CmdOrCtrl+,",
-    click: () => mainWindow?.webContents.send("ghd:open-settings"),
+  const reloadConfigItem: MenuItemConstructorOptions = {
+    label: "Reload config",
+    accelerator: "CmdOrCtrl+Shift+,",
+    click: () => mainWindow?.webContents.send("ghd:reload-config"),
   };
 
   const template: MenuItemConstructorOptions[] = [
@@ -143,7 +143,7 @@ function buildAppMenu(): Menu {
             submenu: [
               { role: "about" },
               { type: "separator" },
-              settingsItem,
+              reloadConfigItem,
               { type: "separator" },
               { role: "services" },
               { type: "separator" },
@@ -159,8 +159,8 @@ function buildAppMenu(): Menu {
     {
       label: "File",
       submenu: [
-        // On non-mac, settings lives here since there's no app menu.
-        ...(isMac ? [] : [settingsItem, { type: "separator" } as const]),
+        // On non-mac, the reload item lives here since there's no app menu.
+        ...(isMac ? [] : [reloadConfigItem, { type: "separator" } as const]),
         isMac ? { role: "close" } : { role: "quit" },
       ],
     },
