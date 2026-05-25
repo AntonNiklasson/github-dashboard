@@ -149,12 +149,12 @@ describe("GET /config", () => {
       errors: [
         {
           kind: "auth",
-          instance: "github",
+          domain: "github.com",
           message: "Token rejected (401 Unauthorized)",
         },
         {
           kind: "auth",
-          instance: "ghe",
+          domain: "ghe.example.com",
           message: "Token rejected (401 Unauthorized)",
         },
       ],
@@ -165,11 +165,11 @@ describe("GET /config", () => {
     expect(body.status.errors).toHaveLength(2);
     expect(body.status.errors[0]).toMatchObject({
       kind: "auth",
-      instance: "github",
+      domain: "github.com",
     });
     expect(body.status.errors[1]).toMatchObject({
       kind: "auth",
-      instance: "ghe",
+      domain: "ghe.example.com",
     });
   });
 });
