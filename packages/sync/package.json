@@ -1,0 +1,33 @@
+{
+  "name": "sync",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ghd-sync": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsx watch src/cli.ts",
+    "cli": "tsx src/cli.ts",
+    "build": "tsgo",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@octokit/rest": "^22.0.1",
+    "better-sqlite3": "^12.4.1",
+    "yaml": "^2.8.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.5.0",
+    "tsx": "^4.19.3",
+    "vitest": "^4.1.2"
+  }
+}
