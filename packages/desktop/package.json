@@ -1,5 +1,5 @@
 {
-  "name": "@github-dashboard/desktop",
+  "name": "desktop",
   "productName": "GitHub Dashboard",
   "private": true,
   "version": "0.0.2",
@@ -16,7 +16,7 @@
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
-    "@github-dashboard/server": "workspace:*",
+    "server": "workspace:*",
     "@types/node": "^25.5.0",
     "electron": "^32.2.0",
     "electron-builder": "^25.1.8",

@@ -36,9 +36,6 @@ importers:
         specifier: ^6.3.9
         version: 6.8.3
     devDependencies:
-      '@github-dashboard/server':
-        specifier: workspace:*
-        version: link:../server
       '@types/node':
         specifier: ^25.5.0
         version: 25.5.0
@@ -51,6 +48,9 @@ importers:
       esbuild:
         specifier: ^0.25.0
         version: 0.25.12
+      server:
+        specifier: workspace:*
+        version: link:../server
 
   packages/server:
     dependencies:
