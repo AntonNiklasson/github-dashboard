@@ -14,6 +14,7 @@
     "fmt:check": "oxfmt --check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "sync": "pnpm --filter sync cli",
     "prepare": "husky"
   },
   "devDependencies": {
