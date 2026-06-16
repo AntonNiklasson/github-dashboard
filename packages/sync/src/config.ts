@@ -57,6 +57,31 @@ function domainToApiBase(domain: string): string {
   return `${url.origin}/api/v3`;
 }
 
+// Resolving a token's username costs one REST call (users.getAuthenticated).
+// The engine re-reads config every cycle so reconcile sees added/removed
+// instances, but a token's username effectively never changes — caching it by
+// (baseUrl, token) keeps loop mode from spending a request per instance per
+// cycle, outside the rate-limit floor accounting. Process-lifetime cache; a
+// restart re-probes.
+const usernameCache = new Map<string, string>();
+
+async function resolveUsername(
+  baseUrl: string,
+  token: string,
+): Promise<string> {
+  const key = `${baseUrl} ${token}`;
+  const cached = usernameCache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const client = new Octokit({ auth: token, baseUrl });
+  const { data } = await client.users.getAuthenticated();
+  usernameCache.set(key, data.login);
+
+  return data.login;
+}
+
 // The yaml parser echoes the offending source line in `err.message`, which
 // can include a token if the malformed line is `token: ghp_...`. Strip it
 // down to position info only.
@@ -92,14 +117,13 @@ export async function loadInstances(): Promise<GitHubInstance[]> {
   for (const entry of entries) {
     const id = instanceIdFromDomain(entry.domain);
     const baseUrl = domainToApiBase(entry.domain);
-    const client = new Octokit({ auth: entry.token, baseUrl });
-    const { data } = await client.users.getAuthenticated();
+    const username = await resolveUsername(baseUrl, entry.token);
     instances.push({
       id,
       label: entry.label || entry.domain,
       baseUrl,
       token: entry.token,
-      username: data.login,
+      username,
     });
   }
   return instances;
