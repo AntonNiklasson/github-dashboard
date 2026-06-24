@@ -131,7 +131,7 @@ jobs:
 
       - run: pnpm build
 
-      - run: pnpm --filter @github-dashboard/desktop build
+      - run: pnpm --filter desktop build
 
       # Always publish to a draft first. GitHub's immutable-releases behavior
       # locks published releases (including pre-releases) against further
@@ -139,7 +139,7 @@ jobs:
       # create-then-upload-assets sequence electron-builder uses. Drafts are
       # mutable; the promote step below flips it to pre-release after uploads.
       - name: Package + publish (draft)
-        run: pnpm --filter @github-dashboard/desktop package --publish always
+        run: pnpm --filter desktop package --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Code signing is not yet configured. Until certs are added, builds
