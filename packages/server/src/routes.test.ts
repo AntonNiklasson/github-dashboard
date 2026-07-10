@@ -69,6 +69,123 @@ vi.mock("./cache.js", () => ({
 vi.mock("./config.js", () => configStub);
 vi.mock("./fetchers.js", () => fetchersStub);
 
+vi.mock("./sync.js", () => {
+  const pending = new Set<Promise<unknown>>();
+  const removed: { instanceId: string; repo: string; number: number }[] = [];
+  const drafts: {
+    instanceId: string;
+    repo: string;
+    number: number;
+    draft: boolean;
+  }[] = [];
+  const keyFor = (kind: string) =>
+    kind === "prs" ? "prs" : kind === "reviews" ? "reviews" : "notifications";
+  const fetcherFor = (kind: string) =>
+    kind === "prs"
+      ? fetchersStub.fetchPrs
+      : kind === "reviews"
+        ? fetchersStub.fetchReviews
+        : fetchersStub.fetchNotifications;
+  const resyncInstance = async (instanceId: string, kinds: string[]) => {
+    await Promise.all(
+      kinds.map(async (kind) => {
+        let data = (await fetcherFor(kind)(instanceId)) as {
+          repo?: string;
+          number?: number;
+          draft?: boolean;
+        }[];
+        if (kind === "prs" || kind === "reviews") {
+          data = data
+            .filter(
+              (row) =>
+                !removed.some(
+                  (item) =>
+                    item.instanceId === instanceId &&
+                    item.repo === row.repo &&
+                    item.number === row.number,
+                ),
+            )
+            .map((row) => {
+              const mutation = drafts.find(
+                (item) =>
+                  item.instanceId === instanceId &&
+                  item.repo === row.repo &&
+                  item.number === row.number,
+              );
+              return mutation ? { ...row, draft: mutation.draft } : row;
+            });
+        }
+        cacheStore.set(`${instanceId}:${keyFor(kind)}`, data);
+      }),
+    );
+  };
+  return {
+    getPrs: (instanceId: string, kind: string) =>
+      cacheStore.get(
+        `${instanceId}:${kind === "authored" ? "prs" : "reviews"}`,
+      ) ?? [],
+    getNotifications: (instanceId: string) =>
+      cacheStore.get(`${instanceId}:notifications`) ?? [],
+    removeNotification: (instanceId: string, id: string) => {
+      const rows = (cacheStore.get(`${instanceId}:notifications`) ?? []) as {
+        id: string;
+      }[];
+      cacheStore.set(
+        `${instanceId}:notifications`,
+        rows.filter((row) => row.id !== id),
+      );
+    },
+    removePr: (instanceId: string, repo: string, number: number) => {
+      removed.push({ instanceId, repo, number });
+      for (const kind of ["prs", "reviews"]) {
+        const rows = (cacheStore.get(`${instanceId}:${kind}`) ?? []) as {
+          repo: string;
+          number: number;
+        }[];
+        cacheStore.set(
+          `${instanceId}:${kind}`,
+          rows.filter((row) => row.repo !== repo || row.number !== number),
+        );
+      }
+    },
+    setPrDraft: (
+      instanceId: string,
+      repo: string,
+      number: number,
+      draft: boolean,
+    ) => {
+      drafts.push({ instanceId, repo, number, draft });
+      for (const kind of ["prs", "reviews"]) {
+        const rows = (cacheStore.get(`${instanceId}:${kind}`) ?? []) as {
+          repo: string;
+          number: number;
+        }[];
+        cacheStore.set(
+          `${instanceId}:${kind}`,
+          rows.map((row) =>
+            row.repo === repo && row.number === number
+              ? { ...row, draft }
+              : row,
+          ),
+        );
+      }
+    },
+    resyncInstance,
+    scheduleResync: (instanceId: string, kinds: string[]) => {
+      const promise = resyncInstance(instanceId, kinds).finally(() =>
+        pending.delete(promise),
+      );
+      pending.add(promise);
+    },
+    scheduleFullResync: () => {},
+    waitForPendingResyncs: async () => {
+      while (pending.size > 0) await Promise.allSettled(pending);
+      removed.length = 0;
+      drafts.length = 0;
+    },
+  };
+});
+
 vi.mock("./github-client.js", () => ({
   getClient: async () => mockOctokit,
   getInstance: async (id: string) => ({
@@ -207,7 +324,7 @@ describe("POST /config/create", () => {
 });
 
 describe("POST /config/reload", () => {
-  it("invalidates cached status, clears data caches when ready, and returns the new status", async () => {
+  it("invalidates cached status, schedules reconciliation, and returns the new status", async () => {
     configStub.getConfigStatus.mockResolvedValue({
       kind: "ready",
       instances: [
@@ -226,9 +343,6 @@ describe("POST /config/reload", () => {
     const res = await call("/config/reload", { method: "POST" });
     expect(res.status).toBe(200);
     expect(configStub.invalidateConfigStatus).toHaveBeenCalled();
-    expect(cacheStore.get("github:prs")).toBeNull();
-    expect(cacheStore.get("github:reviews")).toBeNull();
-    expect(cacheStore.get("github:notifications")).toBeNull();
     const body = await res.json();
     expect(body.status).toEqual({
       kind: "ready",
@@ -237,7 +351,7 @@ describe("POST /config/reload", () => {
     expect(JSON.stringify(body)).not.toContain("SECRET");
   });
 
-  it("clears caches for instances no longer in the new payload", async () => {
+  it("accepts a ready payload after instances were removed", async () => {
     configStub.getConfigStatus.mockResolvedValue({
       kind: "ready",
       instances: [
@@ -254,9 +368,7 @@ describe("POST /config/reload", () => {
     cacheStore.set("ghe:reviews", [{ id: 10 }]);
     cacheStore.set("ghe:notifications", [{ id: 11 }]);
     await call("/config/reload", { method: "POST" });
-    expect(cacheStore.get("ghe:prs")).toBeNull();
-    expect(cacheStore.get("ghe:reviews")).toBeNull();
-    expect(cacheStore.get("ghe:notifications")).toBeNull();
+    expect(configStub.invalidateConfigStatus).toHaveBeenCalled();
   });
 
   it("leaves caches alone when reloading into an error state", async () => {
@@ -282,13 +394,12 @@ describe("caching behavior on GET /:instanceId/prs", () => {
     expect(fetchersStub.fetchPrs).not.toHaveBeenCalled();
   });
 
-  it("calls fetcher and caches the result when cache is empty", async () => {
+  it("returns an empty list while the first background sync is pending", async () => {
     fetchersStub.fetchPrs.mockResolvedValue([{ fresh: true }]);
     const res = await call("/github/prs");
     const body = await res.json();
-    expect(body).toEqual([{ fresh: true }]);
-    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
-    expect(cacheStore.get("github:prs")).toEqual([{ fresh: true }]);
+    expect(body).toEqual([]);
+    expect(fetchersStub.fetchPrs).not.toHaveBeenCalled();
   });
 
   it("?fresh=1 bypasses cache even when populated", async () => {

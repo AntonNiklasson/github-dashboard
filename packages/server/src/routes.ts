@@ -1,11 +1,5 @@
 import { Hono } from "hono";
 import {
-  cachedInstanceIds,
-  getCached,
-  patchCache,
-  setCached,
-} from "./cache.js";
-import {
   createConfigFromExample,
   exampleConfig,
   getConfigStatus,
@@ -14,51 +8,20 @@ import {
   readConfig,
   resolveConfigPath,
 } from "./config.js";
-import {
-  fetchNotifications,
-  fetchPrs,
-  fetchReviews,
-  latestCheckRunsByName,
-} from "./fetchers.js";
+import { latestCheckRunsByName } from "./fetchers.js";
 import { clearClients, getClient, getInstance } from "./github-client.js";
-import { recordMutation, scheduleResync } from "./sync.js";
-
-interface CachedListItem {
-  repo: string;
-  number: number;
-  draft?: boolean;
-}
-
-function removeFromList(repo: string, number: number) {
-  return (data: CachedListItem[] | null): CachedListItem[] =>
-    (data ?? []).filter(
-      (item) => !(item.repo === repo && item.number === number),
-    );
-}
-
-function setDraftInList(repo: string, number: number, draft: boolean) {
-  return (data: CachedListItem[] | null): CachedListItem[] =>
-    (data ?? []).map((item) =>
-      item.repo === repo && item.number === number ? { ...item, draft } : item,
-    );
-}
+import {
+  getNotifications,
+  getPrs,
+  removeNotification,
+  removePr,
+  resyncInstance,
+  scheduleFullResync,
+  scheduleResync,
+  setPrDraft,
+} from "./sync.js";
 
 const api = new Hono();
-
-/** Return cached data if available, otherwise fetch live and cache */
-async function cachedOrFetch<T>(
-  key: string,
-  fetcher: () => Promise<T>,
-  fresh = false,
-): Promise<T> {
-  if (!fresh) {
-    const cached = getCached<T>(key);
-    if (cached) return cached;
-  }
-  const data = await fetcher();
-  setCached(key, data);
-  return data;
-}
 
 async function configPayload() {
   const status = await getConfigStatus();
@@ -94,23 +57,13 @@ api.get("/config", async (c) => {
 });
 
 api.post("/config/reload", async (c) => {
-  // Snapshot cached instance IDs *before* invalidating so we can wipe caches
-  // for instances the user removed from config — they won't appear in the
-  // new payload but their stale data would otherwise survive.
-  const previousIds = cachedInstanceIds();
   invalidateConfigStatus();
   clearClients();
   const payload = await configPayload();
   if (payload.status.kind === "ready") {
-    const ids = new Set([
-      ...previousIds,
-      ...payload.status.instances.map((i) => i.id),
-    ]);
-    for (const id of ids) {
-      setCached(`${id}:prs`, null);
-      setCached(`${id}:reviews`, null);
-      setCached(`${id}:notifications`, null);
-    }
+    // Reconcile removed instances and populate newly added ones without
+    // making the config response wait on GitHub.
+    scheduleFullResync();
   }
   return c.json(payload);
 });
@@ -127,37 +80,24 @@ api.post("/config/create", (c) => {
 // Authored PRs with CI + review status
 api.get("/:instanceId/prs", async (c) => {
   const { instanceId } = c.req.param();
-  const fresh = c.req.query("fresh") === "1";
-  const data = await cachedOrFetch(
-    `${instanceId}:prs`,
-    () => fetchPrs(instanceId),
-    fresh,
-  );
-  return c.json(data);
+  if (c.req.query("fresh") === "1") await resyncInstance(instanceId, ["prs"]);
+  return c.json(getPrs(instanceId, "authored"));
 });
 
 // PRs awaiting my review
 api.get("/:instanceId/reviews", async (c) => {
   const { instanceId } = c.req.param();
-  const fresh = c.req.query("fresh") === "1";
-  const data = await cachedOrFetch(
-    `${instanceId}:reviews`,
-    () => fetchReviews(instanceId),
-    fresh,
-  );
-  return c.json(data);
+  if (c.req.query("fresh") === "1")
+    await resyncInstance(instanceId, ["reviews"]);
+  return c.json(getPrs(instanceId, "review_requested"));
 });
 
 // Notifications (participating)
 api.get("/:instanceId/notifications", async (c) => {
   const { instanceId } = c.req.param();
-  const fresh = c.req.query("fresh") === "1";
-  const data = await cachedOrFetch(
-    `${instanceId}:notifications`,
-    () => fetchNotifications(instanceId),
-    fresh,
-  );
-  return c.json(data);
+  if (c.req.query("fresh") === "1")
+    await resyncInstance(instanceId, ["notifications"]);
+  return c.json(getNotifications(instanceId));
 });
 
 // Mark notification as done
@@ -168,13 +108,7 @@ api.delete("/:instanceId/notifications/:threadId", async (c) => {
   await client.activity.markThreadAsDone({ thread_id: Number(threadId) });
 
   // Optimistically remove from cache so it disappears immediately
-  const cached = getCached<{ id: string }[]>(`${instanceId}:notifications`);
-  if (cached) {
-    setCached(
-      `${instanceId}:notifications`,
-      cached.filter((n) => n.id !== threadId),
-    );
-  }
+  removeNotification(instanceId, threadId);
 
   scheduleResync(instanceId, ["notifications"]);
 
@@ -268,9 +202,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
     return c.json({ error: "merge_rejected", message }, 422);
   }
 
-  patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
-  patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
-  recordMutation(instanceId, { kind: "removed", repo: fullRepo, number: num });
+  removePr(instanceId, fullRepo, num);
   scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true });
@@ -290,9 +222,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/close", async (c) => {
     state: "closed",
   });
 
-  patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
-  patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
-  recordMutation(instanceId, { kind: "removed", repo: fullRepo, number: num });
+  removePr(instanceId, fullRepo, num);
   scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true });
@@ -342,13 +272,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/toggle-draft", async (c) => {
   await client.graphql(mutation, { id: pr.node_id });
 
   const newDraft = !pr.draft;
-  patchCache(`${instanceId}:prs`, setDraftInList(fullRepo, num, newDraft));
-  recordMutation(instanceId, {
-    kind: "draft",
-    repo: fullRepo,
-    number: num,
-    draft: newDraft,
-  });
+  setPrDraft(instanceId, fullRepo, num, newDraft);
   scheduleResync(instanceId, ["prs"]);
 
   return c.json({ ok: true, draft: newDraft });

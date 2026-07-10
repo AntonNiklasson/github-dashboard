@@ -7,7 +7,7 @@
     "dev:web": "mkdir -p .logs && concurrently --kill-others -n server,web -c blue,green \"pnpm --filter server dev 2>&1 | tee .logs/server.log\" \"pnpm --filter web dev 2>&1 | tee .logs/web.log\"",
     "demo": "DEMO=1 pnpm dev",
     "demo:web": "DEMO=1 pnpm dev:web",
-    "build": "pnpm --filter server build && pnpm --filter web build",
+    "build": "pnpm --filter sync build && pnpm --filter server build && pnpm --filter web build",
     "build:desktop": "pnpm build && pnpm --filter desktop build && pnpm --filter desktop package",
     "lint": "oxlint",
     "fmt": "oxfmt .",

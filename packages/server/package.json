@@ -3,15 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "pnpm --filter sync build && tsx watch src/index.ts",
     "build": "tsgo",
     "typecheck": "tsgo --noEmit",
-    "test": "vitest run"
+    "test": "pnpm --filter sync build && vitest run"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.1",
     "@octokit/rest": "^22.0.1",
     "hono": "^4.7.6",
+    "sync": "workspace:*",
     "yaml": "^2.8.3",
     "zod": "^4.4.3"
   },

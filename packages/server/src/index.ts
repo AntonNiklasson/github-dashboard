@@ -3,12 +3,9 @@ import { join, normalize, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { loadCache } from "./cache.js";
 import { getConfigStatus, getPort } from "./config.js";
 import { api } from "./routes.js";
-import { startSync } from "./sync.js";
-
-loadCache();
+import { startSync, stopSync } from "./sync.js";
 
 const app = new Hono();
 
@@ -63,12 +60,15 @@ const server = serve({ fetch: app.fetch, port });
 // merge/approve in the packaged desktop app — then exit. The 2s timeout
 // fallback keeps Ctrl-C feeling instant if a request is wedged.
 let shuttingDown = false;
-const shutdown = () => {
+const shutdown = async () => {
   if (shuttingDown) return;
   shuttingDown = true;
   const force = setTimeout(() => process.exit(0), 2000);
   force.unref();
-  server.close(() => process.exit(0));
+  server.close(async () => {
+    await stopSync();
+    process.exit(0);
+  });
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

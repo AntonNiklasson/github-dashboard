@@ -1,163 +1,159 @@
-import { setCached } from "./cache.js";
-import { getInstances } from "./config.js";
-import { fetchNotifications, fetchPrs, fetchReviews } from "./fetchers.js";
+import {
+  createSqliteRepository,
+  createSyncEngine,
+  openCache,
+  type PrKind,
+  type SyncKind,
+} from "sync";
 
-const SYNC_INTERVAL = 30_000; // 30s
-
-export type ResyncKey = "prs" | "reviews" | "notifications";
-
-const RESYNC_FETCHERS: Record<
-  ResyncKey,
-  (instanceId: string) => Promise<unknown>
-> = {
-  prs: fetchPrs,
-  reviews: fetchReviews,
-  notifications: fetchNotifications,
-};
-
-const ALL_KEYS: ResyncKey[] = ["prs", "reviews", "notifications"];
-
+const { db, path, wiped } = openCache();
+const repo = createSqliteRepository(db);
+const engine = createSyncEngine({ repo });
 const pending = new Set<Promise<unknown>>();
-
-// Tracks recent client-driven mutations so a stale resync (GitHub's search
-// index lags by seconds after a merge/close/draft toggle) doesn't re-introduce
-// the old state. Entries expire after MUTATION_TTL.
-type MutationRecord =
-  | { kind: "removed"; repo: string; number: number; expiresAt: number }
+type Mutation =
+  | {
+      kind: "removed";
+      instanceId: string;
+      repo: string;
+      number: number;
+      expiresAt: number;
+    }
   | {
       kind: "draft";
+      instanceId: string;
       repo: string;
       number: number;
       draft: boolean;
       expiresAt: number;
     };
+const mutations: Mutation[] = [];
+const MUTATION_TTL_MS = 60_000;
 
-const MUTATION_TTL = 60_000;
-const mutations = new Map<string, MutationRecord>();
+export type ResyncKey = SyncKind;
 
-function mutationKey(instanceId: string, repo: string, number: number) {
-  return `${instanceId}:${repo}:${number}`;
+export function getPrs(instanceId: string, kind: PrKind): unknown[] {
+  return repo.getPrPayloads(instanceId, kind);
 }
 
-export function recordMutation(
-  instanceId: string,
-  m:
-    | { kind: "removed"; repo: string; number: number }
-    | { kind: "draft"; repo: string; number: number; draft: boolean },
-): void {
-  mutations.set(mutationKey(instanceId, m.repo, m.number), {
-    ...m,
-    expiresAt: Date.now() + MUTATION_TTL,
+export function getNotifications(instanceId: string) {
+  return repo.listNotifications(instanceId).map((row) => ({
+    id: row.id,
+    title: row.title,
+    type: row.type,
+    reason: row.reason,
+    repo: row.repo,
+    url: row.url,
+    unread: row.unread === 1,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export function removePr(instanceId: string, repoName: string, number: number) {
+  repo.removePr(instanceId, repoName, number);
+  mutations.push({
+    kind: "removed",
+    instanceId,
+    repo: repoName,
+    number,
+    expiresAt: Date.now() + MUTATION_TTL_MS,
   });
 }
 
-function activeMutations(instanceId: string): MutationRecord[] {
-  const now = Date.now();
-  const out: MutationRecord[] = [];
-  for (const [k, v] of mutations) {
-    if (v.expiresAt <= now) {
-      mutations.delete(k);
-      continue;
-    }
-    if (k.startsWith(`${instanceId}:`)) out.push(v);
-  }
-  return out;
-}
-
-interface ListItem {
-  repo: string;
-  number: number;
-  draft?: boolean;
-}
-
-function applyMutations(
+export function setPrDraft(
   instanceId: string,
-  key: ResyncKey,
-  data: unknown,
-): unknown {
-  if (key !== "prs" && key !== "reviews") return data;
-  const muts = activeMutations(instanceId);
-  if (muts.length === 0) return data;
-  const items = data as ListItem[];
-
-  const filtered = items.filter(
-    (item) =>
-      !muts.some(
-        (m) =>
-          m.kind === "removed" &&
-          m.repo === item.repo &&
-          m.number === item.number,
-      ),
-  );
-
-  if (key === "reviews") return filtered;
-
-  return filtered.map((item) => {
-    const draftMut = muts.find(
-      (m): m is Extract<MutationRecord, { kind: "draft" }> =>
-        m.kind === "draft" && m.repo === item.repo && m.number === item.number,
-    );
-    return draftMut ? { ...item, draft: draftMut.draft } : item;
+  repoName: string,
+  number: number,
+  draft: boolean,
+) {
+  repo.setPrDraft(instanceId, repoName, number, draft);
+  mutations.push({
+    kind: "draft",
+    instanceId,
+    repo: repoName,
+    number,
+    draft,
+    expiresAt: Date.now() + MUTATION_TTL_MS,
   });
+}
+
+export function removeNotification(instanceId: string, id: string) {
+  repo.removeNotification(instanceId, id);
 }
 
 export async function resyncInstance(
   instanceId: string,
-  keys: ResyncKey[] = ALL_KEYS,
+  keys: ResyncKey[] = ["prs", "reviews", "notifications"],
 ): Promise<void> {
   await Promise.all(
-    keys.map(async (key) => {
-      try {
-        const data = await RESYNC_FETCHERS[key](instanceId);
-        setCached(
-          `${instanceId}:${key}`,
-          applyMutations(instanceId, key, data),
-        );
-      } catch (err) {
-        console.error(
-          `Sync failed for ${instanceId}:${key}:`,
-          err instanceof Error ? err.message : err,
-        );
+    keys.map(async (kind) => {
+      const summary = await engine.runOnce({ instance: instanceId, kind });
+      const now = Date.now();
+      for (let i = mutations.length - 1; i >= 0; i--) {
+        if (mutations[i].expiresAt <= now) mutations.splice(i, 1);
+      }
+      if (kind === "prs" || kind === "reviews") {
+        for (const mutation of mutations) {
+          if (mutation.instanceId !== instanceId) continue;
+          if (mutation.kind === "removed") {
+            repo.removePr(instanceId, mutation.repo, mutation.number);
+          } else if (kind === "prs") {
+            repo.setPrDraft(
+              instanceId,
+              mutation.repo,
+              mutation.number,
+              mutation.draft,
+            );
+          }
+        }
+      }
+      for (const result of summary.results) {
+        for (const fetch of result.fetches) {
+          if (fetch.error) {
+            console.error(
+              `Sync failed for ${result.instanceId}:${fetch.kind}: ${fetch.error}`,
+            );
+          }
+        }
       }
     }),
   );
 }
 
-/**
- * Fire-and-forget resync after a mutation. Lets the route respond fast while
- * the cache is refreshed in the background, so the next client poll sees the
- * new state without waiting for the 30s sync cycle.
- */
 export function scheduleResync(instanceId: string, keys: ResyncKey[]): void {
-  const p = resyncInstance(instanceId, keys).finally(() => {
-    pending.delete(p);
+  const promise = resyncInstance(instanceId, keys).finally(() => {
+    pending.delete(promise);
   });
-  pending.add(p);
+  pending.add(promise);
 }
 
-/** Test seam: await all in-flight resyncs. */
+export function scheduleFullResync(): void {
+  const promise = engine.runOnce().finally(() => {
+    pending.delete(promise);
+  });
+  pending.add(promise);
+}
+
 export async function waitForPendingResyncs(): Promise<void> {
-  while (pending.size > 0) {
-    await Promise.allSettled(pending);
-  }
-}
-
-async function syncAll() {
-  const instances = await getInstances();
-  if (instances.length === 0) {
-    console.log("No instances configured, skipping sync");
-    return;
-  }
-  console.log(`Syncing ${instances.length} instance(s)...`);
-  await Promise.all(instances.map((inst) => resyncInstance(inst.id)));
-  console.log("Sync complete");
+  while (pending.size > 0) await Promise.allSettled(pending);
 }
 
 export function startSync() {
-  // Initial sync immediately
-  syncAll();
-  // Then repeat. unref() so the interval alone doesn't keep the event loop
-  // alive on shutdown — the HTTP listener does that, and gets closed
-  // explicitly when we exit.
-  setInterval(syncAll, SYNC_INTERVAL).unref();
+  console.log(`Sync cache: ${path}${wiped ? " (schema upgraded)" : ""}`);
+  engine.start({
+    onCycle: (summary) => {
+      const count = summary.results.reduce(
+        (total, result) =>
+          total + result.fetches.reduce((n, fetch) => n + fetch.count, 0),
+        0,
+      );
+      console.log(`Sync complete: ${count} row(s) in ${summary.durationMs}ms`);
+    },
+    onError: (err) => console.error("Sync failed:", err),
+  });
+}
+
+export async function stopSync(): Promise<void> {
+  await engine.stop();
+  await waitForPendingResyncs();
+  db.close();
 }

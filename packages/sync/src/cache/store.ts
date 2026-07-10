@@ -78,11 +78,19 @@ export interface Repository {
   // prs
   replacePrs(instanceId: string, kind: PrKind, rows: PrRow[]): void;
   getPrPayloads(instanceId: string, kind: PrKind): unknown[];
+  removePr(instanceId: string, repo: string, number: number): void;
+  setPrDraft(
+    instanceId: string,
+    repo: string,
+    number: number,
+    draft: boolean,
+  ): void;
   countPrsByKind(instanceId: string): PrKindCount[];
 
   // notifications
   replaceNotifications(instanceId: string, rows: NotificationRow[]): void;
   listNotifications(instanceId: string): NotificationRow[];
+  removeNotification(instanceId: string, id: string): void;
   countNotifications(instanceId: string): number;
 
   // sync state
@@ -130,6 +138,15 @@ export function createSqliteRepository(db: Cache): Repository {
     countPrsByKind: db.prepare(
       "SELECT kind, COUNT(*) AS count FROM prs WHERE instance_id = ? GROUP BY kind",
     ),
+    removePr: db.prepare(
+      "DELETE FROM prs WHERE instance_id = ? AND repo = ? AND number = ?",
+    ),
+    selectPrsForDraftUpdate: db.prepare(
+      "SELECT kind, provider_ref, payload FROM prs WHERE instance_id = ? AND repo = ? AND number = ?",
+    ),
+    updatePrDraft: db.prepare(
+      "UPDATE prs SET draft = ?, payload = ? WHERE instance_id = ? AND kind = ? AND provider_ref = ?",
+    ),
 
     deleteNotifications: db.prepare(
       "DELETE FROM notifications WHERE instance_id = ?",
@@ -146,6 +163,9 @@ export function createSqliteRepository(db: Cache): Repository {
     ),
     countNotifications: db.prepare(
       "SELECT COUNT(*) AS n FROM notifications WHERE instance_id = ?",
+    ),
+    removeNotification: db.prepare(
+      "DELETE FROM notifications WHERE instance_id = ? AND id = ?",
     ),
 
     getSyncState: db.prepare(
@@ -205,6 +225,30 @@ export function createSqliteRepository(db: Cache): Repository {
       (
         stmts.selectPrPayloads.all(instanceId, kind) as { payload: string }[]
       ).map((r) => JSON.parse(r.payload)),
+    removePr: (instanceId, repo, number) => {
+      stmts.removePr.run(instanceId, repo, number);
+    },
+    setPrDraft: (instanceId, repo, number, draft) => {
+      const rows = stmts.selectPrsForDraftUpdate.all(
+        instanceId,
+        repo,
+        number,
+      ) as {
+        kind: PrKind;
+        provider_ref: string;
+        payload: string;
+      }[];
+      for (const row of rows) {
+        const payload = JSON.parse(row.payload) as Record<string, unknown>;
+        stmts.updatePrDraft.run(
+          draft ? 1 : 0,
+          JSON.stringify({ ...payload, draft }),
+          instanceId,
+          row.kind,
+          row.provider_ref,
+        );
+      }
+    },
     countPrsByKind: (instanceId) =>
       stmts.countPrsByKind.all(instanceId) as PrKindCount[],
 
@@ -213,6 +257,9 @@ export function createSqliteRepository(db: Cache): Repository {
     },
     listNotifications: (instanceId) =>
       stmts.listNotifications.all(instanceId) as NotificationRow[],
+    removeNotification: (instanceId, id) => {
+      stmts.removeNotification.run(instanceId, id);
+    },
     countNotifications: (instanceId) =>
       (stmts.countNotifications.get(instanceId) as { n: number }).n,
 
