@@ -4,6 +4,7 @@ import { openCache, wipeCacheFile } from "./cache/open.js";
 import { CACHE_SCHEMA_VERSION } from "./cache/schema.js";
 import { type Repository, createSqliteRepository } from "./cache/store.js";
 import { type SyncKind, createSyncEngine, printSummary } from "./engine.js";
+import { createSyncServiceFromDependencies } from "./service.js";
 
 const USAGE = `ghd-sync — github-dashboard sync engine
 
@@ -69,16 +70,16 @@ async function onceCommand(args: string[]): Promise<number> {
     return 1;
   }
 
-  const { engine, close } = openEngine();
+  const service = openService();
   try {
-    const summary = await engine.runOnce({
-      instance: values.instance,
+    const summary = await service.sync({
+      instanceId: values.instance,
       kind,
     });
     printSummary(summary);
     return 0;
   } finally {
-    close();
+    await service.close();
   }
 }
 
@@ -105,8 +106,8 @@ async function loopCommand(args: string[]): Promise<number> {
 
   const countdown = createCountdown(intervalMs);
 
-  const { engine, close } = openEngine();
-  engine.start({
+  const service = openService();
+  service.start({
     intervalMs,
     onCycle: (summary) => {
       countdown.stop();
@@ -124,10 +125,10 @@ async function loopCommand(args: string[]): Promise<number> {
   try {
     await waitForSigint();
     countdown.stop();
-    await engine.stop();
+    await service.stop();
     return 0;
   } finally {
-    close();
+    await service.close();
   }
 }
 
@@ -175,7 +176,7 @@ function createCountdown(intervalMs: number): {
   };
 }
 
-function openEngine() {
+function openService() {
   const { db, path, wiped } = openCache();
   if (wiped) {
     process.stderr.write(
@@ -183,8 +184,16 @@ function openEngine() {
     );
   }
   const repo = createSqliteRepository(db);
-  const engine = createSyncEngine({ repo });
-  return { db, engine, close: () => db.close() };
+  return createSyncServiceFromDependencies({
+    repo,
+    engine: createSyncEngine({ repo }),
+    closeStorage: () => db.close(),
+    onBackgroundError: (error) => {
+      process.stderr.write(
+        `background sync failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    },
+  });
 }
 
 function statusCommand(): number {

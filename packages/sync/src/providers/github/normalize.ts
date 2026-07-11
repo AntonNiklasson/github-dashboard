@@ -1,6 +1,7 @@
 import type { PrNode } from "./queries.js";
+import type { CiStatus, PullRequest, ReviewSummary } from "../../models.js";
 
-export type CiStatus = "success" | "failure" | "pending" | "unknown";
+export type { CiStatus, ReviewSummary } from "../../models.js";
 
 export function mapCiStatus(state: string | null | undefined): CiStatus {
   switch (state) {
@@ -23,11 +24,6 @@ export function mapMergeable(v: PrNode["mergeable"]): boolean | null {
   return null;
 }
 
-export interface ReviewSummary {
-  approved: string[];
-  changesRequested: string[];
-}
-
 export function summarizeReviews(
   reviews: PrNode["reviews"]["nodes"],
 ): ReviewSummary {
@@ -46,36 +42,7 @@ export function summarizeReviews(
   return { approved, changesRequested };
 }
 
-export interface NormalizedPr {
-  id: number | string;
-  number: number;
-  title: string;
-  body: string;
-  url: string;
-  repo: string;
-  createdAt: string;
-  updatedAt: string;
-  author: string;
-  authorAvatar: string;
-  draft: boolean;
-  ciStatus: CiStatus;
-  inMergeQueue: boolean;
-  autoMerge: boolean;
-  autoMergeAllowed: boolean;
-  headBranch: string;
-  baseBranch: string;
-  reviews: ReviewSummary;
-  reviewDecision: PrNode["reviewDecision"];
-  mergeStateStatus: PrNode["mergeStateStatus"];
-  unresolvedThreadCount: number;
-  additions: number;
-  deletions: number;
-  commits: number;
-  commentCount: number;
-  labels: string[];
-  mergeable: boolean | null;
-  autoAssigned?: boolean;
-}
+export type NormalizedPr = PullRequest;
 
 export function normalizePr(node: PrNode): NormalizedPr {
   const ci = mapCiStatus(
