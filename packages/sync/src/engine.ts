@@ -1,294 +1,168 @@
-import type { Repository } from "./cache/store.js";
-import { type GitHubInstance, loadInstances } from "./config.js";
-import { fetchNotifications } from "./providers/github/fetchNotifications.js";
+import { createHash } from "node:crypto";
+import { openCache } from "./cache/open.js";
+import { createStore, type Kind, type Metadata } from "./cache/store.js";
+import { authenticate, loadInstances, type GitHubInstance } from "./config.js";
 import { fetchAuthoredPrs } from "./providers/github/fetchPrs.js";
 import { fetchReviews } from "./providers/github/fetchReviews.js";
+import { fetchNotifications } from "./providers/github/fetchNotifications.js";
 
-const RATE_LIMIT_FLOOR = 200;
-const DEFAULT_INTERVAL_MS = 25_000;
-
-export type SyncKind = "prs" | "reviews" | "notifications";
-
-export interface SyncCycleOptions {
-  instance?: string;
-  kind?: SyncKind;
+export type SyncKind = Kind;
+export interface SyncRequest {
+  instanceId?: string;
+  kinds?: SyncKind[];
 }
-
-export interface SyncCycleSummary {
+export interface FetchOutcome {
+  kind: SyncKind;
+  status: "updated" | "unchanged" | "skipped" | "failed";
+  count: number;
+  reason?: string;
+}
+export interface SyncResult {
   startedAt: string;
   finishedAt: string;
-  durationMs: number;
-  results: InstanceResult[];
+  results: { instanceId: string; fetches: FetchOutcome[] }[];
 }
-
-export interface InstanceResult {
-  instanceId: string;
-  fetches: FetchSummary[];
+export interface SyncOptions {
+  loadInstances?: () => GitHubInstance[] | Promise<GitHubInstance[]>;
+  authenticate?: (instance: GitHubInstance) => Promise<string>;
 }
+const KINDS: SyncKind[] = ["prs", "reviews", "notifications"];
+const FLOOR = 200;
 
-export interface FetchSummary {
-  kind: SyncKind | "authored" | "review_requested";
-  count: number;
-  notModified?: boolean;
-  rateRemaining: number | null;
-  rateResetAt?: string | null;
-  error?: string;
-}
+export function createSync(options: SyncOptions = {}) {
+  const { db } = openCache();
+  const store = createStore(db);
+  let tail: Promise<unknown> = Promise.resolve();
+  let closing: Promise<void> | undefined;
 
-export interface SyncEngineDeps {
-  repo: Repository;
-  // Default reads ~/.config/github-dashboard/config.yml and probes each
-  // instance via Octokit. Override in tests to inject fake instances without
-  // touching the filesystem or network.
-  loadInstances?: () => Promise<GitHubInstance[]>;
-}
-
-export interface SyncLoopOptions {
-  // Milliseconds to wait AFTER a cycle finishes before starting the next.
-  // Not a fixed wall-clock interval — prevents pile-up if a cycle runs long.
-  // Default: 25_000.
-  intervalMs?: number;
-  // Called after each completed cycle with the summary. Useful for logging.
-  onCycle?: (summary: SyncCycleSummary) => void;
-  // Called when a cycle's loadInstances() or any internal step throws.
-  // Individual provider fetches are already caught internally and surfaced
-  // as FetchSummary.error, so this only fires on outer/structural failures.
-  onError?: (err: unknown) => void;
-}
-
-export interface SyncEngine {
-  runOnce(opts?: SyncCycleOptions): Promise<SyncCycleSummary>;
-  start(opts?: SyncLoopOptions): void;
-  stop(): Promise<void>;
-  isRunning(): boolean;
-}
-
-export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
-  const { repo, loadInstances: loadInstancesImpl = loadInstances } = deps;
-
-  // Loop state. `running` is the canonical "are we looping" flag. `loopDone`
-  // resolves when the loop's async function actually exits — stop() awaits it
-  // so callers can be sure no in-flight cycle is still mutating the repo.
-  let running = false;
-  let stopRequested = false;
-  let loopDone: Promise<void> | null = null;
-  let sleepCanceller: (() => void) | null = null;
-
-  async function runOnce(
-    opts: SyncCycleOptions = {},
-  ): Promise<SyncCycleSummary> {
-    const startedAt = new Date();
-    const configured = await loadInstancesImpl();
-    reconcileInstances(repo, configured);
-
-    const targets = opts.instance
-      ? configured.filter((i) => i.id === opts.instance)
-      : configured;
-    if (opts.instance && targets.length === 0) {
-      throw new Error(`unknown instance: ${opts.instance}`);
-    }
-
-    const results: InstanceResult[] = [];
-    for (const instance of targets) {
-      const fetches: FetchSummary[] = [];
-      const wantPrs = !opts.kind || opts.kind === "prs";
-      const wantReviews = !opts.kind || opts.kind === "reviews";
-      const wantNotifications = !opts.kind || opts.kind === "notifications";
-
-      if (wantPrs) {
-        fetches.push(
-          await guardedRun(repo, instance.id, "authored", () =>
-            fetchAuthoredPrs(repo, instance),
-          ),
-        );
-      }
-      if (wantReviews) {
-        fetches.push(
-          await guardedRun(repo, instance.id, "review_requested", () =>
-            fetchReviews(repo, instance),
-          ),
-        );
-      }
-      if (wantNotifications) {
-        fetches.push(
-          await guardedRun(repo, instance.id, "notifications", () =>
-            fetchNotifications(repo, instance),
-          ),
-        );
-      }
+  async function cycle(request: SyncRequest): Promise<SyncResult> {
+    const startedAt = new Date().toISOString();
+    const configured = await (options.loadInstances ?? loadInstances)();
+    if (new Set(configured.map((i) => i.id)).size !== configured.length)
+      throw new Error("duplicate instance ID");
+    if (
+      request.instanceId &&
+      !configured.some((i) => i.id === request.instanceId)
+    )
+      throw new Error(`unknown instance: ${request.instanceId}`);
+    const kinds = request.kinds ?? KINDS;
+    if (kinds.some((k) => !KINDS.includes(k)))
+      throw new Error("unknown sync kind");
+    // Reconcile valid configuration independently of host availability. Preserve old
+    // identity-specific data when authentication fails.
+    store.reconcile(configured);
+    const results: SyncResult["results"] = [];
+    for (const instance of configured.filter(
+      (i) => !request.instanceId || i.id === request.instanceId,
+    )) {
+      const fetches: FetchOutcome[] = [];
       results.push({ instanceId: instance.id, fetches });
-    }
-
-    const finishedAt = new Date();
-    return {
-      startedAt: startedAt.toISOString(),
-      finishedAt: finishedAt.toISOString(),
-      durationMs: finishedAt.getTime() - startedAt.getTime(),
-      results,
-    };
-  }
-
-  function start(opts: SyncLoopOptions = {}): void {
-    if (running) {
-      throw new Error("SyncEngine is already running");
-    }
-    const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-    running = true;
-    stopRequested = false;
-
-    loopDone = (async () => {
+      let username: string;
       try {
-        while (!stopRequested) {
-          try {
-            const summary = await runOnce();
-            opts.onCycle?.(summary);
-          } catch (err) {
-            opts.onError?.(err);
-          }
-          if (stopRequested) break;
-          await interruptibleSleep(intervalMs, (cancel) => {
-            sleepCanceller = cancel;
+        username = await (options.authenticate ?? authenticate)(instance);
+      } catch (err) {
+        for (const kind of kinds)
+          fetches.push({
+            kind,
+            status: "failed",
+            count: 0,
+            reason: message(err),
           });
-          sleepCanceller = null;
-        }
-      } finally {
-        running = false;
-        sleepCanceller = null;
+        continue;
       }
-    })();
+      const credentialKey = createHash("sha256")
+        .update(`${instance.baseUrl}\0${instance.token}`)
+        .digest("hex");
+      store.reconcile(
+        configured.map((i) =>
+          i.id === instance.id ? { ...i, username, credentialKey } : i,
+        ),
+      );
+      const target = { ...instance, username };
+      for (const kind of kinds) {
+        const resource = kind === "notifications" ? "rest" : "graphql";
+        const budget = store.budget(instance.id, resource);
+        if (
+          budget?.remaining != null &&
+          budget.remaining < FLOOR &&
+          budget.reset_at &&
+          Date.parse(budget.reset_at) > Date.now()
+        ) {
+          fetches.push({
+            kind,
+            status: "skipped",
+            count: 0,
+            reason: `rate-limit floor (${FLOOR}) until ${budget.reset_at}`,
+          });
+          continue;
+        }
+        try {
+          const result =
+            kind === "prs"
+              ? await fetchAuthoredPrs(target)
+              : kind === "reviews"
+                ? await fetchReviews(target)
+                : await fetchNotifications(
+                    target,
+                    store.state(instance.id, kind)?.last_etag ?? null,
+                  );
+          store.save(instance.id, kind, result.data, result.metadata);
+          fetches.push({
+            kind,
+            status: result.data === null ? "unchanged" : "updated",
+            count:
+              result.data?.length ??
+              (kind === "notifications"
+                ? store.listNotifications(instance.id).length
+                : 0),
+          });
+        } catch (err) {
+          const metadata = errorMetadata(err);
+          if (metadata) store.recordBudget(instance.id, resource, metadata);
+          fetches.push({
+            kind,
+            status: "failed",
+            count: 0,
+            reason: message(err),
+          });
+        }
+      }
+    }
+    return { startedAt, finishedAt: new Date().toISOString(), results };
   }
 
-  async function stop(): Promise<void> {
-    if (!running) return;
-    stopRequested = true;
-    sleepCanceller?.();
-    await loopDone;
-    loopDone = null;
+  function sync(request: SyncRequest = {}): Promise<SyncResult> {
+    if (closing) return Promise.reject(new Error("sync runtime is closed"));
+    const work = tail.then(() => cycle(request));
+    tail = work.catch(() => {});
+    return work;
   }
-
+  function close(): Promise<void> {
+    if (!closing)
+      closing = tail.then(() => {
+        db.close();
+      });
+    return closing;
+  }
   return {
-    runOnce,
-    start,
-    stop,
-    isRunning: () => running,
+    sync,
+    close,
+    listInstances: store.listInstances,
+    listPullRequests: store.listPullRequests,
+    listNotifications: store.listNotifications,
   };
 }
-
-// Diff configured instances against what's in the DB. Inserts new ones,
-// cascade-deletes removed ones (FK ON DELETE CASCADE wipes their prs /
-// notifications / sync_state rows). Exported because it's a useful primitive
-// on its own — exercised in reconciliation tests without spinning up an
-// engine.
-export function reconcileInstances(
-  repo: Repository,
-  configured: GitHubInstance[],
-): { added: string[]; removed: string[] } {
-  const inDb = new Set(repo.listInstanceIds());
-  const inConfig = new Set(configured.map((i) => i.id));
-
-  const added: string[] = [];
-  const removed: string[] = [];
-
-  for (const instance of configured) {
-    repo.upsertInstance({
-      id: instance.id,
-      label: instance.label,
-      baseUrl: instance.baseUrl,
-      username: instance.username,
-    });
-    if (!inDb.has(instance.id)) added.push(instance.id);
-  }
-
-  for (const id of inDb) {
-    if (!inConfig.has(id)) {
-      repo.deleteInstance(id);
-      removed.push(id);
-    }
-  }
-
-  return { added, removed };
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
-
-// Skip the fetch when stored headroom for this (instance, kind) is below the
-// floor and reset is still in the future. Prevents the engine from burning
-// the last 200 requests on a polling cycle.
-async function guardedRun(
-  repo: Repository,
-  instanceId: string,
-  kind: FetchSummary["kind"],
-  fn: () => Promise<{
-    count: number;
-    rateRemaining: number | null;
-    rateResetAt?: string;
-    notModified?: boolean;
-  }>,
-): Promise<FetchSummary> {
-  const state = repo.getSyncState(instanceId, kind);
-  if (
-    state?.rate_remaining != null &&
-    state.rate_remaining < RATE_LIMIT_FLOOR &&
-    state.rate_reset_at &&
-    Date.parse(state.rate_reset_at) > Date.now()
-  ) {
-    return {
-      kind,
-      count: 0,
-      rateRemaining: state.rate_remaining,
-      error: `rate-limit floor (${RATE_LIMIT_FLOOR}) — waiting for reset at ${state.rate_reset_at}`,
-    };
-  }
-
-  try {
-    const r = await fn();
-    return {
-      kind,
-      count: r.count,
-      notModified: r.notModified,
-      rateRemaining: r.rateRemaining,
-      rateResetAt: r.rateResetAt ?? null,
-    };
-  } catch (err) {
-    return {
-      kind,
-      count: 0,
-      rateRemaining: null,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-// Sleep that resolves on either timer or the canceller being called. The
-// canceller is captured so stop() can wake the loop immediately instead of
-// waiting up to `intervalMs` for the next iteration.
-function interruptibleSleep(
-  ms: number,
-  capture: (cancel: () => void) => void,
-): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    capture(() => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
-}
-
-// Pretty-print a cycle summary. The CLI uses this; the server probably won't.
-export function printSummary(summary: SyncCycleSummary): void {
-  const lines: string[] = [];
-  lines.push(`sync cycle ${summary.startedAt} (${summary.durationMs}ms)`);
-  for (const result of summary.results) {
-    lines.push(`  instance: ${result.instanceId}`);
-    for (const fetch of result.fetches) {
-      const status = fetch.error
-        ? `ERROR ${fetch.error}`
-        : fetch.notModified
-          ? "304 not modified"
-          : `${fetch.count} rows`;
-      const rate =
-        fetch.rateRemaining != null ? ` (rate ${fetch.rateRemaining})` : "";
-      lines.push(`    ${fetch.kind.padEnd(18)} ${status}${rate}`);
-    }
-  }
-  process.stdout.write(`${lines.join("\n")}\n`);
+function errorMetadata(err: unknown): Metadata | null {
+  const headers = (err as { response?: { headers?: Record<string, string> } })
+    ?.response?.headers;
+  if (!headers?.["x-ratelimit-remaining"]) return null;
+  return {
+    remaining: Number(headers["x-ratelimit-remaining"]),
+    resetAt: headers["x-ratelimit-reset"]
+      ? new Date(Number(headers["x-ratelimit-reset"]) * 1000).toISOString()
+      : null,
+  };
 }

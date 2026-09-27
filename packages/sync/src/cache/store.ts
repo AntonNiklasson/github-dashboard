@@ -1,235 +1,172 @@
 import type { Cache } from "./open.js";
+import type { NormalizedPr } from "../providers/github/normalize.js";
 
-export interface InstanceRow {
-  id: string;
-  label: string;
-  baseUrl: string;
-  username: string;
-}
-
-export interface InstanceSummary {
-  id: string;
-  label: string;
-  username: string;
-}
-
-export type PrKind = "authored" | "review_requested";
-
-export interface PrRow {
-  instance_id: string;
-  kind: PrKind;
-  provider_ref: string;
-  number: number;
-  repo: string;
-  title: string;
-  author: string;
-  draft: number;
-  ci_status: string;
-  in_merge_queue: number;
-  auto_merge: number;
-  unresolved_threads: number;
-  additions: number;
-  deletions: number;
-  commits: number;
-  comment_count: number;
-  mergeable: string | null;
-  updated_at: string;
-  payload: string;
-}
-
-export interface NotificationRow {
-  instance_id: string;
+export interface Notification {
   id: string;
   title: string;
   type: string | null;
   reason: string;
   repo: string;
   url: string;
-  unread: number;
-  updated_at: string;
+  unread: boolean;
+  updatedAt: string;
 }
-
-export interface SyncStateRow {
-  instance_id: string;
-  kind: string;
-  last_run_at: string | null;
-  last_etag: string | null;
-  last_modified: string | null;
-  rate_remaining: number | null;
-  rate_reset_at: string | null;
+export interface Instance {
+  id: string;
+  label: string;
+  username: string;
 }
-
-export interface PrKindCount {
-  kind: PrKind;
-  count: number;
+export type Kind = "prs" | "reviews" | "notifications";
+export interface Metadata {
+  etag?: string | null;
+  remaining?: number | null;
+  resetAt?: string | null;
 }
-
-// Repository is the contract the rest of the engine depends on. Providers,
-// the sync orchestrator, and the CLI take a Repository rather than a raw
-// SQLite handle — keeps the SQL inside one module and makes swapping in a
-// fake for tests a one-liner.
-export interface Repository {
-  // instances
-  listInstances(): InstanceSummary[];
-  listInstanceIds(): string[];
-  upsertInstance(row: InstanceRow): void;
-  deleteInstance(id: string): void;
-
-  // prs
-  replacePrs(instanceId: string, kind: PrKind, rows: PrRow[]): void;
-  getPrPayloads(instanceId: string, kind: PrKind): unknown[];
-  countPrsByKind(instanceId: string): PrKindCount[];
-
-  // notifications
-  replaceNotifications(instanceId: string, rows: NotificationRow[]): void;
-  listNotifications(instanceId: string): NotificationRow[];
-  countNotifications(instanceId: string): number;
-
-  // sync state
-  getSyncState(instanceId: string, kind: string): SyncStateRow | null;
-  listSyncStates(instanceId: string): SyncStateRow[];
-  upsertSyncState(row: SyncStateRow): void;
-
-  // meta
-  getSchemaVersion(): number | null;
-}
-
-export function createSqliteRepository(db: Cache): Repository {
-  const stmts = {
-    listInstances: db.prepare(
-      "SELECT id, label, username FROM instances ORDER BY id",
-    ),
-    listInstanceIds: db.prepare("SELECT id FROM instances ORDER BY id"),
-    upsertInstance: db.prepare(
-      `INSERT INTO instances (id, label, base_url, username)
-       VALUES (@id, @label, @baseUrl, @username)
-       ON CONFLICT(id) DO UPDATE SET
-         label = excluded.label,
-         base_url = excluded.base_url,
-         username = excluded.username`,
-    ),
-    deleteInstance: db.prepare("DELETE FROM instances WHERE id = ?"),
-
-    deletePrsByKind: db.prepare(
-      "DELETE FROM prs WHERE instance_id = ? AND kind = ?",
-    ),
-    insertPr: db.prepare(
-      `INSERT INTO prs (
-        instance_id, kind, provider_ref, number, repo, title, author, draft,
-        ci_status, in_merge_queue, auto_merge, unresolved_threads,
-        additions, deletions, commits, comment_count, mergeable, updated_at, payload
-      ) VALUES (
-        @instance_id, @kind, @provider_ref, @number, @repo, @title, @author, @draft,
-        @ci_status, @in_merge_queue, @auto_merge, @unresolved_threads,
-        @additions, @deletions, @commits, @comment_count, @mergeable, @updated_at, @payload
-      )`,
-    ),
-    selectPrPayloads: db.prepare(
-      "SELECT payload FROM prs WHERE instance_id = ? AND kind = ? ORDER BY updated_at DESC",
-    ),
-    countPrsByKind: db.prepare(
-      "SELECT kind, COUNT(*) AS count FROM prs WHERE instance_id = ? GROUP BY kind",
-    ),
-
-    deleteNotifications: db.prepare(
-      "DELETE FROM notifications WHERE instance_id = ?",
-    ),
-    insertNotification: db.prepare(
-      `INSERT INTO notifications (
-        instance_id, id, title, type, reason, repo, url, unread, updated_at
-      ) VALUES (
-        @instance_id, @id, @title, @type, @reason, @repo, @url, @unread, @updated_at
-      )`,
-    ),
-    listNotifications: db.prepare(
-      "SELECT * FROM notifications WHERE instance_id = ? ORDER BY updated_at DESC",
-    ),
-    countNotifications: db.prepare(
-      "SELECT COUNT(*) AS n FROM notifications WHERE instance_id = ?",
-    ),
-
-    getSyncState: db.prepare(
-      "SELECT * FROM sync_state WHERE instance_id = ? AND kind = ?",
-    ),
-    listSyncStates: db.prepare(
-      "SELECT * FROM sync_state WHERE instance_id = ? ORDER BY kind",
-    ),
-    upsertSyncState: db.prepare(
-      `INSERT INTO sync_state (
-        instance_id, kind, last_run_at, last_etag, last_modified, rate_remaining, rate_reset_at
-      ) VALUES (
-        @instance_id, @kind, @last_run_at, @last_etag, @last_modified, @rate_remaining, @rate_reset_at
-      )
-      ON CONFLICT(instance_id, kind) DO UPDATE SET
-        last_run_at = excluded.last_run_at,
-        last_etag = COALESCE(excluded.last_etag, sync_state.last_etag),
-        last_modified = COALESCE(excluded.last_modified, sync_state.last_modified),
-        rate_remaining = excluded.rate_remaining,
-        rate_reset_at = excluded.rate_reset_at`,
-    ),
-
-    getSchemaVersion: db.prepare(
-      "SELECT value FROM meta WHERE key = 'schema_version'",
-    ),
-  };
-
-  const replacePrsTx = db.transaction(
-    (instanceId: string, kind: PrKind, rows: PrRow[]) => {
-      stmts.deletePrsByKind.run(instanceId, kind);
-      for (const row of rows) stmts.insertPr.run(row);
-    },
+export function createStore(db: Cache) {
+  const listInstances = db.prepare(
+    "SELECT id,label,username FROM instances ORDER BY id",
   );
-
-  const replaceNotificationsTx = db.transaction(
-    (instanceId: string, rows: NotificationRow[]) => {
-      stmts.deleteNotifications.run(instanceId);
-      for (const row of rows) stmts.insertNotification.run(row);
-    },
+  const oldInstance = db.prepare("SELECT * FROM instances WHERE id = ?");
+  const upsert =
+    db.prepare(`INSERT INTO instances VALUES (@id,@label,@baseUrl,@username,@credentialKey)
+    ON CONFLICT(id) DO UPDATE SET label=excluded.label,base_url=excluded.base_url,
+    username=excluded.username,credential_key=excluded.credential_key`);
+  const remove = db.prepare("DELETE FROM instances WHERE id = ?");
+  const clear = db.prepare(
+    "DELETE FROM prs WHERE instance_id = ? AND kind = ?",
   );
+  const insert = db.prepare("INSERT INTO prs VALUES (?,?,?,?,?)");
+  const clearNotifications = db.prepare(
+    "DELETE FROM notifications WHERE instance_id = ?",
+  );
+  const insertNotification = db.prepare(
+    "INSERT INTO notifications VALUES (?,?,?,?)",
+  );
+  const state = db.prepare(
+    "SELECT * FROM sync_state WHERE instance_id = ? AND kind = ?",
+  );
+  const saveState =
+    db.prepare(`INSERT INTO sync_state VALUES (?,?,?,?) ON CONFLICT(instance_id,kind)
+    DO UPDATE SET last_run_at=excluded.last_run_at,last_etag=COALESCE(excluded.last_etag,sync_state.last_etag)`);
+  const budget = db.prepare(
+    "SELECT * FROM budgets WHERE instance_id = ? AND resource = ?",
+  );
+  const saveBudget =
+    db.prepare(`INSERT INTO budgets VALUES (?,?,?,?) ON CONFLICT(instance_id,resource)
+    DO UPDATE SET remaining=excluded.remaining,reset_at=excluded.reset_at`);
 
+  function recordBudget(id: string, resource: string, metadata: Metadata) {
+    if (metadata.remaining !== undefined && metadata.remaining !== null) {
+      saveBudget.run(
+        id,
+        resource,
+        metadata.remaining,
+        metadata.resetAt ?? null,
+      );
+    }
+  }
   return {
-    listInstances: () => stmts.listInstances.all() as InstanceSummary[],
-    listInstanceIds: () =>
-      (stmts.listInstanceIds.all() as { id: string }[]).map((r) => r.id),
-    upsertInstance: (row) => {
-      stmts.upsertInstance.run(row);
+    listInstances: () => listInstances.all() as Instance[],
+    reconcile(
+      configured: {
+        id: string;
+        label: string;
+        baseUrl: string;
+        username?: string;
+        credentialKey?: string;
+      }[],
+    ) {
+      db.transaction(() => {
+        const ids = new Set(configured.map((i) => i.id));
+        for (const i of configured) {
+          const old = oldInstance.get(i.id) as
+            | { base_url: string; username: string; credential_key: string }
+            | undefined;
+          if (
+            old &&
+            ((i.credentialKey !== undefined && old.base_url !== i.baseUrl) ||
+              (i.username !== undefined && old.username !== i.username) ||
+              (i.credentialKey !== undefined &&
+                old.credential_key !== i.credentialKey))
+          ) {
+            remove.run(i.id);
+          }
+          upsert.run({
+            ...i,
+            username: i.username ?? old?.username ?? "",
+            credentialKey: i.credentialKey ?? old?.credential_key ?? "",
+          });
+        }
+        for (const i of this.listInstances())
+          if (!ids.has(i.id)) remove.run(i.id);
+      })();
     },
-    deleteInstance: (id) => {
-      stmts.deleteInstance.run(id);
+    listPullRequests(id: string, kind: "prs" | "reviews"): NormalizedPr[] {
+      return (
+        db
+          .prepare(
+            "SELECT payload FROM prs WHERE instance_id=? AND kind=? ORDER BY updated_at DESC, provider_ref",
+          )
+          .all(id, kind) as { payload: string }[]
+      ).map((r) => JSON.parse(r.payload) as NormalizedPr);
     },
-
-    replacePrs: (instanceId, kind, rows) => {
-      replacePrsTx(instanceId, kind, rows);
+    listNotifications(id: string): Notification[] {
+      return (
+        db
+          .prepare(
+            "SELECT payload FROM notifications WHERE instance_id=? ORDER BY updated_at DESC, id",
+          )
+          .all(id) as { payload: string }[]
+      ).map((r) => JSON.parse(r.payload) as Notification);
     },
-    getPrPayloads: (instanceId, kind) =>
-      (
-        stmts.selectPrPayloads.all(instanceId, kind) as { payload: string }[]
-      ).map((r) => JSON.parse(r.payload)),
-    countPrsByKind: (instanceId) =>
-      stmts.countPrsByKind.all(instanceId) as PrKindCount[],
-
-    replaceNotifications: (instanceId, rows) => {
-      replaceNotificationsTx(instanceId, rows);
-    },
-    listNotifications: (instanceId) =>
-      stmts.listNotifications.all(instanceId) as NotificationRow[],
-    countNotifications: (instanceId) =>
-      (stmts.countNotifications.get(instanceId) as { n: number }).n,
-
-    getSyncState: (instanceId, kind) =>
-      (stmts.getSyncState.get(instanceId, kind) as SyncStateRow | undefined) ??
-      null,
-    listSyncStates: (instanceId) =>
-      stmts.listSyncStates.all(instanceId) as SyncStateRow[],
-    upsertSyncState: (row) => {
-      stmts.upsertSyncState.run(row);
-    },
-
-    getSchemaVersion: () => {
-      const row = stmts.getSchemaVersion.get() as { value: string } | undefined;
-      if (!row) return null;
-      const n = Number.parseInt(row.value, 10);
-      return Number.isFinite(n) ? n : null;
+    state: (id: string, kind: Kind) =>
+      state.get(id, kind) as { last_etag: string | null } | undefined,
+    budget: (id: string, resource: string) =>
+      budget.get(id, resource) as
+        | { remaining: number | null; reset_at: string | null }
+        | undefined,
+    recordBudget,
+    save(
+      id: string,
+      kind: Kind,
+      data: NormalizedPr[] | Notification[] | null,
+      metadata: Metadata,
+    ) {
+      db.transaction(() => {
+        if (data !== null) {
+          if (kind === "notifications") {
+            clearNotifications.run(id);
+            for (const item of data as Notification[])
+              insertNotification.run(
+                id,
+                item.id,
+                JSON.stringify(item),
+                item.updatedAt,
+              );
+          } else {
+            clear.run(id, kind);
+            for (const item of data as NormalizedPr[])
+              insert.run(
+                id,
+                kind,
+                String(item.id),
+                item.updatedAt,
+                JSON.stringify(item),
+              );
+          }
+        }
+        saveState.run(
+          id,
+          kind,
+          new Date().toISOString(),
+          metadata.etag ?? null,
+        );
+        recordBudget(
+          id,
+          kind === "notifications" ? "rest" : "graphql",
+          metadata,
+        );
+      })();
     },
   };
 }

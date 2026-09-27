@@ -1,4 +1,3 @@
-import type { PrRow, Repository } from "../../cache/store.js";
 import type { GitHubInstance } from "../../config.js";
 import { getClient } from "./client.js";
 import { normalizePr } from "./normalize.js";
@@ -9,16 +8,7 @@ import {
   type TimelineEventNode,
 } from "./queries.js";
 
-export interface FetchReviewsResult {
-  count: number;
-  rateRemaining: number;
-  rateResetAt: string;
-}
-
-export async function fetchReviews(
-  repo: Repository,
-  instance: GitHubInstance,
-): Promise<FetchReviewsResult> {
+export async function fetchReviews(instance: GitHubInstance) {
   const client = getClient(instance);
   const data = await client.graphql<SearchReviewsResponse>(SEARCH_REVIEWS, {
     q: `review-requested:${instance.username} type:pr state:open`,
@@ -27,54 +17,15 @@ export async function fetchReviews(
 
   const nodes = data.search.nodes.filter((n): n is ReviewPrNode => n != null);
 
-  const rows: PrRow[] = nodes.map((node) => {
-    const pr = normalizePr(node);
-    const autoAssigned = detectAutoAssigned(node, instance.username);
-    const payload = { ...pr, autoAssigned };
-    return {
-      instance_id: instance.id,
-      kind: "review_requested",
-      provider_ref: String(pr.id),
-      number: pr.number,
-      repo: pr.repo,
-      title: pr.title,
-      author: pr.author,
-      draft: pr.draft ? 1 : 0,
-      ci_status: pr.ciStatus,
-      in_merge_queue: pr.inMergeQueue ? 1 : 0,
-      auto_merge: pr.autoMerge ? 1 : 0,
-      unresolved_threads: pr.unresolvedThreadCount,
-      additions: pr.additions,
-      deletions: pr.deletions,
-      commits: pr.commits,
-      comment_count: pr.commentCount,
-      mergeable:
-        pr.mergeable === null
-          ? null
-          : pr.mergeable
-            ? "MERGEABLE"
-            : "CONFLICTING",
-      updated_at: pr.updatedAt,
-      payload: JSON.stringify(payload),
-    };
-  });
-
-  repo.replacePrs(instance.id, "review_requested", rows);
-
-  repo.upsertSyncState({
-    instance_id: instance.id,
-    kind: "review_requested",
-    last_run_at: new Date().toISOString(),
-    last_etag: null,
-    last_modified: null,
-    rate_remaining: data.rateLimit.remaining,
-    rate_reset_at: data.rateLimit.resetAt,
-  });
-
   return {
-    count: rows.length,
-    rateRemaining: data.rateLimit.remaining,
-    rateResetAt: data.rateLimit.resetAt,
+    data: nodes.map((node) => ({
+      ...normalizePr(node),
+      autoAssigned: detectAutoAssigned(node, instance.username!),
+    })),
+    metadata: {
+      remaining: data.rateLimit.remaining,
+      resetAt: data.rateLimit.resetAt,
+    },
   };
 }
 

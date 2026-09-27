@@ -10,7 +10,7 @@ export interface GitHubInstance {
   label: string;
   baseUrl: string;
   token: string;
-  username: string;
+  username?: string;
 }
 
 export function instanceIdFromDomain(domain: string): string {
@@ -94,7 +94,7 @@ function sanitizeYamlError(err: unknown): string {
   return "Invalid YAML syntax";
 }
 
-export async function loadInstances(): Promise<GitHubInstance[]> {
+export function loadInstances(): GitHubInstance[] {
   const path = resolveConfigPath();
   if (!existsSync(path)) {
     throw new Error(`config not found at ${path}`);
@@ -117,14 +117,19 @@ export async function loadInstances(): Promise<GitHubInstance[]> {
   for (const entry of entries) {
     const id = instanceIdFromDomain(entry.domain);
     const baseUrl = domainToApiBase(entry.domain);
-    const username = await resolveUsername(baseUrl, entry.token);
     instances.push({
       id,
       label: entry.label || entry.domain,
       baseUrl,
       token: entry.token,
-      username,
     });
   }
+  if (new Set(instances.map((i) => i.id)).size !== instances.length) {
+    throw new Error("duplicate instance ID in config");
+  }
   return instances;
+}
+
+export async function authenticate(instance: GitHubInstance): Promise<string> {
+  return instance.username ?? resolveUsername(instance.baseUrl, instance.token);
 }

@@ -17,10 +17,19 @@ export function openCache(): OpenCacheResult {
   mkdirSync(dirname(path), { recursive: true });
 
   let db = new Database(path);
-  db.exec(SCHEMA_DDL);
-
-  const stored = readSchemaVersion(db);
-  if (stored !== null && stored !== CACHE_SCHEMA_VERSION) {
+  const hasTables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' LIMIT 1")
+    .get();
+  const hasMeta = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+    )
+    .get();
+  const stored = hasMeta ? readSchemaVersion(db) : null;
+  if (
+    (hasTables && stored !== CACHE_SCHEMA_VERSION) ||
+    (stored !== null && stored !== CACHE_SCHEMA_VERSION)
+  ) {
     db.close();
     deleteCacheFiles(path);
     db = new Database(path);
@@ -29,6 +38,7 @@ export function openCache(): OpenCacheResult {
     return { db, path, wiped: true };
   }
   if (stored === null) {
+    db.exec(SCHEMA_DDL);
     writeSchemaVersion(db, CACHE_SCHEMA_VERSION);
   }
   return { db, path, wiped: false };
