@@ -5,6 +5,11 @@ import { authenticate, loadInstances, type GitHubInstance } from "./config.js";
 import { fetchAuthoredPrs } from "./providers/github/fetchPrs.js";
 import { fetchReviews } from "./providers/github/fetchReviews.js";
 import { fetchNotifications } from "./providers/github/fetchNotifications.js";
+import {
+  fetchPullRequestDiff,
+  postReviewComment,
+  type ReviewLineRange,
+} from "./providers/github/reviewDiff.js";
 
 export type SyncKind = Kind;
 export interface SyncRequest {
@@ -131,11 +136,52 @@ export function createSync(options: SyncOptions = {}) {
     return { startedAt, finishedAt: new Date().toISOString(), results };
   }
 
-  function sync(request: SyncRequest = {}): Promise<SyncResult> {
+  function enqueue<T>(run: () => Promise<T>): Promise<T> {
     if (closing) return Promise.reject(new Error("sync runtime is closed"));
-    const work = tail.then(() => cycle(request));
+    const work = tail.then(run);
     tail = work.catch(() => {});
     return work;
+  }
+  function sync(request: SyncRequest = {}): Promise<SyncResult> {
+    return enqueue(() => cycle(request));
+  }
+  async function configuredInstance(
+    instanceId: string,
+  ): Promise<GitHubInstance> {
+    const configured = await (options.loadInstances ?? loadInstances)();
+    if (
+      new Set(configured.map((instance) => instance.id)).size !==
+      configured.length
+    )
+      throw new Error("duplicate instance ID");
+    const instance = configured.find(
+      (candidate) => candidate.id === instanceId,
+    );
+    if (!instance) throw new Error(`unknown instance: ${instanceId}`);
+    return instance;
+  }
+  function getPullRequestDiff(request: {
+    instanceId: string;
+    repo: string;
+    number: number;
+  }) {
+    return enqueue(async () => {
+      const instance = await configuredInstance(request.instanceId);
+      return fetchPullRequestDiff(instance, request.repo, request.number);
+    });
+  }
+  function createReviewComment(request: {
+    instanceId: string;
+    repo: string;
+    number: number;
+    headSha: string;
+    range: ReviewLineRange;
+    body: string;
+  }) {
+    return enqueue(async () => {
+      const instance = await configuredInstance(request.instanceId);
+      await postReviewComment(instance, request);
+    });
   }
   function close(): Promise<void> {
     if (!closing)
@@ -150,6 +196,8 @@ export function createSync(options: SyncOptions = {}) {
     listInstances: store.listInstances,
     listPullRequests: store.listPullRequests,
     listNotifications: store.listNotifications,
+    getPullRequestDiff,
+    createReviewComment,
   };
 }
 function message(err: unknown): string {
