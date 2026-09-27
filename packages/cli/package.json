@@ -2,13 +2,26 @@
   "name": "cli",
   "private": true,
   "type": "module",
-  "bin": { "ghd": "./dist/index.js" },
+  "bin": {
+    "ghd": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run --passWithNoTests",
     "start": "node dist/index.js"
   },
-  "dependencies": { "sync": "workspace:*" },
-  "devDependencies": { "@types/node": "^25.5.0", "vitest": "^4.1.2" }
+  "dependencies": {
+    "clipboardy": "^5.3.2",
+    "ink": "^7.1.1",
+    "open": "^11.0.4",
+    "react": "^19.2.4",
+    "sync": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "ink-testing-library": "^4.0.0",
+    "vitest": "^4.1.2"
+  }
 }
