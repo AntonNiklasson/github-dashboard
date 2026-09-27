@@ -125,23 +125,30 @@ export function Dashboard({
   const item = filtered[selected];
   const count = (kind: SyncKind) => itemsFor(runtime, kind, instanceId).length;
   const narrow = width < 85;
-  const sidebar = width >= 110;
-  const listWidth = narrow
-    ? width - 2
-    : sidebar
-      ? Math.max(30, Math.floor((width - 24) * 0.52))
-      : Math.floor(width * 0.48);
+  const listWidth = narrow ? width - 2 : Math.floor(width * 0.48);
   // Each list entry occupies two terminal lines. Keep the footer visible.
-  const visible = Math.max(1, Math.floor((rows - 9) / 2));
+  const visible = Math.max(1, Math.floor((rows - 10) / 2));
   const start = Math.max(0, selected - visible + 1);
-  const instanceOptions = [{ id: null, label: "All instances" }, ...instances];
-  const sidebarVisible = Math.max(1, rows - 8);
-  const instanceStart = Math.max(
+  const instanceOptions =
+    instances.length > 1
+      ? [{ id: null, label: "All" }, ...instances]
+      : instances.length
+        ? instances
+        : [{ id: null, label: "No instances" }];
+  const activeInstance =
+    instanceId ?? (instances.length === 1 ? instances[0]!.id : null);
+  // Fit tabs on one row; keep the active one visible when many hosts exist.
+  const tabWidth = 20;
+  const tabCount = Math.max(1, Math.floor((width - 4) / tabWidth));
+  const activeTabIndex = Math.max(
     0,
-    instanceOptions.findIndex((instance) => instance.id === instanceId) -
-      sidebarVisible +
-      1,
+    instanceOptions.findIndex((i) => i.id === activeInstance),
   );
+  const firstTab = Math.min(
+    Math.max(0, activeTabIndex - tabCount + 1),
+    Math.max(0, instanceOptions.length - tabCount),
+  );
+  const visibleTabs = instanceOptions.slice(firstTab, firstTab + tabCount);
   const changed = (kind: SyncKind) => {
     setTab(kind);
     setIndex(0);
@@ -221,7 +228,7 @@ export function Dashboard({
     else if (key.return && narrow) setDetailOnly(true);
     else if (input === "[" || key.leftArrow) chooseInstance(-1);
     else if (input === "]" || key.rightArrow) chooseInstance(1);
-    else if (key.tab) changed(tabs[(tabs.indexOf(tab) + 1) % tabs.length]!);
+    else if (key.tab) chooseInstance(key.shift ? -1 : 1);
     else if (["1", "2", "3"].includes(input)) changed(tabs[Number(input) - 1]!);
   });
 
@@ -265,17 +272,26 @@ export function Dashboard({
           {syncing ? "● SYNCING" : "● READY"}
         </Text>
       </Box>
+      <Box paddingX={1} gap={1}>
+        {firstTab > 0 && <Text color="gray">‹</Text>}
+        {visibleTabs.map((instance) => (
+          <Text
+            key={instance.id ?? "all"}
+            bold={activeInstance === instance.id}
+            color={activeInstance === instance.id ? "black" : "gray"}
+            backgroundColor={
+              activeInstance === instance.id ? "cyan" : undefined
+            }
+          >
+            {activeInstance === instance.id ? "●" : "○"}{" "}
+            {shorten(instance.label, tabWidth - 5)}
+          </Text>
+        ))}
+        {firstTab + tabCount < instanceOptions.length && (
+          <Text color="gray">›</Text>
+        )}
+      </Box>
       <Box paddingX={1} gap={2}>
-        <Text color="gray">
-          {shorten(
-            instanceId
-              ? (instances.find((i) => i.id === instanceId)?.label ??
-                  instanceId)
-              : `All instances (${instances.length})`,
-            28,
-          )}{" "}
-          [ / ]
-        </Text>
         {tabs.map((kind, i) => (
           <Text
             key={kind}
@@ -298,8 +314,9 @@ export function Dashboard({
             <Text bold color="cyan">
               KEYBOARD SHORTCUTS
             </Text>
-            <Text>1 / 2 / 3 or Tab Switch PRs, reviews, notifications</Text>
-            <Text>[ / ] Cycle through instances (including All)</Text>
+            <Text>Tab / Shift-Tab Switch instance tabs (including All)</Text>
+            <Text>1 / 2 / 3 Switch PRs, reviews, notifications</Text>
+            <Text>[ / ] Cycle through instance tabs, too</Text>
             <Text>j / k or ↑ / ↓ Select item; PgUp / PgDn scroll</Text>
             <Text>
               / Search title, repository or instance; Enter applies, Esc clears
@@ -314,31 +331,6 @@ export function Dashboard({
           </Box>
         ) : (
           <>
-            {sidebar && (
-              <Box
-                width={24}
-                borderStyle="round"
-                borderColor="gray"
-                flexDirection="column"
-                paddingX={1}
-              >
-                <Text bold color="cyan">
-                  INSTANCES
-                </Text>
-                {instanceOptions
-                  .slice(instanceStart, instanceStart + sidebarVisible)
-                  .map((inst) => (
-                    <Text
-                      key={inst.id ?? "all"}
-                      color={instanceId === inst.id ? "cyan" : "gray"}
-                      wrap="truncate-end"
-                    >
-                      {instanceId === inst.id ? "❯ " : "  "}
-                      {safe(inst.label)}
-                    </Text>
-                  ))}
-              </Box>
-            )}
             {(!narrow || !detailOnly) && (
               <Box
                 width={listWidth}
@@ -430,10 +422,7 @@ export function Dashboard({
                         <Text color="gray">
                           {shorten(
                             item.pr.body,
-                            Math.max(
-                              1,
-                              width - listWidth - (sidebar ? 35 : 11),
-                            ),
+                            Math.max(1, width - listWidth - 11),
                           )}
                         </Text>
                       </>
@@ -473,8 +462,8 @@ export function Dashboard({
           {searching
             ? `SEARCH /${query}█  Enter apply · Esc cancel`
             : help
-              ? "HELP  1-3/Tab views · [ ] instances · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
-              : "1-3 views  [ ] instances  j/k move  / search  o open  y copy  r refresh  ? help  q quit"}
+              ? "HELP  Tab/Shift-Tab instances · 1-3 views · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
+              : "Tab instances  1-3 views  j/k move  / search  o open  y copy  r refresh  ? help  q quit"}
         </Text>
       </Box>
     </Box>

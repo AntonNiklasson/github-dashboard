@@ -145,6 +145,61 @@ test("long list stays inside viewport and scrolls with selection", async () => {
   expect(ui.lastFrame()).toContain("q quit");
   ui.unmount();
 });
+test("instance tabs live above the list and Tab filters rows", async () => {
+  const template = fake.listPullRequests("x", "prs")[0]!;
+  const other = {
+    ...fake,
+    listInstances: () => [
+      { id: "x", label: "Work", username: "tester" },
+      { id: "y", label: "Personal", username: "tester" },
+    ],
+    listPullRequests: (id: string) =>
+      id === "x"
+        ? [
+            {
+              ...template,
+              id: 1,
+              repo: "work/repo",
+              number: 1,
+              title: "Work PR",
+              url: "https://example.com/1",
+            },
+          ]
+        : [
+            {
+              ...template,
+              id: 2,
+              repo: "personal/repo",
+              number: 2,
+              title: "Personal PR",
+              url: "https://example.com/2",
+            },
+          ],
+  } as unknown as ReturnType<typeof createSync>;
+  const ui = render(
+    <Dashboard
+      runtime={other}
+      cycle={null}
+      error={null}
+      syncing={false}
+      onRefresh={() => {}}
+      onQuit={() => {}}
+    />,
+  );
+  expect(ui.lastFrame()).toContain("● All");
+  expect(ui.lastFrame()).toContain("Work PR");
+  expect(ui.lastFrame()).toContain("Personal PR");
+  expect(ui.lastFrame()).not.toContain("INSTANCES");
+  ui.stdin.write("\t");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("● Work"));
+  expect(ui.lastFrame()).toContain("Work PR");
+  expect(ui.lastFrame()).not.toContain("Personal PR");
+  ui.stdin.write("\t");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("● Personal"));
+  expect(ui.lastFrame()).toContain("Personal PR");
+  expect(ui.lastFrame()).not.toContain("Work PR");
+  ui.unmount();
+});
 test("partial sync failure visible without losing cached items", () => {
   const ui = render(
     <Dashboard
