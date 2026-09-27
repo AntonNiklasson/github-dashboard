@@ -1,0 +1,14 @@
+{
+  "name": "cli",
+  "private": true,
+  "type": "module",
+  "bin": { "ghd": "./dist/index.js" },
+  "scripts": {
+    "build": "tsgo",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "start": "node dist/index.js"
+  },
+  "dependencies": { "sync": "workspace:*" },
+  "devDependencies": { "@types/node": "^25.5.0", "vitest": "^4.1.2" }
+}

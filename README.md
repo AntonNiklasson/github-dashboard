@@ -104,6 +104,19 @@ sequenceDiagram
 
 The server keeps a disk-backed cache of the last sync and serves the browser from that, so the UI stays snappy and the API is hit at a predictable cadence regardless of how many tabs are open.
 
+### Standalone sync CLI
+
+The separate CLI uses `packages/sync`'s public runtime; the existing API server has not yet been migrated. Build with `pnpm build`, then run:
+
+```sh
+pnpm --silent cli once --instance github-com --kind prs --json
+pnpm --silent cli list --json    # offline, reads the persisted SQLite cache
+pnpm cli watch --interval 25    # log/JSON polling for scripts
+pnpm cli                       # interactive TUI, polls every 25 seconds
+```
+
+`tui` shows cached items immediately, then refreshes. Use 1–3 or Tab to switch views, ↑/↓ or j/k to select, r to refresh, and q to quit. SIGINT/SIGTERM drain active work. `--instance` and `--kind` (initial TUI view: `prs`, `reviews`, `notifications`) work on all commands; `--json` works on non-TUI commands. Omit instance/kind for all configured targets. Config is read from `$XDG_CONFIG_HOME/github-dashboard/config.yml` (default `~/.config/github-dashboard/config.yml`). Cache is at `$XDG_CACHE_HOME/github-dashboard/cache.sqlite` (default `~/.cache/github-dashboard/cache.sqlite`). `list` never reads config or accesses the network. JSON writes one object per cycle to stdout, with `cycle: null` for offline/initial watch output. Failures and skips retain old snapshots. Exit codes: 0 success (including rate-budget skips and clean watch shutdown), 1 invalid arguments/config or structural error, 2 one-shot fetch/auth failures. Diagnostics go to stderr. The disposable sync cache upgrades by rebuilding on schema-version mismatch.
+
 ## Developing locally
 
 ```bash
