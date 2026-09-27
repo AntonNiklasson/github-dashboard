@@ -3,6 +3,7 @@ import clipboard from "clipboardy";
 import { Box, Text, render, useInput, useWindowSize } from "ink";
 import open from "open";
 import { useState } from "react";
+import { ReviewPane } from "./review.js";
 import {
   createSync,
   type NormalizedPr,
@@ -107,6 +108,7 @@ export function Dashboard({
   const [searching, setSearching] = useState(false);
   const [help, setHelp] = useState(false);
   const [detailOnly, setDetailOnly] = useState(false);
+  const [review, setReview] = useState<Entry | null>(null);
   const [message, setMessage] = useState("");
   const instances = runtime.listInstances();
   const available = itemsFor(runtime, tab, instanceId);
@@ -180,57 +182,62 @@ export function Dashboard({
       );
   };
 
-  useInput((input, key) => {
-    if (key.ctrl && input === "c") {
-      onQuit();
-      return;
-    }
-    if (help) {
-      setHelp(false);
-      return;
-    }
-    if (searching) {
-      if (key.escape) {
+  useInput(
+    (input, key) => {
+      if (key.ctrl && input === "c") {
+        onQuit();
+        return;
+      }
+      if (help) {
+        setHelp(false);
+        return;
+      }
+      if (searching) {
+        if (key.escape) {
+          setQuery("");
+          setSearching(false);
+        } else if (key.return) setSearching(false);
+        else if (key.backspace || key.delete) {
+          setQuery((value) => value.slice(0, -1));
+          setIndex(0);
+          setSelectedId(null);
+        } else if (input && !key.ctrl && !key.meta) {
+          setQuery((value) => value + safe(input));
+          setIndex(0);
+          setSelectedId(null);
+        }
+        return;
+      }
+      if (input === "q") onQuit();
+      else if (input === "?") setHelp(true);
+      else if (input === "/") {
+        setSearching(true);
         setQuery("");
-        setSearching(false);
-      } else if (key.return) setSearching(false);
-      else if (key.backspace || key.delete) {
-        setQuery((value) => value.slice(0, -1));
         setIndex(0);
         setSelectedId(null);
-      } else if (input && !key.ctrl && !key.meta) {
-        setQuery((value) => value + safe(input));
-        setIndex(0);
-        setSelectedId(null);
-      }
-      return;
-    }
-    if (input === "q") onQuit();
-    else if (input === "?") setHelp(true);
-    else if (input === "/") {
-      setSearching(true);
-      setQuery("");
-      setIndex(0);
-      setSelectedId(null);
-    } else if (key.escape) {
-      if (detailOnly) setDetailOnly(false);
-      else {
-        setQuery("");
-        setMessage("");
-      }
-    } else if (input === "r") onRefresh();
-    else if (input === "o") act(onOpen, "Opened");
-    else if (input === "y") act(onCopy, "Copied URL");
-    else if (key.upArrow || input === "k") move(-1);
-    else if (key.downArrow || input === "j") move(1);
-    else if (key.pageDown) move(visible);
-    else if (key.pageUp) move(-visible);
-    else if (key.return && narrow) setDetailOnly(true);
-    else if (input === "[" || key.leftArrow) chooseInstance(-1);
-    else if (input === "]" || key.rightArrow) chooseInstance(1);
-    else if (key.tab) chooseInstance(key.shift ? -1 : 1);
-    else if (["1", "2", "3"].includes(input)) changed(tabs[Number(input) - 1]!);
-  });
+      } else if (key.escape) {
+        if (detailOnly) setDetailOnly(false);
+        else {
+          setQuery("");
+          setMessage("");
+        }
+      } else if (input === "r") onRefresh();
+      else if (input === "o") act(onOpen, "Opened");
+      else if (input === "y") act(onCopy, "Copied URL");
+      else if (key.upArrow || input === "k") move(-1);
+      else if (key.downArrow || input === "j") move(1);
+      else if (key.pageDown) move(visible);
+      else if (key.pageUp) move(-visible);
+      else if (key.return && item?.pr) setReview(item);
+      else if (key.return && narrow) setDetailOnly(true);
+      else if (input === "[" || key.leftArrow) chooseInstance(-1);
+      else if (input === "]" || key.rightArrow) chooseInstance(1);
+      else if (key.tab) chooseInstance(key.shift ? -1 : 1);
+      else if (["1", "2", "3"].includes(input))
+        changed(tabs[Number(input) - 1]!);
+    },
+    { isActive: review === null },
+  );
 
   if (rows < 16 || width < 40)
     return (
@@ -303,7 +310,15 @@ export function Dashboard({
         ))}
       </Box>
       <Box flexGrow={1} flexDirection="row">
-        {help ? (
+        {review?.pr ? (
+          <ReviewPane
+            runtime={runtime}
+            instanceId={review.instanceId}
+            pr={review.pr}
+            onBack={() => setReview(null)}
+            onQuit={onQuit}
+          />
+        ) : help ? (
           <Box
             flexGrow={1}
             borderStyle="round"
@@ -459,11 +474,13 @@ export function Dashboard({
       </Box>
       <Box paddingX={1}>
         <Text color="gray" wrap="truncate-end">
-          {searching
-            ? `SEARCH /${query}█  Enter apply · Esc cancel`
-            : help
-              ? "HELP  Tab/Shift-Tab instances · 1-3 views · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
-              : "Tab instances  1-3 views  j/k move  / search  o open  y copy  r refresh  ? help  q quit"}
+          {review
+            ? "REVIEW  j/k lines · [ ] files · V select lines · c comment · Esc back"
+            : searching
+              ? `SEARCH /${query}█  Enter apply · Esc cancel`
+              : help
+                ? "HELP  Tab/Shift-Tab instances · 1-3 views · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
+                : "Tab instances  1-3 views  j/k move  Enter review PR  / search  ? help  q quit"}
         </Text>
       </Box>
     </Box>

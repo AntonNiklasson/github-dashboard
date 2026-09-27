@@ -200,6 +200,46 @@ test("instance tabs live above the list and Tab filters rows", async () => {
   expect(ui.lastFrame()).not.toContain("Work PR");
   ui.unmount();
 });
+test("Enter on a PR focuses review; Esc returns to the list", async () => {
+  const getPullRequestDiff = vi.fn(async () => ({
+    headSha: "a".repeat(40),
+    files: [
+      {
+        path: "src/a.ts",
+        status: "modified",
+        lines: [
+          { kind: "hunk", hunk: 1, text: "@@ -1 +1 @@" },
+          { kind: "add", hunk: 1, newLine: 1, text: "new code" },
+        ],
+      },
+    ],
+  }));
+  const runtime = { ...fake, getPullRequestDiff } as unknown as ReturnType<
+    typeof createSync
+  >;
+  const ui = render(
+    <Dashboard
+      runtime={runtime}
+      cycle={null}
+      error={null}
+      syncing={false}
+      onRefresh={() => {}}
+      onQuit={() => {}}
+    />,
+  );
+  ui.stdin.write("\r");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("REVIEW o/r#1"));
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("new code"));
+  expect(getPullRequestDiff).toHaveBeenCalledWith({
+    instanceId: "x",
+    repo: "o/r",
+    number: 1,
+  });
+  ui.stdin.write("\x1b");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("PRS 2"));
+  expect(ui.lastFrame()).not.toContain("new code");
+  ui.unmount();
+});
 test("partial sync failure visible without losing cached items", () => {
   const ui = render(
     <Dashboard
