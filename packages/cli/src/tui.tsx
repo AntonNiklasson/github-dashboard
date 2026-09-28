@@ -24,6 +24,30 @@ type Entry = {
   notification?: Notification;
 };
 const tabs: SyncKind[] = ["prs", "reviews", "notifications"];
+const colors = {
+  success: "#4ade80",
+  failure: "#fb7185",
+  warning: "#fbbf24",
+  muted: "#a5b4d4",
+  accent: "#67e8f9",
+} as const;
+
+function ciColor(status: NormalizedPr["ciStatus"]): string {
+  return status === "success"
+    ? colors.success
+    : status === "failure"
+      ? colors.failure
+      : status === "pending"
+        ? colors.warning
+        : colors.muted;
+}
+function decisionColor(decision: NormalizedPr["reviewDecision"]): string {
+  return decision === "APPROVED"
+    ? colors.success
+    : decision === "CHANGES_REQUESTED"
+      ? colors.failure
+      : colors.warning;
+}
 
 // Provider text is untrusted, including ANSI escape sequences and newlines.
 function safe(text: string): string {
@@ -409,32 +433,69 @@ export function Dashboard({
                     <Text bold wrap="truncate-end">
                       {safe(item.title)}
                     </Text>
-                    <Text color="gray" wrap="truncate-end">
+                    <Text color={colors.muted} wrap="truncate-end">
                       {safe(item.repo)} · {safe(item.label)}
                     </Text>
                     <Text> </Text>
                     {item.pr ? (
                       <>
                         <Text>
-                          Author {safe(item.pr.author)}
-                          {item.pr.draft ? " · DRAFT" : ""}
+                          <Text color={colors.muted}>Author </Text>
+                          {safe(item.pr.author)}
+                          {item.pr.draft && (
+                            <Text bold color={colors.warning}>
+                              {" "}
+                              · DRAFT
+                            </Text>
+                          )}
                         </Text>
                         <Text>
-                          CI {safe(item.pr.ciStatus)} ·{" "}
-                          {item.pr.unresolvedThreadCount} unresolved
+                          <Text color={colors.muted}>CI </Text>
+                          <Text bold color={ciColor(item.pr.ciStatus)}>
+                            {safe(item.pr.ciStatus)}
+                          </Text>
+                          <Text color={colors.muted}> · </Text>
+                          <Text
+                            color={
+                              item.pr.unresolvedThreadCount
+                                ? colors.failure
+                                : colors.success
+                            }
+                          >
+                            {item.pr.unresolvedThreadCount} unresolved
+                          </Text>
                         </Text>
                         <Text>
-                          Branch {safe(item.pr.headBranch)} →{" "}
-                          {safe(item.pr.baseBranch)}
+                          <Text color={colors.muted}>Branch </Text>
+                          <Text color={colors.accent}>
+                            {safe(item.pr.headBranch)}
+                          </Text>
+                          <Text color={colors.muted}>
+                            {" "}
+                            → {safe(item.pr.baseBranch)}
+                          </Text>
                         </Text>
                         <Text>
-                          Changes +{item.pr.additions} / -{item.pr.deletions} ·{" "}
-                          {item.pr.commits} commits
+                          <Text color={colors.muted}>Changes </Text>
+                          <Text bold color={colors.success}>
+                            +{item.pr.additions}
+                          </Text>
+                          <Text color={colors.muted}> / </Text>
+                          <Text bold color={colors.failure}>
+                            -{item.pr.deletions}
+                          </Text>
+                          <Text color={colors.muted}>
+                            {" "}
+                            · {item.pr.commits} commits
+                          </Text>
                         </Text>
                         <Text>
-                          Reviews {safe(item.pr.reviewDecision ?? "pending")}
+                          <Text color={colors.muted}>Reviews </Text>
+                          <Text color={decisionColor(item.pr.reviewDecision)}>
+                            {safe(item.pr.reviewDecision ?? "pending")}
+                          </Text>
                         </Text>
-                        <Text color="gray">
+                        <Text color={colors.muted}>
                           {shorten(
                             item.pr.body,
                             Math.max(1, width - listWidth - 11),

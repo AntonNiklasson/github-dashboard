@@ -11,6 +11,15 @@ import {
 
 type Runtime = ReturnType<typeof createSync>;
 type Mode = "browse" | "compose" | "confirm" | "sending";
+const diffColors = {
+  add: "#4ade80",
+  delete: "#fb7185",
+  hunk: "#67e8f9",
+  context: "#a5b4d4",
+  gutter: "#94a3b8",
+  cursor: "#27334d",
+  visual: "#493e31",
+} as const;
 
 // Keep provider text inert even when shown inside a highlighted diff line.
 function safe(value: string): string {
@@ -228,11 +237,23 @@ export function ReviewPane({
         {diff?.headSha.slice(0, 9) ?? "loading commit"}
       </Text>
       <Text bold color="yellow" wrap="truncate-end">
-        {loading
-          ? "Loading diff…"
-          : diff?.files.length
-            ? `FILE ${fileIndex + 1}/${diff.files.length}  ${safe(file?.path ?? "")}${file?.status ? ` · ${safe(file.status)}` : ""}  [ / ] files`
-            : "No changed files"}
+        {loading ? (
+          "Loading diff…"
+        ) : diff?.files.length ? (
+          <>
+            FILE {fileIndex + 1}/{diff.files.length} {safe(file?.path ?? "")} ·{" "}
+            {safe(file?.status ?? "")}{" "}
+            <Text color={diffColors.add}>
+              +{lines.filter((line) => line.kind === "add").length}
+            </Text>{" "}
+            <Text color={diffColors.delete}>
+              -{lines.filter((line) => line.kind === "delete").length}
+            </Text>{" "}
+            [ / ] files
+          </>
+        ) : (
+          "No changed files"
+        )}
       </Text>
       {loading ? (
         <Text color="gray">Fetching this PR from GitHub…</Text>
@@ -240,14 +261,7 @@ export function ReviewPane({
         lines.slice(start, start + visible).map((line, offset) => {
           const index = start + offset;
           const selected = index >= selectedStart && index <= selectedEnd;
-          const color =
-            line.kind === "add"
-              ? "green"
-              : line.kind === "delete"
-                ? "red"
-                : line.kind === "hunk"
-                  ? "cyan"
-                  : "gray";
+          const color = diffColors[line.kind];
           const sign =
             line.kind === "add"
               ? "+"
@@ -259,20 +273,28 @@ export function ReviewPane({
           return (
             <Text
               key={`${fileIndex}/${index}`}
-              color={selected ? "black" : color}
               backgroundColor={
                 selected
                   ? visualStart === null
-                    ? "cyan"
-                    : "yellow"
+                    ? diffColors.cursor
+                    : diffColors.visual
                   : undefined
               }
               wrap="truncate-end"
             >
-              {index === cursor ? "❯" : " "}{" "}
-              {String(line.oldLine ?? "").padStart(4)}{" "}
-              {String(line.newLine ?? "").padStart(4)} {sign}{" "}
-              {cut(line.text, width - 20)}
+              <Text
+                color={index === cursor ? diffColors.hunk : diffColors.gutter}
+              >
+                {index === cursor ? "❯" : " "}{" "}
+                {String(line.oldLine ?? "").padStart(4)}{" "}
+                {String(line.newLine ?? "").padStart(4)}{" "}
+              </Text>
+              <Text
+                bold={line.kind === "add" || line.kind === "delete"}
+                color={color}
+              >
+                {sign} {cut(line.text, width - 20)}
+              </Text>
             </Text>
           );
         })
