@@ -4,5 +4,6 @@
     "strict": true, "jsx": "react-jsx", "outDir": "dist", "rootDir": "src", "declaration": true,
     "skipLibCheck": true, "types": ["node"]
   },
-  "include": ["src/index.ts", "src/tui.ts"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }
