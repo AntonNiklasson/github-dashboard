@@ -5,7 +5,7 @@ import { createSync, type SyncKind, type SyncResult } from "sync";
 import { runTui } from "./tui.js";
 
 const usage =
-  "Usage: ghd [tui|once|list|watch] [--instance ID] [--kind prs|reviews|notifications] [--json] [--interval SECONDS]\nDefault: tui (interactive terminal required).\n";
+  "Usage: ghd [tui|once|list|watch] [--instance ID] [--kind prs|reviews|notifications] [--json] [--interval SECONDS] [--demo]\nDefault: tui (interactive terminal required).\n";
 const kinds: SyncKind[] = ["prs", "reviews", "notifications"];
 
 async function main(args: string[]): Promise<number> {
@@ -24,6 +24,7 @@ async function main(args: string[]): Promise<number> {
       kind: { type: "string" },
       json: { type: "boolean" },
       interval: { type: "string" },
+      demo: { type: "boolean" },
     },
   });
   if (values.kind && !kinds.includes(values.kind as SyncKind))
@@ -35,12 +36,15 @@ async function main(args: string[]): Promise<number> {
       Number(values.interval) <= 0)
   )
     throw new Error("invalid interval");
+  if (values.demo && command !== "tui")
+    throw new Error("--demo is only supported in tui mode");
   if (command === "tui") {
     if (values.json) throw new Error("--json is not supported in tui mode");
     return runTui({
       instanceId: values.instance,
       kind: values.kind as SyncKind | undefined,
       intervalMs: Number(values.interval ?? 25) * 1000,
+      demo: values.demo,
     });
   }
   const runtime = createSync();
@@ -154,8 +158,9 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   (err) => {
+    // Stack traces help debug TUI render crashes; set GHD_DEBUG=1.
     process.stderr.write(
-      `${err instanceof Error ? err.message : String(err)}\n`,
+      `${err instanceof Error ? (process.env.GHD_DEBUG ? err.stack : err.message) : String(err)}\n`,
     );
     process.exitCode = 1;
   },

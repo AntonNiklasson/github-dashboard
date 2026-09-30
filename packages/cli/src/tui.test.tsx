@@ -73,17 +73,40 @@ function setup() {
 test("search, tabs, instance selection, help, refresh and URL actions", async () => {
   const ui = setup();
   expect(ui.lastFrame()).toContain("GITHUB DASHBOARD");
+  expect(ui.lastFrame()).toContain("My work 2");
+  expect(ui.lastFrame()).toContain("Requested reviews 2");
+  expect(ui.lastFrame()).toContain("Notifications 1");
+  expect(ui.lastFrame()).not.toContain("1 My work");
+  expect(ui.lastFrame()).not.toContain("2 Requested reviews");
+  expect(ui.lastFrame()).not.toContain("3 Notifications");
+  expect(ui.lastFrame()).toContain("MY WORK 2");
   expect(ui.lastFrame()).toContain("safe [2J title");
   expect(ui.lastFrame()).not.toContain("\x1b[2J");
+  expect(ui.lastFrame()).not.toContain("by tester");
   ui.stdin.write("j");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("second"));
   ui.stdin.write("o");
   await vi.waitFor(() =>
     expect(ui.onOpen).toHaveBeenCalledWith("https://example.com/2"),
   );
+  const copy = async (key: string, text: string) => {
+    ui.stdin.write("y");
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("COPY"));
+    ui.stdin.write(key);
+    await vi.waitFor(() => expect(ui.onCopy).toHaveBeenLastCalledWith(text));
+  };
   ui.stdin.write("y");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("r review request"));
+  expect(ui.lastFrame()).toContain("b branch");
+  ui.stdin.write("\x1b");
+  await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("COPY"));
+  expect(ui.onCopy).not.toHaveBeenCalled();
+  await copy("u", "https://example.com/2");
+  await copy("n", "#2");
+  await copy("b", "b");
+  await copy("r", "[second](https://example.com/2) `+1/-0`");
   await vi.waitFor(() =>
-    expect(ui.onCopy).toHaveBeenCalledWith("https://example.com/2"),
+    expect(ui.lastFrame()).toContain("Copied review request"),
   );
   ui.stdin.write("/");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("SEARCH /"));
@@ -91,8 +114,14 @@ test("search, tabs, instance selection, help, refresh and URL actions", async ()
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("No matches"));
   ui.stdin.write("\x1b");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("safe [2J title"));
+  ui.stdin.write("2");
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).toContain("REQUESTED REVIEWS 2"),
+  );
+  expect(ui.lastFrame()).toContain("by tester");
   ui.stdin.write("3");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("Mention"));
+  expect(ui.lastFrame()).toContain("NOTIFICATIONS 1");
   ui.stdin.write("r");
   expect(ui.onRefresh).toHaveBeenCalledOnce();
   ui.stdin.write("?");
@@ -101,6 +130,42 @@ test("search, tabs, instance selection, help, refresh and URL actions", async ()
   await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("HELP"));
   ui.stdin.write("q");
   await vi.waitFor(() => expect(ui.onQuit).toHaveBeenCalledOnce());
+  ui.unmount();
+});
+test("s opens a sort menu; field keys pick, repeat flips, per tab", async () => {
+  const ui = setup();
+  const order = () => {
+    const frame = ui.lastFrame()!;
+    return frame.indexOf("second") < frame.indexOf("safe") ? "second" : "safe";
+  };
+  const pick = async (key: string, expected: string) => {
+    ui.stdin.write("s");
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("Esc cancel"));
+    ui.stdin.write(key);
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain(expected));
+    expect(ui.lastFrame()).not.toContain("Esc cancel");
+  };
+  expect(ui.lastFrame()).toContain("created ↓");
+  ui.stdin.write("s");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("n name"));
+  expect(ui.lastFrame()).toContain("s status");
+  expect(ui.lastFrame()).toContain("z size");
+  ui.stdin.write("x"); // unknown key cancels without changing sort
+  await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("Esc cancel"));
+  expect(ui.lastFrame()).toContain("created ↓");
+  await pick("u", "updated ↓");
+  await pick("n", "name ↑");
+  expect(order()).toBe("safe");
+  await pick("n", "name ↓");
+  expect(order()).toBe("second");
+  ui.stdin.write("S");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("name ↑"));
+  await pick("s", "status ↓");
+  ui.stdin.write("3");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("updated ↓"));
+  ui.stdin.write("s");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("r repo"));
+  expect(ui.lastFrame()).not.toContain("z size");
   ui.unmount();
 });
 test("long list stays inside viewport and scrolls with selection", async () => {
@@ -139,7 +204,9 @@ test("long list stays inside viewport and scrolls with selection", async () => {
   expect(ui.lastFrame()).toContain("q quit");
   for (let n = 1; n <= 10; n++) {
     ui.stdin.write("j");
-    await vi.waitFor(() => expect(ui.lastFrame()).toContain(`❯ item ${n}`));
+    await vi.waitFor(() =>
+      expect(ui.lastFrame()).toContain(`❯ \uf407 item ${n}`),
+    );
   }
   expect(ui.lastFrame()).not.toContain("item 0");
   expect(ui.lastFrame()).toContain("q quit");
@@ -200,7 +267,7 @@ test("instance tabs live above the list and Tab filters rows", async () => {
   expect(ui.lastFrame()).not.toContain("Work PR");
   ui.unmount();
 });
-test("Enter on a PR focuses review; Esc returns to the list", async () => {
+test("Enter shows details, Enter again reviews; Esc returns to the list", async () => {
   const getPullRequestDiff = vi.fn(async () => ({
     headSha: "a".repeat(40),
     files: [
@@ -228,6 +295,10 @@ test("Enter on a PR focuses review; Esc returns to the list", async () => {
     />,
   );
   ui.stdin.write("\r");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Enter/d review"));
+  expect(ui.lastFrame()).toContain("a → main");
+  expect(getPullRequestDiff).not.toHaveBeenCalled();
+  ui.stdin.write("\r");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("REVIEW o/r#1"));
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("new code"));
   expect(getPullRequestDiff).toHaveBeenCalledWith({
@@ -236,8 +307,11 @@ test("Enter on a PR focuses review; Esc returns to the list", async () => {
     number: 1,
   });
   ui.stdin.write("\x1b");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("PRS 2"));
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Enter/d review"));
   expect(ui.lastFrame()).not.toContain("new code");
+  ui.stdin.write("\x1b");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("MY WORK 2"));
+  expect(ui.lastFrame()).not.toContain("Enter/d review");
   ui.unmount();
 });
 test("partial sync failure visible without losing cached items", () => {
