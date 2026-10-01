@@ -166,7 +166,11 @@ export async function postReviewComment(
 
 export function splitRepo(repo: string): [string, string] {
   const parts = repo.split("/");
-  if (parts.length !== 2 || parts.some((part) => !/^[\w.-]+$/.test(part)))
+  // Each part needs an alphanumeric so "." / ".." can't form a path.
+  if (
+    parts.length !== 2 ||
+    parts.some((part) => !/^[\w.-]+$/.test(part) || !/[a-z0-9]/i.test(part))
+  )
     throw new Error("invalid repository identity");
   return [parts[0]!, parts[1]!];
 }

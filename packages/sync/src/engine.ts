@@ -61,9 +61,15 @@ export function createSync(options: SyncOptions = {}) {
     const kinds = request.kinds ?? KINDS;
     if (kinds.some((k) => !KINDS.includes(k)))
       throw new Error("unknown sync kind");
-    // Reconcile valid configuration independently of host availability. Preserve old
-    // identity-specific data when authentication fails.
-    store.reconcile(configured);
+    // Reconcile valid configuration independently of host availability. The
+    // credential key comes from config, so a rotated token invalidates old
+    // identity-specific data even if the new one fails to authenticate; an
+    // unchanged credential keeps its data through auth failures.
+    const credentialKey = (i: GitHubInstance) =>
+      createHash("sha256").update(`${i.baseUrl}\0${i.token}`).digest("hex");
+    store.reconcile(
+      configured.map((i) => ({ ...i, credentialKey: credentialKey(i) })),
+    );
     const results: SyncResult["results"] = [];
     for (const instance of configured.filter(
       (i) => !request.instanceId || i.id === request.instanceId,
@@ -83,13 +89,12 @@ export function createSync(options: SyncOptions = {}) {
           });
         continue;
       }
-      const credentialKey = createHash("sha256")
-        .update(`${instance.baseUrl}\0${instance.token}`)
-        .digest("hex");
       store.reconcile(
-        configured.map((i) =>
-          i.id === instance.id ? { ...i, username, credentialKey } : i,
-        ),
+        configured.map((i) => ({
+          ...i,
+          credentialKey: credentialKey(i),
+          ...(i.id === instance.id ? { username } : {}),
+        })),
       );
       const target = { ...instance, username };
       for (const kind of kinds) {

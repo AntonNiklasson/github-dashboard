@@ -95,9 +95,10 @@ test("approve posts an APPROVE review", async () => {
 });
 
 test("rejects malformed targets before any request", async () => {
-  await expect(
-    togglePrDraft(instance, { repo: "../x", number: 7 }),
-  ).rejects.toThrow();
+  for (const repo of ["../x", "./x", "o/..", "o/.", "o/r/x"])
+    await expect(togglePrDraft(instance, { repo, number: 7 })).rejects.toThrow(
+      "invalid repository identity",
+    );
   expect(calls).toEqual([]);
 });
 

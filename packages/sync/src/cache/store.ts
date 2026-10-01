@@ -82,18 +82,17 @@ export function createStore(db: Cache) {
           const old = oldInstance.get(i.id) as
             | { base_url: string; username: string; credential_key: string }
             | undefined;
-          if (
-            old &&
+          const changed =
+            !!old &&
             ((i.credentialKey !== undefined && old.base_url !== i.baseUrl) ||
               (i.username !== undefined && old.username !== i.username) ||
               (i.credentialKey !== undefined &&
-                old.credential_key !== i.credentialKey))
-          ) {
-            remove.run(i.id);
-          }
+                old.credential_key !== i.credentialKey));
+          if (changed) remove.run(i.id);
           upsert.run({
             ...i,
-            username: i.username ?? old?.username ?? "",
+            // A new identity must not inherit the previous login.
+            username: i.username ?? (changed ? "" : (old?.username ?? "")),
             credentialKey: i.credentialKey ?? old?.credential_key ?? "",
           });
         }

@@ -56,6 +56,40 @@ test("invalid config does not remove cached instances; reads are offline", async
   expect(invalid.listInstances()).toHaveLength(1);
   await invalid.close();
 });
+test("a rotated token invalidates the old identity even when auth fails", async () => {
+  // No configured username: the login comes from authentication.
+  const { username: _configured, ...rest } = instance;
+  const id = { ...rest, id: "rotating" };
+  const first = createSync({
+    loadInstances: () => [id],
+    authenticate: async () => "old-login",
+  });
+  await first.sync({ instanceId: "rotating", kinds: [] });
+  expect(first.listInstances().find((i) => i.id === "rotating")?.username).toBe(
+    "old-login",
+  );
+  await first.close();
+  const failing = async () => {
+    throw new Error("bad credentials");
+  };
+  // Same token, auth down: keep the identity.
+  const same = createSync({ loadInstances: () => [id], authenticate: failing });
+  await same.sync({ instanceId: "rotating", kinds: [] });
+  expect(same.listInstances().find((i) => i.id === "rotating")?.username).toBe(
+    "old-login",
+  );
+  await same.close();
+  // Rotated token that fails to authenticate: drop the old identity.
+  const rotated = createSync({
+    loadInstances: () => [{ ...id, token: "rotated" }],
+    authenticate: failing,
+  });
+  await rotated.sync({ instanceId: "rotating", kinds: [] });
+  expect(
+    rotated.listInstances().find((i) => i.id === "rotating")?.username,
+  ).toBe("");
+  await rotated.close();
+});
 afterAll(() => {
   if (old === undefined) delete process.env.XDG_CACHE_HOME;
   else process.env.XDG_CACHE_HOME = old;
