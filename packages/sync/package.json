@@ -2,18 +2,14 @@
   "name": "sync",
   "private": true,
   "type": "module",
-  "bin": {
-    "ghd-sync": "./dist/cli.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "dev": "tsx watch src/cli.ts",
-    "cli": "tsx src/cli.ts",
     "build": "tsgo",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run --passWithNoTests"

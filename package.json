@@ -7,15 +7,16 @@
     "dev:web": "mkdir -p .logs && concurrently --kill-others -n server,web -c blue,green \"pnpm --filter server dev 2>&1 | tee .logs/server.log\" \"pnpm --filter web dev 2>&1 | tee .logs/web.log\"",
     "demo": "DEMO=1 pnpm dev",
     "demo:web": "DEMO=1 pnpm dev:web",
-    "build": "pnpm --filter server build && pnpm --filter web build",
+    "build": "pnpm --filter sync build && pnpm --filter cli build && pnpm --filter server build && pnpm --filter web build",
     "build:desktop": "pnpm build && pnpm --filter desktop build && pnpm --filter desktop package",
     "lint": "oxlint",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "sync": "pnpm --filter sync cli",
-    "prepare": "husky"
+    "typecheck": "pnpm --filter sync build && pnpm -r typecheck",
+    "test": "pnpm --filter sync build && pnpm --filter cli build && pnpm -r test",
+    "prepare": "husky",
+    "cli": "node packages/cli/dist/index.js",
+    "dev:cli": "pnpm --filter cli dev"
   },
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260420.1",

@@ -1,148 +1,97 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { openCache } from "./cache/open.js";
-import { createSqliteRepository } from "./cache/store.js";
-import type { GitHubInstance } from "./config.js";
-import { createSyncEngine, reconcileInstances } from "./engine.js";
+import { afterAll, beforeEach, expect, test } from "vitest";
+import { createSync } from "./index.js";
 
-// These tests exercise the engine's lifecycle and DI surface without hitting
-// the network. We inject loadInstances to return a fixed list, and avoid any
-// real provider fetches by keeping the instance list empty (no targets to
-// fetch) or by targeting an unknown instance, which throws before any fetch.
-
-describe("createSyncEngine", () => {
-  let cacheRoot: string;
-  let prevXdg: string | undefined;
-  let close: () => void;
-
-  beforeEach(() => {
-    cacheRoot = mkdtempSync(join(tmpdir(), "ghd-engine-"));
-    prevXdg = process.env.XDG_CACHE_HOME;
-    process.env.XDG_CACHE_HOME = cacheRoot;
+const root = mkdtempSync(join(tmpdir(), "ghd-runtime-"));
+const old = process.env.XDG_CACHE_HOME;
+beforeEach(() => {
+  process.env.XDG_CACHE_HOME = root;
+});
+const instance = {
+  id: "example",
+  label: "Example",
+  baseUrl: "http://127.0.0.1:1",
+  token: "fake",
+  username: "tester",
+};
+test("queue recovers after structural failure, close drains and is terminal", async () => {
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const sync = createSync({
+    loadInstances: async () => {
+      calls++;
+      if (calls === 1) {
+        await gate;
+        throw new Error("bad config");
+      }
+      return [];
+    },
   });
-
-  afterEach(() => {
-    close?.();
-    if (prevXdg === undefined) delete process.env.XDG_CACHE_HOME;
-    else process.env.XDG_CACHE_HOME = prevXdg;
-    rmSync(cacheRoot, { recursive: true, force: true });
+  const first = sync.sync();
+  const second = sync.sync();
+  const closed = sync.close();
+  expect(sync.close()).toBe(closed);
+  await expect(sync.sync()).rejects.toThrow("closed");
+  release();
+  await expect(first).rejects.toThrow("bad config");
+  expect((await second).results).toEqual([]);
+  await closed;
+  expect(calls).toBe(2);
+});
+test("invalid config does not remove cached instances; reads are offline", async () => {
+  const sync = createSync({ loadInstances: () => [instance] });
+  await sync.sync({ kinds: [] });
+  expect(sync.listInstances()).toHaveLength(1);
+  expect(sync.listPullRequests("example", "prs")).toEqual([]);
+  await sync.close();
+  const invalid = createSync({
+    loadInstances: () => {
+      throw new Error("invalid");
+    },
   });
-
-  function setupEngine(instances: GitHubInstance[] = []) {
-    const { db } = openCache();
-    close = () => db.close();
-    const repo = createSqliteRepository(db);
-    const engine = createSyncEngine({
-      repo,
-      loadInstances: async () => instances,
-    });
-    return { repo, engine };
-  }
-
-  test("runOnce with no instances returns an empty cycle", async () => {
-    const { engine } = setupEngine([]);
-    const summary = await engine.runOnce();
-    expect(summary.results).toEqual([]);
-    expect(summary.durationMs).toBeGreaterThanOrEqual(0);
+  await expect(invalid.sync()).rejects.toThrow("invalid");
+  expect(invalid.listInstances()).toHaveLength(1);
+  await invalid.close();
+});
+test("a rotated token invalidates the old identity even when auth fails", async () => {
+  // No configured username: the login comes from authentication.
+  const { username: _configured, ...rest } = instance;
+  const id = { ...rest, id: "rotating" };
+  const first = createSync({
+    loadInstances: () => [id],
+    authenticate: async () => "old-login",
   });
-
-  test("runOnce reconciles instances before running providers", async () => {
-    const { repo, engine } = setupEngine([
-      {
-        id: "a",
-        label: "A",
-        baseUrl: "https://api.github.com",
-        token: "x",
-        username: "u",
-      },
-    ]);
-    // Targeting an unknown instance is rejected.
-    await expect(engine.runOnce({ instance: "missing" })).rejects.toThrow(
-      "unknown instance: missing",
-    );
-    // But the reconcile step still upserted the configured instance into the DB.
-    expect(repo.listInstanceIds()).toEqual(["a"]);
+  await first.sync({ instanceId: "rotating", kinds: [] });
+  expect(first.listInstances().find((i) => i.id === "rotating")?.username).toBe(
+    "old-login",
+  );
+  await first.close();
+  const failing = async () => {
+    throw new Error("bad credentials");
+  };
+  // Same token, auth down: keep the identity.
+  const same = createSync({ loadInstances: () => [id], authenticate: failing });
+  await same.sync({ instanceId: "rotating", kinds: [] });
+  expect(same.listInstances().find((i) => i.id === "rotating")?.username).toBe(
+    "old-login",
+  );
+  await same.close();
+  // Rotated token that fails to authenticate: drop the old identity.
+  const rotated = createSync({
+    loadInstances: () => [{ ...id, token: "rotated" }],
+    authenticate: failing,
   });
-
-  test("start + stop lifecycle", async () => {
-    const { engine } = setupEngine([]);
-    expect(engine.isRunning()).toBe(false);
-
-    let cycles = 0;
-    engine.start({
-      intervalMs: 10,
-      onCycle: () => {
-        cycles += 1;
-      },
-    });
-    expect(engine.isRunning()).toBe(true);
-
-    // Calling start while already running is a programmer error.
-    expect(() => engine.start()).toThrow("already running");
-
-    // Give the loop time to run at least one cycle.
-    await new Promise((r) => setTimeout(r, 30));
-    await engine.stop();
-    expect(engine.isRunning()).toBe(false);
-    expect(cycles).toBeGreaterThan(0);
-
-    // stop() is idempotent.
-    await engine.stop();
-  });
-
-  test("stop wakes the loop immediately from its sleep interval", async () => {
-    const { engine } = setupEngine([]);
-    engine.start({ intervalMs: 60_000 });
-    // Let the first cycle finish, then trigger stop. If sleep weren't
-    // interruptible, this test would time out waiting 60s.
-    await new Promise((r) => setTimeout(r, 20));
-    const stopStart = Date.now();
-    await engine.stop();
-    expect(Date.now() - stopStart).toBeLessThan(500);
-  });
-
-  test("reconcileInstances handles add + remove + label-edit", () => {
-    const { repo } = setupEngine([]);
-    reconcileInstances(repo, [
-      {
-        id: "a",
-        label: "A",
-        baseUrl: "https://api.github.com",
-        token: "x",
-        username: "u",
-      },
-      {
-        id: "b",
-        label: "B",
-        baseUrl: "https://api.github.com",
-        token: "x",
-        username: "u",
-      },
-    ]);
-    expect(repo.listInstanceIds()).toEqual(["a", "b"]);
-
-    const { added, removed } = reconcileInstances(repo, [
-      {
-        id: "a",
-        label: "A-renamed",
-        baseUrl: "https://api.github.com",
-        token: "x",
-        username: "u",
-      },
-      {
-        id: "c",
-        label: "C",
-        baseUrl: "https://api.github.com",
-        token: "x",
-        username: "u",
-      },
-    ]);
-    expect(added).toEqual(["c"]);
-    expect(removed).toEqual(["b"]);
-    expect(repo.listInstances().find((i) => i.id === "a")?.label).toBe(
-      "A-renamed",
-    );
-  });
+  await rotated.sync({ instanceId: "rotating", kinds: [] });
+  expect(
+    rotated.listInstances().find((i) => i.id === "rotating")?.username,
+  ).toBe("");
+  await rotated.close();
+});
+afterAll(() => {
+  if (old === undefined) delete process.env.XDG_CACHE_HOME;
+  else process.env.XDG_CACHE_HOME = old;
+  rmSync(root, { recursive: true, force: true });
 });

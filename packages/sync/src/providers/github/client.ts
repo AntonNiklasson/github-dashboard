@@ -9,6 +9,12 @@ interface CachedClient {
 
 const clients = new Map<string, CachedClient>();
 
+// Octokit's request-log plugin writes every non-2xx (including routine 304s)
+// to console.error. Sync consumers like the TUI own the terminal, and failures
+// already surface through sync results, so keep the library quiet.
+const noop = () => {};
+export const silentLog = { debug: noop, info: noop, warn: noop, error: noop };
+
 export function getClient(instance: GitHubInstance): Octokit {
   // Reuse the cached client only while credentials are unchanged. A token
   // rotation or baseUrl switch (e.g. config edit while looping) recreates it,
@@ -24,6 +30,7 @@ export function getClient(instance: GitHubInstance): Octokit {
   const client = new Octokit({
     auth: instance.token,
     baseUrl: instance.baseUrl,
+    log: silentLog,
   });
   clients.set(instance.id, {
     client,

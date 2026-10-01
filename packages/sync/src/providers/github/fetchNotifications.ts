@@ -1,13 +1,10 @@
-import type { NotificationRow, Repository } from "../../cache/store.js";
+import type {
+  Notification as CachedNotification,
+  Metadata,
+} from "../../cache/store.js";
 import type { GitHubInstance } from "../../config.js";
 import { getClient } from "./client.js";
 import { notificationHtmlUrl } from "./notificationUrl.js";
-
-export interface FetchNotificationsResult {
-  count: number;
-  notModified: boolean;
-  rateRemaining: number | null;
-}
 
 const PAGES = 3;
 const PER_PAGE = 50;
@@ -39,13 +36,10 @@ function isRedundant(n: Notification): boolean {
 }
 
 export async function fetchNotifications(
-  repo: Repository,
   instance: GitHubInstance,
-): Promise<FetchNotificationsResult> {
+  ifNoneMatch: string | null,
+): Promise<{ data: CachedNotification[] | null; metadata: Metadata }> {
   const client = getClient(instance);
-  const state = repo.getSyncState(instance.id, "notifications");
-  const ifNoneMatch = state?.last_etag ?? null;
-
   let firstPageResp: { data: Notification[]; headers: Record<string, string> };
   try {
     firstPageResp =
@@ -61,16 +55,10 @@ export async function fetchNotifications(
   } catch (err) {
     const e = err as { status?: number };
     if (e.status === 304) {
-      repo.upsertSyncState({
-        instance_id: instance.id,
-        kind: "notifications",
-        last_run_at: new Date().toISOString(),
-        last_etag: null,
-        last_modified: null,
-        rate_remaining: null,
-        rate_reset_at: null,
-      });
-      return { count: 0, notModified: true, rateRemaining: null };
+      const headers =
+        (e as { response?: { headers?: Record<string, string> } }).response
+          ?.headers ?? {};
+      return { data: null, metadata: headersMetadata(headers) };
     }
     throw err;
   }
@@ -95,10 +83,9 @@ export async function fetchNotifications(
     ...remainingPages.flatMap((r) => r.data as unknown as Notification[]),
   ];
 
-  const rows: NotificationRow[] = all
+  const rows: CachedNotification[] = all
     .filter((n) => !isRedundant(n))
     .map((n) => ({
-      instance_id: instance.id,
       id: n.id,
       title: n.subject.title,
       type: n.subject.type,
@@ -111,34 +98,25 @@ export async function fetchNotifications(
         instance.baseUrl,
         n.subject.latest_comment_url,
       ),
-      unread: n.unread ? 1 : 0,
-      updated_at: n.updated_at,
+      unread: n.unread,
+      updatedAt: n.updated_at,
     }));
 
-  repo.replaceNotifications(instance.id, rows);
-
-  const rateRemainingRaw = firstPageResp.headers["x-ratelimit-remaining"];
-  const rateRemaining = rateRemainingRaw
-    ? Number.parseInt(rateRemainingRaw, 10)
-    : null;
-  const rateResetRaw = firstPageResp.headers["x-ratelimit-reset"];
-  const rateResetAt = rateResetRaw
-    ? new Date(Number.parseInt(rateResetRaw, 10) * 1000).toISOString()
-    : null;
-
-  repo.upsertSyncState({
-    instance_id: instance.id,
-    kind: "notifications",
-    last_run_at: new Date().toISOString(),
-    last_etag: firstPageResp.headers.etag ?? null,
-    last_modified: firstPageResp.headers["last-modified"] ?? null,
-    rate_remaining: rateRemaining,
-    rate_reset_at: rateResetAt,
-  });
-
   return {
-    count: rows.length,
-    notModified: false,
-    rateRemaining,
+    data: rows,
+    metadata: {
+      ...headersMetadata(firstPageResp.headers),
+      etag: firstPageResp.headers.etag ?? null,
+    },
+  };
+}
+
+function headersMetadata(headers: Record<string, string>): Metadata {
+  const remaining = headers["x-ratelimit-remaining"];
+  const reset = headers["x-ratelimit-reset"];
+  return {
+    remaining: remaining === undefined ? null : Number(remaining),
+    resetAt:
+      reset === undefined ? null : new Date(Number(reset) * 1000).toISOString(),
   };
 }

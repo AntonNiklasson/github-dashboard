@@ -1,0 +1,30 @@
+{
+  "name": "cli",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ghd": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsgo",
+    "dev": "node --watch --watch-preserve-output --conditions=development --import tsx src/index.ts",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "clipboardy": "^5.3.2",
+    "ink": "^7.1.1",
+    "marked": "^18.0.14",
+    "open": "^11.0.4",
+    "react": "^19.2.4",
+    "sync": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.21.0",
+    "vitest": "^4.1.2"
+  }
+}

@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
 import { openCache, wipeCacheFile } from "./open.js";
 import { CACHE_SCHEMA_VERSION } from "./schema.js";
 
@@ -73,6 +75,20 @@ describe("cache open", () => {
     ).n;
     expect(count).toBe(0);
     second.db.close();
+  });
+
+  test("rebuilds an unversioned incompatible legacy database before applying DDL", () => {
+    const path = join(cacheRoot, "github-dashboard/cache.sqlite");
+    mkdirSync(join(cacheRoot, "github-dashboard"));
+    const legacy = new Database(path);
+    legacy.exec("CREATE TABLE prs (legacy INTEGER)");
+    legacy.close();
+    const { db, wiped } = openCache();
+    expect(wiped).toBe(true);
+    expect(
+      db.prepare("SELECT value FROM meta WHERE key='schema_version'").get(),
+    ).toEqual({ value: String(CACHE_SCHEMA_VERSION) });
+    db.close();
   });
 
   test("wipeCacheFile removes the file", () => {

@@ -4,13 +4,14 @@ import { join } from "node:path";
 import { Octokit } from "@octokit/rest";
 import { parse } from "yaml";
 import { z } from "zod";
+import { silentLog } from "./providers/github/client.js";
 
 export interface GitHubInstance {
   id: string;
   label: string;
   baseUrl: string;
   token: string;
-  username: string;
+  username?: string;
 }
 
 export function instanceIdFromDomain(domain: string): string {
@@ -75,7 +76,7 @@ async function resolveUsername(
     return cached;
   }
 
-  const client = new Octokit({ auth: token, baseUrl });
+  const client = new Octokit({ auth: token, baseUrl, log: silentLog });
   const { data } = await client.users.getAuthenticated();
   usernameCache.set(key, data.login);
 
@@ -94,7 +95,7 @@ function sanitizeYamlError(err: unknown): string {
   return "Invalid YAML syntax";
 }
 
-export async function loadInstances(): Promise<GitHubInstance[]> {
+export function loadInstances(): GitHubInstance[] {
   const path = resolveConfigPath();
   if (!existsSync(path)) {
     throw new Error(`config not found at ${path}`);
@@ -117,14 +118,19 @@ export async function loadInstances(): Promise<GitHubInstance[]> {
   for (const entry of entries) {
     const id = instanceIdFromDomain(entry.domain);
     const baseUrl = domainToApiBase(entry.domain);
-    const username = await resolveUsername(baseUrl, entry.token);
     instances.push({
       id,
       label: entry.label || entry.domain,
       baseUrl,
       token: entry.token,
-      username,
     });
   }
+  if (new Set(instances.map((i) => i.id)).size !== instances.length) {
+    throw new Error("duplicate instance ID in config");
+  }
   return instances;
+}
+
+export async function authenticate(instance: GitHubInstance): Promise<string> {
+  return instance.username ?? resolveUsername(instance.baseUrl, instance.token);
 }
