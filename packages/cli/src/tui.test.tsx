@@ -372,6 +372,34 @@ test("notifications: Enter opens in browser, e marks done optimistically", async
   await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
   ui.unmount();
 });
+test("queued PRs get the merge-queue icon and no auto-merge line", () => {
+  const template = fake.listPullRequests("x", "prs")[0]!;
+  const runtime = {
+    ...fake,
+    listPullRequests: () => [
+      { ...template, autoMerge: true, inMergeQueue: true },
+      { ...template, id: 2, number: 2, title: "armed", autoMerge: true },
+    ],
+  } as unknown as ReturnType<typeof createSync>;
+  const ui = render(
+    <Dashboard
+      runtime={runtime}
+      cycle={null}
+      error={null}
+      syncing={false}
+      onRefresh={() => {}}
+      onQuit={() => {}}
+    />,
+  );
+  const frame = ui.lastFrame()!;
+  const queued = frame.split("\n").find((line) => line.includes("safe"))!;
+  expect(queued).toContain("\uf4db");
+  expect(queued).not.toContain("\uf407");
+  expect(frame).toContain("In merge queue");
+  // Only the armed (not yet queued) PR shows the auto-merge line.
+  expect(frame.match(/auto-merge/g)).toHaveLength(1);
+  ui.unmount();
+});
 test("long list stays inside viewport and scrolls with selection", async () => {
   const many = {
     ...fake,

@@ -25,7 +25,7 @@ test("labels known reasons and humanizes unknown ones", () => {
   expect(notificationReason("some_new_reason").label).toBe("some new reason");
 });
 
-test("row shows number, repo, reason and an unread dot only when unread", () => {
+test("row shows number, repo and reason; read and unread look the same", () => {
   const notification = {
     id: "n",
     title: "Fix \x1b[2J things",
@@ -44,7 +44,6 @@ test("row shows number, repo, reason and an unread dot only when unread", () => 
   expect(frame).toContain("o/r");
   expect(frame).toContain("Mentioned in a comment");
   expect(frame).toContain("just now");
-  expect(frame).toContain("");
   expect(frame).not.toContain("\x1b[2J");
   unread.unmount();
   const read = render(
@@ -54,6 +53,6 @@ test("row shows number, repo, reason and an unread dot only when unread", () => 
       active={false}
     />,
   );
-  expect(read.lastFrame()).not.toContain("");
+  expect(read.lastFrame()).toBe(frame);
   read.unmount();
 });

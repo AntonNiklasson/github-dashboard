@@ -33,7 +33,6 @@ const icons = {
   mail: "", // oct-mail
   repo: "", // oct-repo
   clock: "", // oct-clock
-  unread: "", // oct-dot_fill
 } as const;
 
 // Provider text is untrusted: strip control characters (ANSI escapes).
@@ -110,8 +109,8 @@ export function notificationNumber(url: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-// Same shape as a PR row: header, title, meta, spacer. Read notifications
-// are dimmed; unread ones get a bright icon, bold title and a dot.
+// Same shape as a PR row: header, title, meta, spacer.
+// Read state isn't shown: a notification is either in the inbox or done.
 export function NotificationRow({
   repo,
   notification,
@@ -121,7 +120,6 @@ export function NotificationRow({
   notification: Notification;
   active: boolean;
 }) {
-  const { unread } = notification;
   const reason = notificationReason(notification.reason);
   const number = notificationNumber(notification.url);
   const updated = ago(notification.updatedAt);
@@ -139,7 +137,7 @@ export function NotificationRow({
               {"  "}
             </>
           )}
-          <Text color={unread ? "white" : colors.muted}>
+          <Text color="white">
             {icons.repo} {safe(repo)}
           </Text>
         </Text>
@@ -147,20 +145,16 @@ export function NotificationRow({
           <Text color="cyan" bold>
             {active ? "❯" : " "}
           </Text>{" "}
-          <Text color={unread ? colors.accent : colors.subtle}>
+          <Text color={colors.accent}>
             {notificationTypeIcon(notification.type)}
           </Text>{" "}
-          <Text
-            bold={unread}
-            color={active ? "cyan" : unread ? "white" : colors.muted}
-          >
+          <Text bold color={active ? "cyan" : "white"}>
             {safe(notification.title)}
           </Text>
-          {unread && <Text color={colors.accent}> {icons.unread}</Text>}
         </Text>
         <Text color={colors.muted} wrap="truncate-end">
           {"    "}
-          <Text color={unread ? (reason.color ?? colors.muted) : colors.subtle}>
+          <Text color={reason.color ?? colors.muted}>
             {reason.icon} {reason.label}
             {/* The comment anchor means the activity is a specific comment. */}
             {onComment(notification.url) && " in a comment"}

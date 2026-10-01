@@ -106,6 +106,7 @@ const icons = {
   clock: "\uf43a", // oct-clock
   approved: "\uf4a4", // oct-check_circle_fill
   merge: "\uf419", // oct-git_merge
+  queue: "\uf4db", // oct-git_merge_queue
   repo: "\uf401", // oct-repo
 } as const;
 const ciGlyph: Record<NormalizedPr["ciStatus"], string> = {
@@ -122,7 +123,8 @@ function prStatus(pr: NormalizedPr, { list = false } = {}): Status | null {
   if (pr.mergeStateStatus === "DIRTY" || pr.mergeable === false)
     return { text: "Conflicts", color: colors.warning, badge: true };
   if (pr.draft) return null;
-  if (pr.inMergeQueue) return { text: "In merge queue", color: colors.accent };
+  if (pr.inMergeQueue)
+    return { text: "In merge queue", color: colors.warning, icon: icons.queue };
   if (pr.reviewDecision === "APPROVED")
     return { text: "Approved", color: colors.success, icon: icons.approved };
   if (pr.reviewDecision === "CHANGES_REQUESTED")
@@ -264,8 +266,20 @@ function PrRow({
                 {active ? "❯" : " "}
               </Text>{" "}
               <Text color={colors.subtle}>{gutter.title}</Text>
-              <Text color={pr.draft ? colors.muted : colors.success}>
-                {pr.draft ? icons.draft : icons.pr}
+              <Text
+                color={
+                  pr.draft
+                    ? colors.muted
+                    : pr.inMergeQueue
+                      ? colors.warning
+                      : colors.success
+                }
+              >
+                {pr.draft
+                  ? icons.draft
+                  : pr.inMergeQueue
+                    ? icons.queue
+                    : icons.pr}
               </Text>{" "}
               <Text bold color={active ? "cyan" : "white"}>
                 {title}
@@ -286,7 +300,8 @@ function PrRow({
             i ? [<Sep key={`sep${i}`} />, part] : [part],
           )}
         </Text>
-        {pr.autoMerge && (
+        {/* Queued PRs are past auto-merge; the queue status says enough. */}
+        {pr.autoMerge && !pr.inMergeQueue && (
           <Text wrap="truncate-end">
             <Text color={colors.subtle}>{gutter.meta}</Text>
             {"    "}
@@ -380,15 +395,9 @@ function PrDetails({
           <Text color={colors.accent}>{pr.labels.map(safe).join(", ")}</Text>
         </Text>
       ) : null}
-      {(pr.autoMerge || pr.inMergeQueue) && (
-        <Text color={colors.accent}>
-          {[
-            pr.autoMerge && `${icons.merge} auto-merge enabled`,
-            pr.inMergeQueue && "in merge queue",
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </Text>
+      {/* Status already shows the merge queue; auto-merge is moot there. */}
+      {pr.autoMerge && !pr.inMergeQueue && (
+        <Text color={colors.accent}>{icons.merge} auto-merge enabled</Text>
       )}
       <Text> </Text>
       {/* Wrapped Markdown has no fixed line count; clip to the space left. */}
@@ -408,7 +417,8 @@ function PrDetails({
 // Lines per list entry: header, title, meta (+ auto-merge for PRs) and a spacer.
 function rowHeight(row: Stacked<Entry>): number {
   if (!row.entry.pr) return 4;
-  return 4 + (row.entry.pr.autoMerge ? 1 : 0);
+  const { autoMerge, inMergeQueue } = row.entry.pr;
+  return 4 + (autoMerge && !inMergeQueue ? 1 : 0);
 }
 // Smallest start that still fits the selection, then as many rows as fit.
 function scrollWindow(heights: number[], selected: number, budget: number) {
