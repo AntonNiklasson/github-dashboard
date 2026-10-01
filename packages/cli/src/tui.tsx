@@ -2,9 +2,13 @@ import { setTimeout as sleep } from "node:timers/promises";
 import clipboard from "clipboardy";
 import { Box, Text, render, useInput, useWindowSize } from "ink";
 import open from "open";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { actionOptions } from "./actions.js";
 import { copyOptions } from "./copy.js";
-import { Markdown } from "./markdown.js";
+import { openOptions } from "./links.js";
+import { Markdown, markdownBlocks } from "./markdown.js";
+import { CommentsView, commentThreads, type Thread } from "./comments.js";
+import { ago } from "./time.js";
 import { createDemoRuntime } from "./demo.js";
 import { ReviewPane } from "./review.js";
 import { stackPrs, type Stacked } from "./stack.js";
@@ -35,6 +39,13 @@ type Entry = {
   notification?: Notification;
 };
 const tabs: SyncKind[] = ["prs", "reviews", "notifications"];
+type DetailTab = "description" | "comments" | "diff";
+const detailTabs: DetailTab[] = ["description", "comments", "diff"];
+const detailTabLabels: Record<DetailTab, string> = {
+  description: "Description",
+  comments: "Comments",
+  diff: "Diff",
+};
 const tabLabels: Record<SyncKind, string> = {
   prs: "My work",
   reviews: "Requested reviews",
@@ -81,19 +92,6 @@ function shorten(text: string, width: number): string {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-function ago(iso: string | undefined, now = Date.now()): string {
-  const then = iso ? Date.parse(iso) : NaN;
-  if (Number.isNaN(then)) return "";
-  const minutes = Math.max(0, Math.floor((now - then) / 60_000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 14) return `${days}d ago`;
-  if (days < 60) return `${Math.floor(days / 7)}w ago`;
-  return `${Math.floor(days / 30)}mo ago`;
-}
 // Nerd Font octicons; requires a patched terminal font.
 const icons = {
   pr: "\uf407", // oct-git_pull_request
@@ -104,7 +102,8 @@ const icons = {
   dotEmpty: "\uf4c3", // oct-dot
   comment: "\uf41f", // oct-comment
   clock: "\uf43a", // oct-clock
-  instance: "\uf473", // oct-server
+  approved: "\uf4a4", // oct-check_circle_fill
+  merge: "\uf419", // oct-git_merge
   repo: "\uf401", // oct-repo
 } as const;
 const ciGlyph: Record<NormalizedPr["ciStatus"], string> = {
@@ -114,7 +113,8 @@ const ciGlyph: Record<NormalizedPr["ciStatus"], string> = {
   unknown: "",
 };
 // Mirrors GitHub's list subtitle: conflicts, then review state. List rows show
-// draft via the icon, so drafts only surface conflicts there.
+// draft via the icon, so drafts only surface conflicts there, and skip the
+// default "Review required".
 function prStatus(pr: NormalizedPr, { list = false } = {}): Status | null {
   if (pr.draft && !list) return { text: "Draft", color: colors.muted };
   if (pr.mergeStateStatus === "DIRTY" || pr.mergeable === false)
@@ -122,14 +122,20 @@ function prStatus(pr: NormalizedPr, { list = false } = {}): Status | null {
   if (pr.draft) return null;
   if (pr.inMergeQueue) return { text: "In merge queue", color: colors.accent };
   if (pr.reviewDecision === "APPROVED")
-    return { text: "Approved", color: colors.success };
+    return { text: "Approved", color: colors.success, icon: icons.approved };
   if (pr.reviewDecision === "CHANGES_REQUESTED")
     return { text: "Changes requested", color: colors.failure };
-  if (pr.reviewDecision === "REVIEW_REQUIRED")
+  // The default for open PRs on protected branches; only worth a line in details.
+  if (pr.reviewDecision === "REVIEW_REQUIRED" && !list)
     return { text: "Review required", color: colors.warning };
   return null;
 }
-type Status = { text: string; color: string; badge?: boolean };
+type Status = {
+  text: string;
+  color: string;
+  badge?: boolean;
+  icon?: string;
+};
 // Badges invert the status color so blocking states stand out in the row.
 function StatusText({ status }: { status: Status }) {
   return status.badge ? (
@@ -139,6 +145,7 @@ function StatusText({ status }: { status: Status }) {
     </Text>
   ) : (
     <Text bold color={status.color}>
+      {status.icon && `${status.icon} `}
       {status.text}
     </Text>
   );
@@ -228,11 +235,6 @@ function PrRow({
         {openThreads(pr.unresolvedThreadCount)}
       </Text>
     ),
-    pr.autoMerge && (
-      <Text key="auto" color={colors.accent}>
-        auto-merge
-      </Text>
-    ),
   ].filter(Boolean);
   return (
     <Box flexDirection="column">
@@ -243,11 +245,9 @@ function PrRow({
         <Text color={colors.subtle} wrap="truncate-end">
           {gutter.header}
           {"    "}#{pr.number}
-          {/* Sub-PRs share their root's instance and repo; don't repeat them. */}
+          {/* Sub-PRs share their root's repo; don't repeat it. */}
           {!child && (
             <>
-              {"  "}
-              {icons.instance} {safe(entry.label)}
               {"  "}
               <Text color="white">
                 {icons.repo} {safe(entry.repo)}
@@ -284,6 +284,13 @@ function PrRow({
             i ? [<Sep key={`sep${i}`} />, part] : [part],
           )}
         </Text>
+        {pr.autoMerge && (
+          <Text wrap="truncate-end">
+            <Text color={colors.subtle}>{gutter.meta}</Text>
+            {"    "}
+            <Text color={colors.accent}>{icons.merge} auto-merge</Text>
+          </Text>
+        )}
       </Box>
       <Text color={colors.subtle}>{gutter.spacer}</Text>
     </Box>
@@ -294,10 +301,12 @@ function PrDetails({
   pr,
   width,
   maxLines,
+  skip,
 }: {
   pr: NormalizedPr;
   width: number;
   maxLines: number;
+  skip: number;
 }) {
   const status = prStatus(pr);
   return (
@@ -372,7 +381,7 @@ function PrDetails({
       {(pr.autoMerge || pr.inMergeQueue) && (
         <Text color={colors.accent}>
           {[
-            pr.autoMerge && "auto-merge enabled",
+            pr.autoMerge && `${icons.merge} auto-merge enabled`,
             pr.inMergeQueue && "in merge queue",
           ]
             .filter(Boolean)
@@ -388,7 +397,7 @@ function PrDetails({
         flexDirection="column"
         flexShrink={0}
       >
-        <Markdown source={pr.body ?? ""} />
+        <Markdown source={pr.body ?? ""} skip={skip} />
       </Box>
     </>
   );
@@ -398,12 +407,10 @@ function NotificationRow({
   entry,
   notification,
   active,
-  showInstance,
 }: {
   entry: Entry;
   notification: Notification;
   active: boolean;
-  showInstance: boolean;
 }) {
   const updated = ago(notification.updatedAt);
   return (
@@ -438,17 +445,25 @@ function NotificationRow({
             {icons.clock} {updated}
           </>
         )}
-        {showInstance && (
-          <>
-            <Sep />
-            <Text color={colors.subtle}>
-              {icons.instance} {safe(entry.label)}
-            </Text>
-          </>
-        )}
       </Text>
     </Box>
   );
+}
+// Lines per list entry: PRs are header, title, meta (+ auto-merge) and a spacer.
+function rowHeight(row: Stacked<Entry>): number {
+  if (!row.entry.pr) return 2;
+  return 4 + (row.entry.pr.autoMerge ? 1 : 0);
+}
+// Smallest start that still fits the selection, then as many rows as fit.
+function scrollWindow(heights: number[], selected: number, budget: number) {
+  let start = selected;
+  let used = heights[selected] ?? 0;
+  while (start > 0 && used + heights[start - 1]! <= budget)
+    used += heights[--start]!;
+  let end = selected + 1;
+  while (end < heights.length && used + heights[end]! <= budget)
+    used += heights[end++]!;
+  return { start: Math.max(0, start), end: Math.max(end, start + 1) };
 }
 function itemsFor(
   runtime: Runtime,
@@ -510,7 +525,7 @@ export function Dashboard({
   const width = columns || 80;
   const rows = height || 24;
   const [tab, setTab] = useState<SyncKind>(initialKind);
-  const [instanceId, setInstanceId] = useState<string | null>(
+  const [chosenInstance, setInstanceId] = useState<string | null>(
     initialInstanceId ?? null,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -519,13 +534,43 @@ export function Dashboard({
   const [searching, setSearching] = useState(false);
   const [help, setHelp] = useState(false);
   const [detail, setDetail] = useState(false);
-  const [review, setReview] = useState<Entry | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>("description");
+  // Scroll position in the details tab, in Markdown blocks or comment threads.
+  const [scroll, setScroll] = useState(0);
+  const [comments, setComments] = useState<
+    Record<string, { threads?: Thread[]; error?: string }>
+  >({});
   const [message, setMessage] = useState("");
   const [sorts, setSorts] = useState(defaultSort);
-  // Leader-key menus: `s` / `y`, then an option key; anything else cancels.
-  const [menu, setMenu] = useState<"sort" | "copy" | null>(null);
+  // Leader-key menus: `s` / `y` / `i`, then an option key; anything else cancels.
+  const [menu, setMenu] = useState<
+    "sort" | "copy" | "instance" | "open" | "action" | null
+  >(null);
+  // Footer prompt; Enter or y runs it (plus `also`, e.g. q for quit).
+  const [confirm, setConfirm] = useState<{
+    prompt: string;
+    also?: string;
+    run: () => void;
+  } | null>(null);
+  // Optimistic PR fields after an action, until a resync catches up (GitHub's
+  // search index lags a few seconds behind writes).
+  const [overrides, setOverrides] = useState<
+    Record<string, { at: number; fields: Partial<NormalizedPr> }>
+  >({});
   const instances = runtime.listInstances();
-  const available = itemsFor(runtime, tab, instanceId);
+  // One instance at a time; fall back to the first configured one.
+  const instanceId =
+    instances.find((instance) => instance.id === chosenInstance)?.id ??
+    instances[0]?.id ??
+    null;
+  const prKey = (instance: string, pr: NormalizedPr) =>
+    `${instance}/${pr.repo}#${pr.number}`;
+  const available = itemsFor(runtime, tab, instanceId).map((entry) => {
+    const override = entry.pr && overrides[prKey(entry.instanceId, entry.pr)];
+    return override && Date.now() - override.at < 60_000
+      ? { ...entry, pr: { ...entry.pr!, ...override.fields } }
+      : entry;
+  });
   const sort = sorts[tab];
   const filtered = available
     .filter((item) =>
@@ -544,32 +589,98 @@ export function Dashboard({
     Math.max(0, listed.length - 1),
   );
   const item = listed[selected]?.entry;
+  // Details: PRs get Description / Comments / Diff tabs; notifications don't.
+  const tabbed = detail && !!item?.pr;
+  const activeDetailTab: DetailTab = tabbed ? detailTab : "description";
+  const itemKey = item?.pr ? prKey(item.instanceId, item.pr) : null;
+  const itemComments = itemKey ? comments[itemKey] : undefined;
+  const scrollMax =
+    activeDetailTab === "comments"
+      ? Math.max(0, (itemComments?.threads?.length ?? 1) - 1)
+      : Math.max(0, markdownBlocks(item?.pr?.body ?? "") - 1);
+  const openDetailTab = (next: DetailTab) => {
+    setDetailTab(next);
+    setScroll(0);
+  };
+  const cycleDetailTab = (direction: 1 | -1) => {
+    const next = detailTabs.indexOf(activeDetailTab) + direction;
+    openDetailTab(detailTabs[(next + detailTabs.length) % detailTabs.length]!);
+  };
+
+  // Comments load on demand when their tab opens, once per PR (r refetches).
+  useEffect(() => {
+    if (activeDetailTab !== "comments" || !item?.pr || !itemKey) return;
+    if (comments[itemKey]) return;
+    setComments((current) => ({ ...current, [itemKey]: {} }));
+    runtime
+      .getPullRequestComments({
+        instanceId: item.instanceId,
+        repo: item.pr.repo,
+        number: item.pr.number,
+      })
+      .then(
+        (list) => commentThreads(list),
+        (err: unknown) => errorMessage(err),
+      )
+      .then((result) =>
+        setComments((current) => ({
+          ...current,
+          [itemKey]:
+            typeof result === "string"
+              ? { error: result }
+              : { threads: result },
+        })),
+      );
+  }, [activeDetailTab, itemKey]);
+
   const count = (kind: SyncKind) => itemsFor(runtime, kind, instanceId).length;
-  // PR entries take three lines plus a spacer, notifications two. Keep the footer visible.
-  const visible = Math.max(
-    1,
-    Math.floor((rows - 10) / (tab === "notifications" ? 2 : 4)),
-  );
-  const start = Math.max(0, selected - visible + 1);
-  const instanceOptions =
-    instances.length > 1
-      ? [{ id: null, label: "All" }, ...instances]
-      : instances.length
-        ? instances
-        : [{ id: null, label: "No instances" }];
-  const activeInstance =
-    instanceId ?? (instances.length === 1 ? instances[0]!.id : null);
-  // Fit tabs on one row; keep the active one visible when many hosts exist.
+  const failures =
+    cycle?.results.flatMap((result) =>
+      result.fetches
+        .filter(
+          (fetch) => fetch.status === "failed" || fetch.status === "skipped",
+        )
+        .map(
+          (fetch) =>
+            `${result.instanceId}/${fetch.kind} ${fetch.status}${fetch.reason ? `: ${fetch.reason}` : ""}`,
+        ),
+    ) ?? [];
+  // Routine sync state lives in the top bar's SYNCING / READY; the status line
+  // only appears for things worth reading.
+  const status = stopping
+    ? "Quitting…"
+    : error
+      ? `Sync error: ${error}`
+      : failures.join(" | ");
+  const statusText = message || status;
+  const footerLines = statusText ? 2 : 1;
+  // Scroll window by actual row heights. Chrome: the top bar, the sort line,
+  // and the footer (key hints, plus the status line when it has content).
+  const budget = Math.max(1, rows - 2 - footerLines);
+  const { start, end } = scrollWindow(listed.map(rowHeight), selected, budget);
+  const visible = Math.max(1, end - start);
+  const instanceOptions: { id: string | null; label: string }[] =
+    instances.length ? instances : [{ id: null, label: "No instances" }];
+  const activeInstance = instanceId;
+  // Instances share the top bar with the view tabs and sync status: show
+  // them all when they fit, else just the active one with ‹ › hints.
   const tabWidth = 20;
-  const tabCount = Math.max(1, Math.floor((width - 4) / tabWidth));
+  const viewTabsWidth = tabs.reduce(
+    (sum, kind) =>
+      sum + tabLabels[kind].length + String(count(kind)).length + 3,
+    0,
+  );
+  const instancesWidth = instanceOptions.reduce(
+    (sum, instance) => sum + Math.min(instance.label.length, tabWidth - 5) + 3,
+    0,
+  );
   const activeTabIndex = Math.max(
     0,
     instanceOptions.findIndex((i) => i.id === activeInstance),
   );
-  const firstTab = Math.min(
-    Math.max(0, activeTabIndex - tabCount + 1),
-    Math.max(0, instanceOptions.length - tabCount),
-  );
+  const fitsAll = instancesWidth <= width - viewTabsWidth - 14;
+  const firstTab = fitsAll ? 0 : activeTabIndex;
+  const tabCount = fitsAll ? instanceOptions.length : 1;
   const visibleTabs = instanceOptions.slice(firstTab, firstTab + tabCount);
   const changed = (kind: SyncKind) => {
     setTab(kind);
@@ -577,15 +688,24 @@ export function Dashboard({
     setSelectedId(null);
     setDetail(false);
   };
-  const chooseInstance = (direction: number) => {
-    const ids = instanceOptions.map((i) => i.id);
-    setInstanceId(
-      ids[(ids.indexOf(instanceId) + direction + ids.length) % ids.length]!,
-    );
+  const selectInstance = (id: string | null) => {
+    setInstanceId(id);
     setIndex(0);
     setSelectedId(null);
     setDetail(false);
   };
+  const chooseInstance = (direction: number) => {
+    const ids = instances.map((i) => i.id);
+    if (!ids.length) return;
+    const current = instanceId ? ids.indexOf(instanceId) : 0;
+    selectInstance(ids[(current + direction + ids.length) % ids.length]!);
+  };
+  const instanceMenu = instances.slice(0, 9).map((instance, i) => ({
+    key: String(i + 1),
+    label: instance.label,
+    active: instance.id === instanceId,
+    id: instance.id,
+  }));
   const move = (delta: number) => {
     const next = Math.max(0, Math.min(listed.length - 1, selected + delta));
     setIndex(next);
@@ -601,22 +721,55 @@ export function Dashboard({
         setMessage(`Copy ${option.label} failed: ${errorMessage(err)}`),
       );
   };
-  const act = (action: (url: string) => Promise<unknown>, verb: string) => {
-    if (!item || !/^https?:\/\//i.test(item.url)) {
-      setMessage("No valid URL for selected item");
-      return;
-    }
-    void action(item.url)
-      .then(() => setMessage(`${verb}: ${safe(item.title)}`))
-      .catch((err: unknown) =>
-        setMessage(`${verb} failed: ${errorMessage(err)}`),
-      );
+  const opens = item ? openOptions(item) : [];
+  const actions = item ? actionOptions(item, tab, runtime) : [];
+  // Optimistic: show the expected state now, run the action in the
+  // background, and roll back if GitHub rejects it.
+  const perform = (option: (typeof actions)[number]) => {
+    const target = item;
+    if (!target?.pr) return;
+    const key = prKey(target.instanceId, target.pr);
+    const previous = overrides[key];
+    const apply = (fields: Partial<NormalizedPr>) =>
+      setOverrides((current) => ({
+        ...current,
+        [key]: {
+          at: Date.now(),
+          fields: { ...current[key]?.fields, ...fields },
+        },
+      }));
+    apply(option.optimistic);
+    setMessage("");
+    void option
+      .run()
+      .then((fields) => {
+        apply(fields);
+        onRefresh();
+      })
+      .catch((err: unknown) => {
+        setOverrides(({ [key]: _failed, ...rest }) =>
+          previous ? { ...rest, [key]: previous } : rest,
+        );
+        setMessage(
+          `${option.label} failed: ${errorMessage(err)} · ${safe(target.title)}`,
+        );
+      });
   };
 
   useInput(
     (input, key) => {
       if (key.ctrl && input === "c") {
         onQuit();
+        return;
+      }
+      if (confirm) {
+        setConfirm(null);
+        if (
+          key.return ||
+          input === "y" ||
+          (confirm.also && input === confirm.also)
+        )
+          confirm.run();
         return;
       }
       if (help) {
@@ -628,6 +781,29 @@ export function Dashboard({
         if (menu === "sort") {
           const next = pickSort(tab, sort, input);
           if (next) setSorts((current) => ({ ...current, [tab]: next }));
+        } else if (menu === "open") {
+          const option = opens.find((candidate) => candidate.key === input);
+          if (option)
+            void onOpen(option.url)
+              .then(() => setMessage(`Opened ${option.label}`))
+              .catch((err: unknown) =>
+                setMessage(`Open failed: ${errorMessage(err)}`),
+              );
+        } else if (menu === "action") {
+          const option = actions.find((candidate) => candidate.key === input);
+          if (option) {
+            if (option.confirm)
+              setConfirm({
+                prompt: option.confirm,
+                run: () => perform(option),
+              });
+            else perform(option);
+          }
+        } else if (menu === "instance") {
+          const option = instanceMenu.find(
+            (candidate) => candidate.key === input,
+          );
+          if (option) selectInstance(option.id);
         } else {
           const option = copies.find((candidate) => candidate.key === input);
           if (option) copy(option);
@@ -650,7 +826,8 @@ export function Dashboard({
         }
         return;
       }
-      if (input === "q") onQuit();
+      if (input === "q")
+        setConfirm({ prompt: "Quit?", also: "q", run: onQuit });
       else if (input === "?") setHelp(true);
       else if (input === "/") {
         setSearching(true);
@@ -658,36 +835,58 @@ export function Dashboard({
         setIndex(0);
         setSelectedId(null);
       } else if (key.escape) {
-        if (detail) setDetail(false);
-        else {
+        if (detail) {
+          setDetail(false);
+          setScroll(0);
+        } else {
           setQuery("");
           setMessage("");
         }
-      } else if (input === "r") onRefresh();
-      else if (input === "s") setMenu("sort");
+      } else if (input === "r") {
+        // Refetch the open PR's comments too, not just the synced lists.
+        if (itemKey) setComments(({ [itemKey]: _stale, ...rest }) => rest);
+        onRefresh();
+      } else if (input === "s") setMenu("sort");
       else if (input === "S")
         setSorts((current) => ({
           ...current,
           [tab]: { ...sort, dir: sort.dir === "asc" ? "desc" : "asc" },
         }));
-      else if (input === "o") act(onOpen, "Opened");
-      else if (input === "y") {
+      else if (input === "o") {
+        if (opens.length) setMenu("open");
+        else setMessage("No valid URL for selected item");
+      } else if (input === ".") {
+        if (actions.length) setMenu("action");
+        else setMessage("No actions for selected item");
+      } else if (input === "y") {
         if (copies.length) setMenu("copy");
         else setMessage("Nothing to copy for selected item");
-      } else if (key.upArrow || input === "k") move(-1);
+      } else if (detail && (key.upArrow || input === "k"))
+        setScroll((value) => Math.max(0, value - 1));
+      else if (detail && (key.downArrow || input === "j"))
+        setScroll((value) => Math.min(scrollMax, value + 1));
+      else if (key.upArrow || input === "k") move(-1);
       else if (key.downArrow || input === "j") move(1);
       else if (key.pageDown) move(visible);
       else if (key.pageUp) move(-visible);
-      else if (key.return && !detail && item) setDetail(true);
-      else if ((key.return || input === "d") && detail && item?.pr)
-        setReview(item);
+      else if (key.return && !detail && item) {
+        setDetail(true);
+        openDetailTab("description");
+      } else if ((key.return || input === "d") && tabbed) openDetailTab("diff");
       else if (input === "[" || key.leftArrow) chooseInstance(-1);
       else if (input === "]" || key.rightArrow) chooseInstance(1);
-      else if (key.tab) chooseInstance(key.shift ? -1 : 1);
+      else if (input === "i" && instances.length > 1) setMenu("instance");
+      else if (key.tab && tabbed) cycleDetailTab(key.shift ? -1 : 1);
+      else if (key.tab) {
+        const next = tabs.indexOf(tab) + (key.shift ? -1 : 1);
+        changed(tabs[(next + tabs.length) % tabs.length]!);
+      } else if (["1", "2", "3"].includes(input) && tabbed)
+        openDetailTab(detailTabs[Number(input) - 1]!);
       else if (["1", "2", "3"].includes(input))
         changed(tabs[Number(input) - 1]!);
     },
-    { isActive: review === null },
+    // The diff tab's ReviewPane owns input (it hands Tab back via onTab).
+    { isActive: !(tabbed && activeDetailTab === "diff") },
   );
 
   if (rows < 16 || width < 40)
@@ -697,79 +896,48 @@ export function Dashboard({
         <Text>Terminal needs at least 40×16. Press q to quit.</Text>
       </Box>
     );
-  const failures =
-    cycle?.results.flatMap((result) =>
-      result.fetches
-        .filter(
-          (fetch) => fetch.status === "failed" || fetch.status === "skipped",
-        )
-        .map(
-          (fetch) =>
-            `${result.instanceId}/${fetch.kind} ${fetch.status}${fetch.reason ? `: ${fetch.reason}` : ""}`,
-        ),
-    ) ?? [];
-  const status = stopping
-    ? "Stopping — draining sync…"
-    : syncing
-      ? "Refreshing… cached data remains visible"
-      : error
-        ? `Sync error: ${error}`
-        : failures.length
-          ? failures.join(" | ")
-          : cycle
-            ? `Updated ${cycle.finishedAt}`
-            : "Cached data · refresh pending";
 
   return (
     <Box width={width} height={rows} flexDirection="column">
+      {/* One top bar: views on the left, instances and sync state on the right. */}
       <Box justifyContent="space-between" paddingX={1}>
-        <Text bold color="cyan">
-          ◆ GITHUB DASHBOARD
-        </Text>
-        <Text color={syncing ? "yellow" : "green"}>
-          {syncing ? "● SYNCING" : "● READY"}
-        </Text>
-      </Box>
-      <Box paddingX={1} gap={1}>
-        {firstTab > 0 && <Text color="gray">‹</Text>}
-        {visibleTabs.map((instance) => (
-          <Text
-            key={instance.id ?? "all"}
-            bold={activeInstance === instance.id}
-            color={activeInstance === instance.id ? "black" : "gray"}
-            backgroundColor={
-              activeInstance === instance.id ? "cyan" : undefined
-            }
-          >
-            {activeInstance === instance.id ? "●" : "○"}{" "}
-            {shorten(instance.label, tabWidth - 5)}
+        <Box gap={2}>
+          {tabs.map((kind) => (
+            <Text
+              key={kind}
+              bold={tab === kind}
+              color={tab === kind ? "cyan" : "gray"}
+            >
+              {tabLabels[kind]} {count(kind)}
+            </Text>
+          ))}
+        </Box>
+        <Box gap={1}>
+          {firstTab > 0 && <Text color="gray">‹</Text>}
+          {visibleTabs.map((instance) => (
+            <Text
+              key={instance.id ?? "none"}
+              bold={activeInstance === instance.id}
+              color={activeInstance === instance.id ? "black" : "gray"}
+              backgroundColor={
+                activeInstance === instance.id ? "cyan" : undefined
+              }
+            >
+              {activeInstance === instance.id ? "●" : "○"}{" "}
+              {shorten(instance.label, tabWidth - 5)}
+            </Text>
+          ))}
+          {firstTab + tabCount < instanceOptions.length && (
+            <Text color="gray">›</Text>
+          )}
+          <Text color={syncing ? "yellow" : "green"}>
+            {"  "}
+            {syncing ? "● SYNCING" : "● READY"}
           </Text>
-        ))}
-        {firstTab + tabCount < instanceOptions.length && (
-          <Text color="gray">›</Text>
-        )}
-      </Box>
-      <Box paddingX={1} gap={2}>
-        {tabs.map((kind) => (
-          <Text
-            key={kind}
-            bold={tab === kind}
-            color={tab === kind ? "cyan" : "gray"}
-          >
-            {tabLabels[kind]} {count(kind)}
-          </Text>
-        ))}
+        </Box>
       </Box>
       <Box flexGrow={1} flexDirection="row">
-        {review?.pr ? (
-          <ReviewPane
-            runtime={runtime}
-            instanceId={review.instanceId}
-            pr={review.pr}
-            onBack={() => setReview(null)}
-            onQuit={onQuit}
-          />
-        ) : help ? (
+        {help ? (
           <Box
             flexGrow={1}
             borderStyle="round"
@@ -780,16 +948,21 @@ export function Dashboard({
             <Text bold color="cyan">
               KEYBOARD SHORTCUTS
             </Text>
-            <Text>Tab / Shift-Tab Switch instance tabs (including All)</Text>
+            <Text>
+              Tab / Shift-Tab Switch My work, Requested reviews, Notifications
+            </Text>
             <Text>
               1 / 2 / 3 Switch My work, Requested reviews, Notifications
             </Text>
-            <Text>[ / ] Cycle through instance tabs, too</Text>
+            <Text>i then 1-9 / [ ] Switch instance</Text>
             <Text>j / k or ↑ / ↓ Select item; PgUp / PgDn scroll</Text>
             <Text>
               / Search title, repository or instance; Enter applies, Esc clears
             </Text>
-            <Text>o Open selected item in browser</Text>
+            <Text>o then key Open PR, checks, diff, author's PRs or repo</Text>
+            <Text>
+              . then key Actions: toggle draft, toggle auto-merge, approve
+            </Text>
             <Text>
               y then key Copy number, URL, branch, review request or files
             </Text>
@@ -797,7 +970,7 @@ export function Dashboard({
               s then key Sort by field (again flips); S flips direction
             </Text>
             <Text>r Refresh (queued after any active fetch)</Text>
-            <Text>q Quit (drains active fetch)</Text>
+            <Text>q Quit (Enter, y or q again confirms; Ctrl-C quits now)</Text>
             <Text>Enter Show PR details; Enter / d again reviews the diff</Text>
             <Text>Esc Back to list / clear filter</Text>
             <Text> </Text>
@@ -807,8 +980,6 @@ export function Dashboard({
           <Box
             flexGrow={1}
             overflow="hidden"
-            borderStyle="round"
-            borderColor="cyan"
             flexDirection="column"
             paddingX={1}
           >
@@ -817,15 +988,55 @@ export function Dashboard({
               {safe(item.title)}
             </Text>
             <Text color={colors.muted} wrap="truncate-end">
-              {safe(item.repo)} · {safe(item.label)}
+              {safe(item.repo)}
             </Text>
+            {tabbed && (
+              <Box gap={2}>
+                {detailTabs.map((name) => (
+                  <Text
+                    key={name}
+                    bold={name === activeDetailTab}
+                    color={name === activeDetailTab ? "cyan" : "gray"}
+                  >
+                    {detailTabLabels[name]}
+                    {name === "comments" && item.pr!.commentCount
+                      ? ` ${item.pr!.commentCount}`
+                      : ""}
+                  </Text>
+                ))}
+              </Box>
+            )}
             <Text> </Text>
-            {item.pr ? (
+            {item.pr && activeDetailTab === "diff" ? (
+              <ReviewPane
+                key={itemKey}
+                runtime={runtime}
+                instanceId={item.instanceId}
+                pr={item.pr}
+                onBack={() => {
+                  setDetail(false);
+                  setScroll(0);
+                }}
+                onQuit={onQuit}
+                onTab={cycleDetailTab}
+              />
+            ) : item.pr && activeDetailTab === "comments" ? (
+              itemComments?.threads ? (
+                <CommentsView threads={itemComments.threads} skip={scroll} />
+              ) : itemComments?.error ? (
+                <Text color={colors.failure}>
+                  Couldn't load comments: {itemComments.error}
+                </Text>
+              ) : (
+                <Text color={colors.muted}>Loading comments…</Text>
+              )
+            ) : item.pr ? (
               <PrDetails
                 pr={item.pr}
-                width={width - 4}
-                // Chrome (5) + borders (2) + fixed detail lines (13).
-                maxLines={rows - 20}
+                width={width - 2}
+                // Chrome (3) + header with tabs (4) + fixed detail lines (9).
+                maxLines={rows - 15 - footerLines}
+                skip={scroll}
               />
             ) : (
               <>
@@ -845,35 +1056,33 @@ export function Dashboard({
                   <Text color={colors.muted}>Updated </Text>
                   {ago(item.notification?.updatedAt) || "unknown"}
                 </Text>
+                <Text> </Text>
+                <Text color="blue" wrap="truncate-end">
+                  {safe(item.url)}
+                </Text>
               </>
             )}
-            <Text> </Text>
-            <Text color="blue" wrap="truncate-end">
-              {safe(item.url)}
-            </Text>
           </Box>
         ) : (
           <Box
             flexGrow={1}
-            borderStyle="round"
-            borderColor="cyan"
+            overflow="hidden"
             flexDirection="column"
             paddingX={1}
           >
             <Box justifyContent="space-between">
-              <Text bold color="cyan">
-                {tabLabels[tab].toUpperCase()} {filtered.length}
-                {query ? ` / ${available.length}` : ""}
+              {/* The tab bar already names the view and its count. */}
+              <Text color={colors.muted}>
+                {query ? `${filtered.length} of ${available.length} match` : ""}
               </Text>
               <Text color={colors.muted}>
                 {sort.field} {sort.dir === "asc" ? "↑" : "↓"}
               </Text>
             </Box>
             {filtered.length ? (
-              listed.slice(start, start + visible).map((row, offset) => {
+              listed.slice(start, end).map((row, offset) => {
                 const { entry } = row;
                 const active = start + offset === selected;
-                const showInstance = instances.length > 1 && !instanceId;
                 return entry.pr ? (
                   <PrRow
                     key={entry.id}
@@ -883,7 +1092,7 @@ export function Dashboard({
                     // Every row in "My work" is yours; skip the redundant author.
                     showAuthor={tab !== "prs"}
                     stack={row}
-                    width={width - 4}
+                    width={width - 2}
                   />
                 ) : entry.notification ? (
                   <NotificationRow
@@ -891,7 +1100,6 @@ export function Dashboard({
                     entry={entry}
                     notification={entry.notification}
                     active={active}
-                    showInstance={showInstance}
                   />
                 ) : null;
               })
@@ -905,44 +1113,63 @@ export function Dashboard({
           </Box>
         )}
       </Box>
+      {statusText && (
+        <Box paddingX={1}>
+          <Text
+            color={error || failures.length ? "yellow" : "gray"}
+            wrap="truncate-end"
+          >
+            {shorten(statusText, width - 3)}
+          </Text>
+        </Box>
+      )}
       <Box paddingX={1}>
-        <Text
-          color={error || failures.length ? "yellow" : "gray"}
-          wrap="truncate-end"
-        >
-          {shorten(message || status, width - 3)}
-        </Text>
-      </Box>
-      <Box paddingX={1}>
-        {menu ? (
+        {confirm ? (
+          <Text wrap="truncate-end">
+            <Text bold color={colors.warning}>
+              {confirm.prompt.toUpperCase()}
+              {"  "}
+            </Text>
+            <Text color="gray">
+              Enter / y{confirm.also ? ` / ${confirm.also}` : ""} confirm · any
+              other key cancels
+            </Text>
+          </Text>
+        ) : menu ? (
           <LeaderMenu
-            title={menu === "sort" ? "SORT" : "COPY"}
+            title={menu.toUpperCase()}
             options={
-              menu === "sort"
-                ? sortFields[tab].map((field) => ({
-                    key: sortKeys[field],
-                    label:
-                      field === sort.field
-                        ? `${field} ${sort.dir === "asc" ? "↑" : "↓"}`
-                        : field,
-                    active: field === sort.field,
-                  }))
-                : copies
+              menu === "open"
+                ? opens
+                : menu === "action"
+                  ? actions
+                  : menu === "instance"
+                    ? instanceMenu
+                    : menu === "sort"
+                      ? sortFields[tab].map((field) => ({
+                          key: sortKeys[field],
+                          label:
+                            field === sort.field
+                              ? `${field} ${sort.dir === "asc" ? "↑" : "↓"}`
+                              : field,
+                          active: field === sort.field,
+                        }))
+                      : copies
             }
           />
         ) : (
           <Text color="gray" wrap="truncate-end">
-            {review
-              ? "REVIEW  j/k lines · [ ] files · V select lines · c comment · Esc back"
+            {tabbed && activeDetailTab === "diff"
+              ? "DIFF  Tab/Shift-Tab switch tab · Esc back to list"
               : searching
                 ? `SEARCH /${query}█  Enter apply · Esc cancel`
                 : help
-                  ? "HELP  Tab/Shift-Tab instances · 1-3 views · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
+                  ? "HELP  Tab/Shift-Tab views · i/[ ] instance · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
                   : detail
-                    ? item?.pr
-                      ? "DETAILS  Enter/d review diff · j/k next · o open · y copy · Esc back"
-                      : "DETAILS  j/k next · o open · y copy · Esc back"
-                    : "Tab instances  1-3 views  j/k move  Enter details  s sort  / search  ? help  q quit"}
+                    ? tabbed
+                      ? "DETAILS  Tab/1-3 tabs · j/k scroll · o open · . actions · y copy · Esc back"
+                      : "DETAILS  o open · y copy · Esc back"
+                    : "Tab views  i instance  Enter details  o open  . actions  s sort  y copy  / search  ? help  q quit"}
           </Text>
         )}
       </Box>
@@ -1019,16 +1246,29 @@ export async function runTui(options: {
         quit();
       },
     );
+    // Quitting doesn't wait for an in-flight fetch: snapshots are written in
+    // single transactions, so an abandoned fetch is simply not persisted.
+    const aborted = new Promise<null>((resolve) =>
+      abort.signal.addEventListener("abort", () => resolve(null), {
+        once: true,
+      }),
+    );
     while (!abort.signal.aborted) {
       refresh = false;
       syncing = true;
       update();
-      try {
-        cycle = await runtime.sync({ instanceId: options.instanceId });
+      const outcome = await Promise.race([
+        runtime.sync({ instanceId: options.instanceId }).then(
+          (result) => ({ result }),
+          (err: unknown) => ({ err }),
+        ),
+        aborted,
+      ]);
+      if (!outcome) break;
+      if ("result" in outcome) {
+        cycle = outcome.result;
         error = null;
-      } catch (err) {
-        error = errorMessage(err);
-      }
+      } else error = errorMessage(outcome.err);
       syncing = false;
       update();
       if (abort.signal.aborted || refresh) continue;
@@ -1050,6 +1290,10 @@ export async function runTui(options: {
     process.off("SIGINT", quit);
     process.off("SIGTERM", quit);
     app?.unmount();
-    await runtime.close();
+    // Give cleanup a moment, but never make quitting wait on the network.
+    await Promise.race([
+      runtime.close(),
+      new Promise((resolve) => setTimeout(resolve, 300).unref()),
+    ]);
   }
 }

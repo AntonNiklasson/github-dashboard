@@ -72,22 +72,35 @@ function setup() {
 }
 test("search, tabs, instance selection, help, refresh and URL actions", async () => {
   const ui = setup();
-  expect(ui.lastFrame()).toContain("GITHUB DASHBOARD");
+  expect(ui.lastFrame()).not.toContain("GITHUB DASHBOARD");
+  expect(ui.lastFrame()).toContain("● READY");
+  // Routine sync state stays in the top bar, not a status line.
+  expect(ui.lastFrame()).not.toContain("Cached data");
+  expect(ui.lastFrame()).not.toContain("Refreshing");
   expect(ui.lastFrame()).toContain("My work 2");
   expect(ui.lastFrame()).toContain("Requested reviews 2");
   expect(ui.lastFrame()).toContain("Notifications 1");
   expect(ui.lastFrame()).not.toContain("1 My work");
   expect(ui.lastFrame()).not.toContain("2 Requested reviews");
   expect(ui.lastFrame()).not.toContain("3 Notifications");
-  expect(ui.lastFrame()).toContain("MY WORK 2");
+  expect(ui.lastFrame()).not.toContain("MY WORK");
   expect(ui.lastFrame()).toContain("safe [2J title");
   expect(ui.lastFrame()).not.toContain("\x1b[2J");
   expect(ui.lastFrame()).not.toContain("by tester");
   ui.stdin.write("j");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("second"));
-  ui.stdin.write("o");
-  await vi.waitFor(() =>
-    expect(ui.onOpen).toHaveBeenCalledWith("https://example.com/2"),
+  const open = async (key: string, url: string) => {
+    ui.stdin.write("o");
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("OPEN"));
+    ui.stdin.write(key);
+    await vi.waitFor(() => expect(ui.onOpen).toHaveBeenLastCalledWith(url));
+  };
+  await open("o", "https://example.com/2");
+  await open("c", "https://example.com/2/checks");
+  await open("d", "https://example.com/2/files");
+  await open(
+    "a",
+    "https://example.com/pulls?q=is%3Apr%20author%3Atester%20sort%3Aupdated-desc",
   );
   const copy = async (key: string, text: string) => {
     ui.stdin.write("y");
@@ -112,23 +125,28 @@ test("search, tabs, instance selection, help, refresh and URL actions", async ()
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("SEARCH /"));
   ui.stdin.write("zzz");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("No matches"));
+  expect(ui.lastFrame()).toContain("0 of 2 match");
   ui.stdin.write("\x1b");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("safe [2J title"));
   ui.stdin.write("2");
-  await vi.waitFor(() =>
-    expect(ui.lastFrame()).toContain("REQUESTED REVIEWS 2"),
-  );
-  expect(ui.lastFrame()).toContain("by tester");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("by tester"));
   ui.stdin.write("3");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("Mention"));
-  expect(ui.lastFrame()).toContain("NOTIFICATIONS 1");
   ui.stdin.write("r");
   expect(ui.onRefresh).toHaveBeenCalledOnce();
   ui.stdin.write("?");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("HELP"));
-  ui.stdin.write("q"); // first closes help, second quits
+  ui.stdin.write("q"); // first closes help
   await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("HELP"));
+  ui.stdin.write("q"); // asks for confirmation; any other key cancels
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("QUIT?"));
+  expect(ui.onQuit).not.toHaveBeenCalled();
+  ui.stdin.write("x");
+  await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("QUIT?"));
+  expect(ui.onQuit).not.toHaveBeenCalled();
   ui.stdin.write("q");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("QUIT?"));
+  ui.stdin.write("\r");
   await vi.waitFor(() => expect(ui.onQuit).toHaveBeenCalledOnce());
   ui.unmount();
 });
@@ -166,6 +184,105 @@ test("s opens a sort menu; field keys pick, repeat flips, per tab", async () => 
   ui.stdin.write("s");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("r repo"));
   expect(ui.lastFrame()).not.toContain("z size");
+  ui.unmount();
+});
+test(". actions: draft toggle on My work, confirmed approve on reviews", async () => {
+  const togglePullRequestDraft = vi.fn(async () => ({ draft: true }));
+  const approvePullRequest = vi.fn(async () => {});
+  const onRefresh = vi.fn();
+  const runtime = {
+    ...fake,
+    togglePullRequestDraft,
+    approvePullRequest,
+  } as unknown as ReturnType<typeof createSync>;
+  const ui = render(
+    <Dashboard
+      runtime={runtime}
+      cycle={null}
+      error={null}
+      syncing={false}
+      onRefresh={onRefresh}
+      onQuit={() => {}}
+    />,
+  );
+  ui.stdin.write(".");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("ACTION"));
+  expect(ui.lastFrame()).toContain("d convert to draft");
+  expect(ui.lastFrame()).toContain("m enable auto-merge");
+  expect(ui.lastFrame()).not.toContain("a approve");
+  ui.stdin.write("d");
+  await vi.waitFor(() =>
+    expect(togglePullRequestDraft).toHaveBeenCalledWith({
+      instanceId: "x",
+      repo: "o/r",
+      number: 1,
+    }),
+  );
+  await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
+  // Optimistic: the toggled PR now offers the reverse action.
+  ui.stdin.write(".");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("d mark ready"));
+  ui.stdin.write("\x1b");
+  await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("ACTION"));
+  ui.stdin.write("2");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("by tester"));
+  ui.stdin.write(".");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("a approve"));
+  expect(ui.lastFrame()).not.toContain("d convert to draft");
+  ui.stdin.write("a");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("APPROVE O/R#1?"));
+  expect(approvePullRequest).not.toHaveBeenCalled();
+  ui.stdin.write("y");
+  await vi.waitFor(() => expect(approvePullRequest).toHaveBeenCalledOnce());
+  ui.unmount();
+});
+test("actions update optimistically and roll back on failure", async () => {
+  let settle: { resolve: (v: unknown) => void; reject: (e: unknown) => void };
+  const togglePullRequestDraft = vi.fn(
+    () =>
+      new Promise((resolve, reject) => {
+        settle = { resolve, reject };
+      }),
+  );
+  const onRefresh = vi.fn();
+  const runtime = {
+    ...fake,
+    togglePullRequestDraft,
+  } as unknown as ReturnType<typeof createSync>;
+  const ui = render(
+    <Dashboard
+      runtime={runtime}
+      cycle={null}
+      error={null}
+      syncing={false}
+      onRefresh={onRefresh}
+      onQuit={() => {}}
+    />,
+  );
+  const draftIcon = "\uf4dd";
+  const firstRow = () =>
+    ui
+      .lastFrame()!
+      .split("\n")
+      .find((line) => line.includes("❯"))!;
+  expect(firstRow()).not.toContain(draftIcon);
+  ui.stdin.write(".");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("ACTION"));
+  ui.stdin.write("d");
+  // Shown as draft before GitHub has answered.
+  await vi.waitFor(() => expect(firstRow()).toContain(draftIcon));
+  expect(onRefresh).not.toHaveBeenCalled();
+  settle!.resolve({ draft: true });
+  await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
+  expect(firstRow()).toContain(draftIcon);
+  // Toggle back, but GitHub rejects it: the draft state is restored.
+  ui.stdin.write(".");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("d mark ready"));
+  ui.stdin.write("d");
+  await vi.waitFor(() => expect(firstRow()).not.toContain(draftIcon));
+  settle!.reject(new Error("nope"));
+  await vi.waitFor(() => expect(firstRow()).toContain(draftIcon));
+  expect(ui.lastFrame()).toContain("mark ready failed: nope");
   ui.unmount();
 });
 test("long list stays inside viewport and scrolls with selection", async () => {
@@ -212,7 +329,7 @@ test("long list stays inside viewport and scrolls with selection", async () => {
   expect(ui.lastFrame()).toContain("q quit");
   ui.unmount();
 });
-test("instance tabs live above the list and Tab filters rows", async () => {
+test("one instance at a time; [ ] and i switch it, Tab switches views", async () => {
   const template = fake.listPullRequests("x", "prs")[0]!;
   const other = {
     ...fake,
@@ -253,21 +370,32 @@ test("instance tabs live above the list and Tab filters rows", async () => {
       onQuit={() => {}}
     />,
   );
-  expect(ui.lastFrame()).toContain("● All");
-  expect(ui.lastFrame()).toContain("Work PR");
-  expect(ui.lastFrame()).toContain("Personal PR");
-  expect(ui.lastFrame()).not.toContain("INSTANCES");
-  ui.stdin.write("\t");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("● Work"));
+  // One instance at a time: no combined "All" view; first instance by default.
+  expect(ui.lastFrame()).not.toContain("All");
+  expect(ui.lastFrame()).toContain("● Work");
   expect(ui.lastFrame()).toContain("Work PR");
   expect(ui.lastFrame()).not.toContain("Personal PR");
-  ui.stdin.write("\t");
+  ui.stdin.write("]");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("● Personal"));
   expect(ui.lastFrame()).toContain("Personal PR");
   expect(ui.lastFrame()).not.toContain("Work PR");
+  ui.stdin.write("i");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("INSTANCE"));
+  expect(ui.lastFrame()).toContain("1 Work");
+  ui.stdin.write("1");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Work PR"));
+  expect(ui.lastFrame()).not.toContain("Personal PR");
+  // Tab cycles views, not instances.
+  ui.stdin.write("\t");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("updated ↓"));
+  expect(ui.lastFrame()).toContain("● Work");
+  ui.stdin.write("\t");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Mention"));
+  ui.stdin.write("\t");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("created ↓"));
   ui.unmount();
 });
-test("Enter shows details, Enter again reviews; Esc returns to the list", async () => {
+test("details tabs: description, comments (lazy), diff; Esc to list", async () => {
   const getPullRequestDiff = vi.fn(async () => ({
     headSha: "a".repeat(40),
     files: [
@@ -281,9 +409,31 @@ test("Enter shows details, Enter again reviews; Esc returns to the list", async 
       },
     ],
   }));
-  const runtime = { ...fake, getPullRequestDiff } as unknown as ReturnType<
-    typeof createSync
-  >;
+  const getPullRequestComments = vi.fn(async () => [
+    {
+      id: 1,
+      author: "reviewer",
+      body: "Please **rename** this",
+      createdAt: new Date().toISOString(),
+      path: "src/a.ts",
+      line: 1,
+      inReplyToId: null,
+    },
+    {
+      id: 2,
+      author: "tester",
+      body: "Done",
+      createdAt: new Date().toISOString(),
+      path: "src/a.ts",
+      line: 1,
+      inReplyToId: 1,
+    },
+  ]);
+  const runtime = {
+    ...fake,
+    getPullRequestDiff,
+    getPullRequestComments,
+  } as unknown as ReturnType<typeof createSync>;
   const ui = render(
     <Dashboard
       runtime={runtime}
@@ -295,25 +445,47 @@ test("Enter shows details, Enter again reviews; Esc returns to the list", async 
     />,
   );
   ui.stdin.write("\r");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Enter/d review"));
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Tab/1-3 tabs"));
+  expect(ui.lastFrame()).toContain("Description");
   expect(ui.lastFrame()).toContain("a → main");
+  expect(getPullRequestComments).not.toHaveBeenCalled();
   expect(getPullRequestDiff).not.toHaveBeenCalled();
-  ui.stdin.write("\r");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("REVIEW o/r#1"));
+  ui.stdin.write("\t");
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).toContain("Please rename this"),
+  );
+  expect(ui.lastFrame()).toContain("src/a.ts:1");
+  expect(ui.lastFrame()).toContain("Done");
+  expect(getPullRequestComments).toHaveBeenCalledWith({
+    instanceId: "x",
+    repo: "o/r",
+    number: 1,
+  });
+  ui.stdin.write("\t");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILE 1/1 src/a.ts"));
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("new code"));
   expect(getPullRequestDiff).toHaveBeenCalledWith({
     instanceId: "x",
     repo: "o/r",
     number: 1,
   });
-  ui.stdin.write("\x1b");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Enter/d review"));
+  // Tab inside the diff hands back to the details tabs (wraps to Description).
+  ui.stdin.write("\t");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("a → main"));
   expect(ui.lastFrame()).not.toContain("new code");
+  ui.stdin.write("2");
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).toContain("Please rename this"),
+  );
+  expect(getPullRequestComments).toHaveBeenCalledOnce(); // cached per PR
+  ui.stdin.write("3");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("new code"));
   ui.stdin.write("\x1b");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("MY WORK 2"));
-  expect(ui.lastFrame()).not.toContain("Enter/d review");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Enter details"));
+  expect(ui.lastFrame()).not.toContain("new code");
   ui.unmount();
 });
+
 test("partial sync failure visible without losing cached items", () => {
   const ui = render(
     <Dashboard

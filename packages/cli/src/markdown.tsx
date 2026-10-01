@@ -266,14 +266,32 @@ function blocks(tokens: Token[], depth: number, spaced: boolean) {
   );
 }
 
-export function Markdown({ source }: { source: string }) {
-  const tokens = marked.lexer(source.replace(/\r\n?/g, "\n"), { gfm: true });
-  const content = tokens.filter(
-    (token) =>
-      token.type !== "space" &&
-      token.type !== "def" &&
-      (token.type !== "html" || stripHtml(token.text)),
-  );
+function contentTokens(source: string): Token[] {
+  return marked
+    .lexer(source.replace(/\r\n?/g, "\n"), { gfm: true })
+    .filter(
+      (token) =>
+        token.type !== "space" &&
+        token.type !== "def" &&
+        (token.type !== "html" || stripHtml(token.text)),
+    );
+}
+
+/** Number of top-level blocks; the unit `skip` scrolls by. */
+export function markdownBlocks(source: string): number {
+  return contentTokens(source).length;
+}
+
+// `skip` drops leading top-level blocks, for scrolling long descriptions.
+export function Markdown({
+  source,
+  skip = 0,
+}: {
+  source: string;
+  skip?: number;
+}) {
+  const all = contentTokens(source);
+  const content = all.slice(Math.min(skip, Math.max(0, all.length - 1)));
   return content.length ? (
     blocks(content, 0, true)
   ) : (

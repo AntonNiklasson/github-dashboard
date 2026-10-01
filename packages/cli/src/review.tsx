@@ -50,12 +50,15 @@ export function ReviewPane({
   pr,
   onBack,
   onQuit,
+  onTab,
 }: {
   runtime: Runtime;
   instanceId: string;
   pr: NormalizedPr;
   onBack: () => void;
   onQuit: () => void;
+  /** Tab / Shift-Tab while browsing, e.g. to switch the host's tabs. */
+  onTab?: (direction: 1 | -1) => void;
 }) {
   const { columns, rows } = useWindowSize();
   const width = columns || 80;
@@ -73,7 +76,7 @@ export function ReviewPane({
   const lines = file?.lines ?? [];
   const visible = Math.max(
     1,
-    height - (mode === "compose" || mode === "confirm" ? 18 : 13),
+    height - (mode === "compose" || mode === "confirm" ? 15 : 10),
   );
   const start = Math.max(0, cursor - visible + 1);
 
@@ -181,7 +184,8 @@ export function ReviewPane({
     if (key.escape || input === "q") {
       if (visualStart !== null) setVisualStart(null);
       else onBack();
-    } else if (key.upArrow || input === "k")
+    } else if (key.tab && onTab) onTab(key.shift ? -1 : 1);
+    else if (key.upArrow || input === "k")
       setCursor((value) => Math.max(0, value - 1));
     else if (key.downArrow || input === "j")
       setCursor((value) => Math.max(0, Math.min(lines.length - 1, value + 1)));
@@ -222,16 +226,8 @@ export function ReviewPane({
       (visualStart === null ? rangeLabel : `VISUAL LINE  ${rangeLabel}`);
 
   return (
-    <Box
-      flexGrow={1}
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={1}
-    >
-      <Text bold color="cyan" wrap="truncate-end">
-        REVIEW {safe(pr.repo)}#{pr.number} · {safe(pr.title)}
-      </Text>
+    // Hosted in the details Diff tab, which already shows the PR title.
+    <Box flexGrow={1} flexDirection="column">
       <Text color="gray" wrap="truncate-end">
         {safe(pr.author)} · {safe(pr.headBranch)} → {safe(pr.baseBranch)} ·{" "}
         {diff?.headSha.slice(0, 9) ?? "loading commit"}

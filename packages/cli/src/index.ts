@@ -8,6 +8,8 @@ const usage =
   "Usage: ghd [tui|once|list|watch] [--instance ID] [--kind prs|reviews|notifications] [--json] [--interval SECONDS] [--demo]\nDefault: tui (interactive terminal required).\n";
 const kinds: SyncKind[] = ["prs", "reviews", "notifications"];
 
+let exitWhenDone = false;
+
 async function main(args: string[]): Promise<number> {
   const [arg, ...rest] = args;
   const command = arg ?? "tui";
@@ -40,6 +42,9 @@ async function main(args: string[]): Promise<number> {
     throw new Error("--demo is only supported in tui mode");
   if (command === "tui") {
     if (values.json) throw new Error("--json is not supported in tui mode");
+    // An abandoned in-flight fetch may hold sockets open; exit once the TUI
+    // is done rather than waiting for them.
+    exitWhenDone = true;
     return runTui({
       instanceId: values.instance,
       kind: values.kind as SyncKind | undefined,
@@ -156,6 +161,7 @@ async function main(args: string[]): Promise<number> {
 main(process.argv.slice(2)).then(
   (code) => {
     process.exitCode = code;
+    if (exitWhenDone) process.exit(code);
   },
   (err) => {
     // Stack traces help debug TUI render crashes; set GHD_DEBUG=1.
@@ -163,5 +169,6 @@ main(process.argv.slice(2)).then(
       `${err instanceof Error ? (process.env.GHD_DEBUG ? err.stack : err.message) : String(err)}\n`,
     );
     process.exitCode = 1;
+    if (exitWhenDone) process.exit(1);
   },
 );

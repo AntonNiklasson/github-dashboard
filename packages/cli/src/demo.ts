@@ -186,8 +186,53 @@ export function createDemoRuntime(): Runtime {
         },
       ],
     }),
+    getPullRequestComments: async () => [
+      {
+        id: 1,
+        author: "reviewer",
+        body: "Looks good overall. Could we **split** the cache migration out?",
+        createdAt: hoursAgo(20),
+        path: null,
+        line: null,
+        inReplyToId: null,
+      },
+      {
+        id: 2,
+        author: "reviewer",
+        body: "Nit: `enqueue` could return the work promise directly.",
+        createdAt: hoursAgo(18),
+        path: "packages/sync/src/engine.ts",
+        line: 42,
+        inReplyToId: null,
+      },
+      {
+        id: 3,
+        author: "anton-niklasson",
+        body: "Good call, done in the latest push.",
+        createdAt: hoursAgo(10),
+        path: "packages/sync/src/engine.ts",
+        line: 42,
+        inReplyToId: 2,
+      },
+    ],
     createReviewComment: async () => {
       throw new Error("demo mode: comments are not posted");
+    },
+    // Actions "succeed" locally so menus can be tried; nothing is sent.
+    approvePullRequest: async () => {},
+    togglePullRequestDraft: async ({ number }: { number: number }) => {
+      const pr = Object.values(prs)
+        .flat()
+        .find((p) => p.number === number);
+      if (pr) pr.draft = !pr.draft;
+      return { draft: pr?.draft ?? false };
+    },
+    togglePullRequestAutoMerge: async ({ number }: { number: number }) => {
+      const pr = Object.values(prs)
+        .flat()
+        .find((p) => p.number === number);
+      if (pr) pr.autoMerge = !pr.autoMerge;
+      return { autoMerge: pr?.autoMerge ?? false };
     },
   };
   return runtime as unknown as Runtime;
