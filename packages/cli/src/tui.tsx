@@ -520,9 +520,9 @@ export function Dashboard({
   // Notifications marked done (entry id → when), hidden until new activity.
   const [done, setDone] = useState<Record<string, number>>({});
   // Leader-key menus: `s` / `y` / `i`, then an option key; anything else cancels.
-  const [menu, setMenu] = useState<
-    "sort" | "copy" | "instance" | "open" | "action" | null
-  >(null);
+  const [menu, setMenu] = useState<"sort" | "copy" | "open" | "action" | null>(
+    null,
+  );
   // Footer prompt; Enter or y runs it (plus `also`, e.g. q for quit).
   const [confirm, setConfirm] = useState<{
     prompt: string;
@@ -686,12 +686,6 @@ export function Dashboard({
     const current = instanceId ? ids.indexOf(instanceId) : 0;
     selectInstance(ids[(current + direction + ids.length) % ids.length]!);
   };
-  const instanceMenu = instances.slice(0, 9).map((instance, i) => ({
-    key: String(i + 1),
-    label: instance.label,
-    active: instance.id === instanceId,
-    id: instance.id,
-  }));
   const move = (delta: number) => {
     const next = Math.max(0, Math.min(listed.length - 1, selected + delta));
     setIndex(next);
@@ -709,6 +703,14 @@ export function Dashboard({
   };
   const opens = item ? openOptions(item) : [];
   const actions = item ? actionOptions(item, tab, runtime) : [];
+  const openSubject = (target: Entry) => {
+    const url = openOptions(target)[0]?.url;
+    if (url)
+      void onOpen(url).catch((err: unknown) =>
+        setMessage(`Open failed: ${errorMessage(err)}`),
+      );
+    else setMessage("No valid URL for selected item");
+  };
   // Optimistic like PR actions: hide now, restore if GitHub rejects it.
   const markDone = (target: Entry) => {
     const id = target.notification!.id;
@@ -799,11 +801,6 @@ export function Dashboard({
               });
             else perform(option);
           }
-        } else if (menu === "instance") {
-          const option = instanceMenu.find(
-            (candidate) => candidate.key === input,
-          );
-          if (option) selectInstance(option.id);
         } else {
           const option = copies.find((candidate) => candidate.key === input);
           if (option) copy(option);
@@ -852,6 +849,8 @@ export function Dashboard({
           ...current,
           [tab]: { ...sort, dir: sort.dir === "asc" ? "desc" : "asc" },
         }));
+      // Notifications have a single target (their subject): open it directly.
+      else if (input === "o" && item?.notification) openSubject(item);
       else if (input === "o") {
         if (opens.length) setMenu("open");
         else setMessage("No valid URL for selected item");
@@ -869,21 +868,16 @@ export function Dashboard({
       else if (key.downArrow || input === "j") move(1);
       else if (key.pageDown) move(visible);
       else if (key.pageUp) move(-visible);
-      else if (key.return && !detail && item?.notification) {
-        const url = openOptions(item)[0]?.url;
-        if (url)
-          void onOpen(url).catch((err: unknown) =>
-            setMessage(`Open failed: ${errorMessage(err)}`),
-          );
-        else setMessage("No valid URL for selected item");
-      } else if (input === "e" && !detail && item?.notification) markDone(item);
+      else if (key.return && !detail && item?.notification) openSubject(item);
+      else if (input === "e" && !detail && item?.notification) markDone(item);
       else if (key.return && !detail && item) {
         setDetail(true);
         openDetailTab("description");
       } else if ((key.return || input === "d") && tabbed) openDetailTab("diff");
       else if (input === "[" || key.leftArrow) chooseInstance(-1);
       else if (input === "]" || key.rightArrow) chooseInstance(1);
-      else if (input === "i" && instances.length > 1) setMenu("instance");
+      // `i` steps to the next instance, wrapping; `[ ]` go either way.
+      else if (input === "i") chooseInstance(1);
       else if (key.tab && tabbed) cycleDetailTab(key.shift ? -1 : 1);
       else if (key.tab) {
         const next = tabs.indexOf(tab) + (key.shift ? -1 : 1);
@@ -962,7 +956,7 @@ export function Dashboard({
             <Text>
               1 / 2 / 3 Switch My work, Requested reviews, Notifications
             </Text>
-            <Text>i then 1-9 / [ ] Switch instance</Text>
+            <Text>i Next instance (wraps); [ / ] previous / next</Text>
             <Text>j / k or ↑ / ↓ Select item; PgUp / PgDn scroll</Text>
             <Text>
               / Search title, repository or instance; Enter applies, Esc clears
@@ -1129,18 +1123,16 @@ export function Dashboard({
                 ? opens
                 : menu === "action"
                   ? actions
-                  : menu === "instance"
-                    ? instanceMenu
-                    : menu === "sort"
-                      ? sortFields[tab].map((field) => ({
-                          key: sortKeys[field],
-                          label:
-                            field === sort.field
-                              ? `${field} ${sort.dir === "asc" ? "↑" : "↓"}`
-                              : field,
-                          active: field === sort.field,
-                        }))
-                      : copies
+                  : menu === "sort"
+                    ? sortFields[tab].map((field) => ({
+                        key: sortKeys[field],
+                        label:
+                          field === sort.field
+                            ? `${field} ${sort.dir === "asc" ? "↑" : "↓"}`
+                            : field,
+                        active: field === sort.field,
+                      }))
+                    : copies
             }
           />
         ) : (
@@ -1150,13 +1142,13 @@ export function Dashboard({
               : searching
                 ? `SEARCH /${query}█  Enter apply · Esc cancel`
                 : help
-                  ? "HELP  Tab/Shift-Tab views · i/[ ] instance · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
+                  ? "HELP  Tab/Shift-Tab views · i next instance · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
                   : detail
                     ? tabbed
                       ? "DETAILS  Tab/1-3 tabs · j/k scroll · o open · . actions · y copy · Esc back"
                       : "DETAILS  o open · y copy · Esc back"
                     : tab === "notifications"
-                      ? "Tab views  i instance  Enter open in browser  e done  s sort  y copy  / search  ? help  q quit"
+                      ? "Tab views  i instance  Enter/o open in browser  e done  s sort  y copy  / search  ? help  q quit"
                       : "Tab views  i instance  Enter details  o open  . actions  s sort  y copy  / search  ? help  q quit"}
           </Text>
         )}

@@ -356,6 +356,13 @@ test("notifications: Enter opens in browser, e marks done optimistically", async
     expect(onOpen).toHaveBeenCalledWith("https://example.com/n"),
   );
   expect(ui.lastFrame()).not.toContain("Tab/1-3 tabs"); // no details screen
+  // o opens it directly too, no menu.
+  onOpen.mockClear();
+  ui.stdin.write("o");
+  await vi.waitFor(() =>
+    expect(onOpen).toHaveBeenCalledWith("https://example.com/n"),
+  );
+  expect(ui.lastFrame()).not.toContain("OPEN");
   fail = true;
   ui.stdin.write("e");
   await vi.waitFor(() =>
@@ -445,7 +452,7 @@ test("long list stays inside viewport and scrolls with selection", async () => {
   expect(ui.lastFrame()).toContain("q quit");
   ui.unmount();
 });
-test("one instance at a time; [ ] and i switch it, Tab switches views", async () => {
+test("one instance at a time; i cycles it, Tab switches views", async () => {
   const template = fake.listPullRequests("x", "prs")[0]!;
   const other = {
     ...fake,
@@ -495,12 +502,16 @@ test("one instance at a time; [ ] and i switch it, Tab switches views", async ()
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("● Personal"));
   expect(ui.lastFrame()).toContain("Personal PR");
   expect(ui.lastFrame()).not.toContain("Work PR");
+  // i cycles to the next instance and wraps around, no menu.
   ui.stdin.write("i");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("INSTANCE"));
-  expect(ui.lastFrame()).toContain("1 Work");
-  ui.stdin.write("1");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("Work PR"));
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("● Work"));
+  expect(ui.lastFrame()).toContain("Work PR");
   expect(ui.lastFrame()).not.toContain("Personal PR");
+  expect(ui.lastFrame()).not.toContain("INSTANCE");
+  ui.stdin.write("i");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("● Personal"));
+  ui.stdin.write("i");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("● Work"));
   // Tab cycles views, not instances.
   ui.stdin.write("\t");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("updated ↓"));
