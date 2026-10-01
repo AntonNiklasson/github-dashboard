@@ -74,7 +74,6 @@ export interface NormalizedPr {
   commentCount: number;
   labels: string[];
   mergeable: boolean | null;
-  autoAssigned?: boolean;
 }
 
 export function normalizePr(node: PrNode): NormalizedPr {
