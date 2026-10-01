@@ -8,6 +8,8 @@ import { copyOptions } from "./copy.js";
 import { openOptions } from "./links.js";
 import { Markdown, markdownBlocks } from "./markdown.js";
 import { CommentsView, commentThreads, type Thread } from "./comments.js";
+import { NotificationRow } from "./notifications.js";
+import { loadState, saveState, type TuiState } from "./state.js";
 import { ago } from "./time.js";
 import { createDemoRuntime } from "./demo.js";
 import { ReviewPane } from "./review.js";
@@ -403,55 +405,9 @@ function PrDetails({
   );
 }
 
-function NotificationRow({
-  entry,
-  notification,
-  active,
-}: {
-  entry: Entry;
-  notification: Notification;
-  active: boolean;
-}) {
-  const updated = ago(notification.updatedAt);
-  return (
-    <Box
-      flexDirection="column"
-      backgroundColor={active ? colors.selected : undefined}
-    >
-      <Text wrap="truncate-end">
-        <Text color="cyan" bold>
-          {active ? "❯" : " "}
-        </Text>{" "}
-        <Text color={notification.unread ? colors.accent : colors.muted}>
-          {notification.unread ? icons.dot : icons.dotEmpty}
-        </Text>{" "}
-        <Text color={colors.muted}>{safe(entry.repo)}</Text>{" "}
-        <Text bold={notification.unread} color={active ? "cyan" : "white"}>
-          {safe(entry.title)}
-        </Text>
-      </Text>
-      <Text color={colors.muted} wrap="truncate-end">
-        {"    "}
-        {safe(notification.reason)}
-        {notification.type && (
-          <>
-            <Sep />
-            {safe(notification.type)}
-          </>
-        )}
-        {updated && (
-          <>
-            <Sep />
-            {icons.clock} {updated}
-          </>
-        )}
-      </Text>
-    </Box>
-  );
-}
-// Lines per list entry: PRs are header, title, meta (+ auto-merge) and a spacer.
+// Lines per list entry: header, title, meta (+ auto-merge for PRs) and a spacer.
 function rowHeight(row: Stacked<Entry>): number {
-  if (!row.entry.pr) return 2;
+  if (!row.entry.pr) return 4;
   return 4 + (row.entry.pr.autoMerge ? 1 : 0);
 }
 // Smallest start that still fits the selection, then as many rows as fit.
@@ -504,6 +460,8 @@ export function Dashboard({
   stopping = false,
   initialKind = "prs",
   initialInstanceId,
+  initialSorts = defaultSort,
+  onStateChange,
   onRefresh,
   onQuit,
   onOpen = open,
@@ -516,6 +474,9 @@ export function Dashboard({
   stopping?: boolean;
   initialKind?: SyncKind;
   initialInstanceId?: string;
+  initialSorts?: TuiState["sorts"];
+  /** Called when remembered UI state (sort, view, instance) changes. */
+  onStateChange?: (state: TuiState) => void;
   onRefresh: () => void;
   onQuit: () => void;
   onOpen?: (url: string) => Promise<unknown>;
@@ -541,7 +502,9 @@ export function Dashboard({
     Record<string, { threads?: Thread[]; error?: string }>
   >({});
   const [message, setMessage] = useState("");
-  const [sorts, setSorts] = useState(defaultSort);
+  const [sorts, setSorts] = useState(initialSorts);
+  // Notifications marked done (entry id → when), hidden until new activity.
+  const [done, setDone] = useState<Record<string, number>>({});
   // Leader-key menus: `s` / `y` / `i`, then an option key; anything else cancels.
   const [menu, setMenu] = useState<
     "sort" | "copy" | "instance" | "open" | "action" | null
@@ -565,12 +528,17 @@ export function Dashboard({
     null;
   const prKey = (instance: string, pr: NormalizedPr) =>
     `${instance}/${pr.repo}#${pr.number}`;
-  const available = itemsFor(runtime, tab, instanceId).map((entry) => {
-    const override = entry.pr && overrides[prKey(entry.instanceId, entry.pr)];
-    return override && Date.now() - override.at < 60_000
-      ? { ...entry, pr: { ...entry.pr!, ...override.fields } }
-      : entry;
-  });
+  const available = itemsFor(runtime, tab, instanceId)
+    .filter((entry) => {
+      const at = done[entry.id];
+      return !at || Date.parse(entry.notification?.updatedAt ?? "") > at;
+    })
+    .map((entry) => {
+      const override = entry.pr && overrides[prKey(entry.instanceId, entry.pr)];
+      return override && Date.now() - override.at < 60_000
+        ? { ...entry, pr: { ...entry.pr!, ...override.fields } }
+        : entry;
+    });
   const sort = sorts[tab];
   const filtered = available
     .filter((item) =>
@@ -606,6 +574,10 @@ export function Dashboard({
     const next = detailTabs.indexOf(activeDetailTab) + direction;
     openDetailTab(detailTabs[(next + detailTabs.length) % detailTabs.length]!);
   };
+
+  useEffect(() => {
+    onStateChange?.({ sorts, kind: tab, instanceId: instanceId ?? undefined });
+  }, [sorts, tab, instanceId]);
 
   // Comments load on demand when their tab opens, once per PR (r refetches).
   useEffect(() => {
@@ -723,6 +695,20 @@ export function Dashboard({
   };
   const opens = item ? openOptions(item) : [];
   const actions = item ? actionOptions(item, tab, runtime) : [];
+  // Optimistic like PR actions: hide now, restore if GitHub rejects it.
+  const markDone = (target: Entry) => {
+    const id = target.notification!.id;
+    setDone((current) => ({ ...current, [target.id]: Date.now() }));
+    setMessage("");
+    runtime
+      .markNotificationDone({ instanceId: target.instanceId, id })
+      .then(onRefresh, (err: unknown) => {
+        setDone(({ [target.id]: _failed, ...rest }) => rest);
+        setMessage(
+          `Mark done failed: ${errorMessage(err)} · ${safe(target.title)}`,
+        );
+      });
+  };
   // Optimistic: show the expected state now, run the action in the
   // background, and roll back if GitHub rejects it.
   const perform = (option: (typeof actions)[number]) => {
@@ -869,6 +855,14 @@ export function Dashboard({
       else if (key.downArrow || input === "j") move(1);
       else if (key.pageDown) move(visible);
       else if (key.pageUp) move(-visible);
+      else if (key.return && !detail && item?.notification) {
+        const url = openOptions(item)[0]?.url;
+        if (url)
+          void onOpen(url).catch((err: unknown) =>
+            setMessage(`Open failed: ${errorMessage(err)}`),
+          );
+        else setMessage("No valid URL for selected item");
+      } else if (input === "e" && !detail && item?.notification) markDone(item);
       else if (key.return && !detail && item) {
         setDetail(true);
         openDetailTab("description");
@@ -972,11 +966,12 @@ export function Dashboard({
             <Text>r Refresh (queued after any active fetch)</Text>
             <Text>q Quit (Enter, y or q again confirms; Ctrl-C quits now)</Text>
             <Text>Enter Show PR details; Enter / d again reviews the diff</Text>
+            <Text>Notifications: Enter opens in browser, e marks done</Text>
             <Text>Esc Back to list / clear filter</Text>
             <Text> </Text>
             <Text color="gray">Press any key to close help</Text>
           </Box>
-        ) : detail && item ? (
+        ) : detail && item?.pr ? (
           <Box
             flexGrow={1}
             overflow="hidden"
@@ -1038,30 +1033,7 @@ export function Dashboard({
                 maxLines={rows - 15 - footerLines}
                 skip={scroll}
               />
-            ) : (
-              <>
-                <Text>
-                  <Text color={colors.muted}>Reason </Text>
-                  {safe(item.notification?.reason ?? "unknown")}
-                </Text>
-                <Text>
-                  <Text color={colors.muted}>Type </Text>
-                  {safe(item.notification?.type ?? "unknown")}
-                </Text>
-                <Text>
-                  <Text color={colors.muted}>Unread </Text>
-                  {item.notification?.unread ? "yes" : "no"}
-                </Text>
-                <Text>
-                  <Text color={colors.muted}>Updated </Text>
-                  {ago(item.notification?.updatedAt) || "unknown"}
-                </Text>
-                <Text> </Text>
-                <Text color="blue" wrap="truncate-end">
-                  {safe(item.url)}
-                </Text>
-              </>
-            )}
+            ) : null}
           </Box>
         ) : (
           <Box
@@ -1097,7 +1069,7 @@ export function Dashboard({
                 ) : entry.notification ? (
                   <NotificationRow
                     key={entry.id}
-                    entry={entry}
+                    repo={entry.repo}
                     notification={entry.notification}
                     active={active}
                   />
@@ -1169,7 +1141,9 @@ export function Dashboard({
                     ? tabbed
                       ? "DETAILS  Tab/1-3 tabs · j/k scroll · o open · . actions · y copy · Esc back"
                       : "DETAILS  o open · y copy · Esc back"
-                    : "Tab views  i instance  Enter details  o open  . actions  s sort  y copy  / search  ? help  q quit"}
+                    : tab === "notifications"
+                      ? "Tab views  i instance  Enter open in browser  e done  s sort  y copy  / search  ? help  q quit"
+                      : "Tab views  i instance  Enter details  o open  . actions  s sort  y copy  / search  ? help  q quit"}
           </Text>
         )}
       </Box>
@@ -1186,6 +1160,14 @@ export async function runTui(options: {
   if (!process.stdin.isTTY || !process.stdout.isTTY)
     throw new Error("tui requires an interactive terminal");
   const runtime = options.demo ? createDemoRuntime() : createSync();
+  // Remembered sort, view and instance; CLI flags win. Demo mode never writes.
+  const saved = options.demo ? undefined : loadState();
+  const remembered = {
+    initialKind: options.kind ?? saved?.kind,
+    initialInstanceId: options.instanceId ?? saved?.instanceId,
+    initialSorts: saved?.sorts,
+    onStateChange: options.demo ? undefined : saveState,
+  };
   const abort = new AbortController();
   let refresh = false;
   let wake: (() => void) | null = null;
@@ -1207,8 +1189,7 @@ export async function runTui(options: {
         error={error}
         syncing={syncing}
         stopping={abort.signal.aborted}
-        initialKind={options.kind}
-        initialInstanceId={options.instanceId}
+        {...remembered}
         onRefresh={() => {
           refresh = true;
           wake?.();
@@ -1225,8 +1206,7 @@ export async function runTui(options: {
         cycle={null}
         error={null}
         syncing={false}
-        initialKind={options.kind}
-        initialInstanceId={options.instanceId}
+        {...remembered}
         onRefresh={() => {
           refresh = true;
           wake?.();

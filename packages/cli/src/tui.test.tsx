@@ -285,6 +285,93 @@ test("actions update optimistically and roll back on failure", async () => {
   expect(ui.lastFrame()).toContain("mark ready failed: nope");
   ui.unmount();
 });
+test("starts from remembered sorts and reports state changes", async () => {
+  const onStateChange = vi.fn();
+  const ui = render(
+    <Dashboard
+      runtime={fake}
+      cycle={null}
+      error={null}
+      syncing={false}
+      initialSorts={{
+        prs: { field: "name", dir: "asc" },
+        reviews: { field: "updated", dir: "desc" },
+        notifications: { field: "updated", dir: "desc" },
+      }}
+      onStateChange={onStateChange}
+      onRefresh={() => {}}
+      onQuit={() => {}}
+    />,
+  );
+  expect(ui.lastFrame()).toContain("name ↑");
+  ui.stdin.write("s");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("SORT"));
+  ui.stdin.write("u");
+  await vi.waitFor(() =>
+    expect(onStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: "prs",
+        instanceId: "x",
+        sorts: expect.objectContaining({
+          prs: { field: "updated", dir: "desc" },
+        }),
+      }),
+    ),
+  );
+  ui.stdin.write("2");
+  await vi.waitFor(() =>
+    expect(onStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "reviews" }),
+    ),
+  );
+  ui.unmount();
+});
+test("notifications: Enter opens in browser, e marks done optimistically", async () => {
+  let fail = false;
+  const markNotificationDone = vi.fn(async () => {
+    if (fail) throw new Error("nope");
+  });
+  const onOpen = vi.fn(async () => {});
+  const onRefresh = vi.fn();
+  const runtime = {
+    ...fake,
+    markNotificationDone,
+  } as unknown as ReturnType<typeof createSync>;
+  const ui = render(
+    <Dashboard
+      runtime={runtime}
+      initialKind="notifications"
+      cycle={null}
+      error={null}
+      syncing={false}
+      onRefresh={onRefresh}
+      onQuit={() => {}}
+      onOpen={onOpen}
+    />,
+  );
+  expect(ui.lastFrame()).toContain("Mention");
+  expect(ui.lastFrame()).toContain("e done");
+  ui.stdin.write("\r");
+  await vi.waitFor(() =>
+    expect(onOpen).toHaveBeenCalledWith("https://example.com/n"),
+  );
+  expect(ui.lastFrame()).not.toContain("Tab/1-3 tabs"); // no details screen
+  fail = true;
+  ui.stdin.write("e");
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).toContain("Mark done failed: nope"),
+  );
+  expect(ui.lastFrame()).toContain("Mentioned");
+  fail = false;
+  ui.stdin.write("e");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("No cached items"));
+  expect(markNotificationDone).toHaveBeenLastCalledWith({
+    instanceId: "x",
+    id: "n",
+  });
+  await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
+  ui.unmount();
+});
 test("long list stays inside viewport and scrolls with selection", async () => {
   const many = {
     ...fake,

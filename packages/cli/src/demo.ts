@@ -220,6 +220,7 @@ export function createDemoRuntime(): Runtime {
     },
     // Actions "succeed" locally so menus can be tried; nothing is sent.
     approvePullRequest: async () => {},
+    markNotificationDone: async () => {},
     togglePullRequestDraft: async ({ number }: { number: number }) => {
       const pr = Object.values(prs)
         .flat()
