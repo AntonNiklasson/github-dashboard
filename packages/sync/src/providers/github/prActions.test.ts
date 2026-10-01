@@ -1,7 +1,12 @@
 import { createServer } from "node:http";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import type { GitHubInstance } from "../../config.js";
-import { approvePr, togglePrAutoMerge, togglePrDraft } from "./prActions.js";
+import {
+  approvePr,
+  markNotificationDone,
+  togglePrAutoMerge,
+  togglePrDraft,
+} from "./prActions.js";
 
 let state = { draft: true, auto_merge: null as object | null };
 const calls: string[] = [];
@@ -20,6 +25,14 @@ const server = createServer(async (req, res) => {
   ) {
     calls.push(`review ${(JSON.parse(body) as { event: string }).event}`);
     return send(200, { id: 1 });
+  }
+  if (
+    req.method === "DELETE" &&
+    req.url?.endsWith("/notifications/threads/42")
+  ) {
+    calls.push("done 42");
+    res.writeHead(204).end();
+    return;
   }
   if (req.method === "POST" && req.url?.endsWith("/graphql")) {
     const { query, variables } = JSON.parse(body) as {
@@ -86,4 +99,10 @@ test("rejects malformed targets before any request", async () => {
     togglePrDraft(instance, { repo: "../x", number: 7 }),
   ).rejects.toThrow();
   expect(calls).toEqual([]);
+});
+
+test("marks a notification thread done", async () => {
+  await markNotificationDone(instance, "42");
+  await expect(markNotificationDone(instance, "../1")).rejects.toThrow();
+  expect(calls).toEqual(["done 42"]);
 });

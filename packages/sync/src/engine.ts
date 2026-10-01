@@ -6,6 +6,7 @@ import { fetchPullRequestComments } from "./providers/github/comments.js";
 import { fetchAuthoredPrs } from "./providers/github/fetchPrs.js";
 import {
   approvePr,
+  markNotificationDone,
   togglePrAutoMerge,
   togglePrDraft,
   type PrTarget,
@@ -228,6 +229,11 @@ export function createSync(options: SyncOptions = {}) {
     approvePullRequest: action(approvePr),
     togglePullRequestDraft: action(togglePrDraft),
     togglePullRequestAutoMerge: action(togglePrAutoMerge),
+    markNotificationDone: (request: { instanceId: string; id: string }) =>
+      enqueue(async () => {
+        const instance = await configuredInstance(request.instanceId);
+        await markNotificationDone(instance, request.id);
+      }),
   };
 }
 function message(err: unknown): string {

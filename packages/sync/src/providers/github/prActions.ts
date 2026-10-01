@@ -81,3 +81,15 @@ export async function togglePrAutoMerge(
   }
   return { autoMerge: true };
 }
+
+// GitHub's inbox "Done": archives the thread until new activity revives it
+// (unlike "read", which keeps it listed). Same call as the server route.
+export async function markNotificationDone(
+  instance: GitHubInstance,
+  threadId: string,
+): Promise<void> {
+  if (!/^\d+$/.test(threadId)) throw new Error("invalid notification id");
+  await getClient(instance).activity.markThreadAsDone({
+    thread_id: Number(threadId),
+  });
+}
