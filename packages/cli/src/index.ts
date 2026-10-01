@@ -2,6 +2,7 @@
 import { parseArgs } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createSync, type SyncKind, type SyncResult } from "sync";
+import { safe } from "./terminal.js";
 import { runTui } from "./tui.js";
 
 const usage =
@@ -90,7 +91,11 @@ async function main(args: string[]): Promise<number> {
       );
       if (!data.instances.length) process.stdout.write("no cached instances\n");
       for (const i of data.instances) {
-        process.stdout.write(`${i.label} (${i.id}, ${i.username})\n`);
+        // Human-readable output is a terminal too: sanitize provider text
+        // (JSON output stays structured and untouched).
+        process.stdout.write(
+          `${safe(i.label)} (${safe(i.id)}, ${safe(i.username)})\n`,
+        );
         for (const [kind, items] of [
           ["prs", i.prs],
           ["reviews", i.reviews],
@@ -98,24 +103,28 @@ async function main(args: string[]): Promise<number> {
           if (!items) continue;
           process.stdout.write(`  ${kind} (${items.length})\n`);
           for (const pr of items)
-            process.stdout.write(`    ${pr.repo}#${pr.number} ${pr.title}\n`);
+            process.stdout.write(
+              `    ${safe(pr.repo)}#${pr.number} ${safe(pr.title)}\n`,
+            );
         }
         if (i.notifications) {
           process.stdout.write(`  notifications (${i.notifications.length})\n`);
           for (const n of i.notifications)
-            process.stdout.write(`    ${n.repo}: ${n.title}\n`);
+            process.stdout.write(`    ${safe(n.repo)}: ${safe(n.title)}\n`);
         }
       }
       for (const r of cycle?.results ?? [])
         for (const f of r.fetches)
           process.stdout.write(
-            `  ${r.instanceId} ${f.kind}: ${f.status}${f.reason ? ` (${f.reason})` : ""}\n`,
+            `  ${safe(r.instanceId)} ${f.kind}: ${f.status}${f.reason ? ` (${safe(f.reason)})` : ""}\n`,
           );
     }
   };
   const abort = new AbortController();
   const stop = () => abort.abort();
-  if (command === "watch") {
+  // Networked commands drain the accepted sync on SIGINT/SIGTERM and close
+  // the runtime (`once` included); offline `list` has nothing to drain.
+  if (command !== "list") {
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
   }

@@ -3,7 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 
 const root = mkdtempSync(join(tmpdir(), "ghd-cli-"));
 const env = { ...process.env, XDG_CACHE_HOME: root, XDG_CONFIG_HOME: root };
@@ -12,6 +12,7 @@ let failure = false;
 let lowBudget = false;
 let unchanged = false;
 let hold = false;
+let hostileTitle = false;
 let requested = 0;
 const pr = {
   id: "PR_1",
@@ -76,7 +77,7 @@ const server = createServer((req, res) => {
         unread: true,
         updated_at: "2026-01-01T00:00:00Z",
         subject: {
-          title: "hello",
+          title: hostileTitle ? "evil \u001b[2J title" : "hello",
           type: "Issue",
           url: null,
           latest_comment_url: null,
@@ -187,4 +188,52 @@ test("watch stops during sleep and active fetch", async () => {
     expect(Date.now() - started).toBeLessThan(2000);
   }
   hold = false;
+});
+// Async spawn: spawnSync would block the in-process mock server.
+const exec = (...args: string[]) =>
+  new Promise<string>((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, ...args], { env });
+    let out = "";
+    child.stdout.on("data", (chunk) => (out += chunk));
+    child.on("error", reject);
+    child.on("close", () => resolve(out));
+  });
+test("plain output strips terminal control sequences; JSON keeps them", async () => {
+  // Earlier tests leave the mock in 304 / failure modes.
+  unchanged = false;
+  failure = false;
+  hostileTitle = true;
+  // Notifications use the REST budget, which earlier tests leave intact.
+  const plain = await exec("once", "--kind", "notifications");
+  hostileTitle = false;
+  expect(plain).toContain("o/r: evil  [2J title");
+  expect(plain).not.toContain("\u001b");
+  const json = await exec("list", "--kind", "notifications", "--json");
+  expect(JSON.parse(json).instances[0].notifications[0].title).toBe(
+    "evil \u001b[2J title",
+  );
+});
+test("once drains the in-flight sync on SIGTERM", async () => {
+  hold = true;
+  const before = requested;
+  const child = spawn(
+    process.execPath,
+    [cli, "once", "--kind", "notifications"],
+    { env },
+  );
+  let stdout = "";
+  child.stdout.on("data", (chunk) => (stdout += chunk));
+  // Signal only once the held notifications fetch is in flight.
+  await vi.waitFor(() => expect(requested).toBeGreaterThan(before + 1), {
+    timeout: 4000,
+  });
+  child.kill("SIGTERM");
+  const [code, signal] = await new Promise<[number | null, string | null]>(
+    (resolve) => child.on("close", (c, s) => resolve([c, s])),
+  );
+  hold = false;
+  // Not killed by the signal: the accepted sync finished and was reported.
+  expect(signal).toBeNull();
+  expect(code).toBe(0);
+  expect(stdout).toContain("sync ");
 });

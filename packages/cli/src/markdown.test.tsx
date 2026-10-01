@@ -40,3 +40,11 @@ test("strips terminal control sequences", () => {
 test("empty body", () => {
   expect(frame("<!-- only a template -->")).toContain("No description");
 });
+
+test("out-of-range numeric entities don't crash rendering", () => {
+  // In text, marked already maps these to U+FFFD; in inline code our own
+  // decoder sees them raw and must not throw.
+  const output = frame("big &#x110000; ok &#65; `code &#x110000; &#1114112;`");
+  expect(output).toContain("ok A");
+  expect(output).toContain("code &#x110000; &#1114112;");
+});

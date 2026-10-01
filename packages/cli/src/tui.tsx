@@ -13,6 +13,7 @@ import { loadState, saveState, type TuiState } from "./state.js";
 import { ago } from "./time.js";
 import { createDemoRuntime } from "./demo.js";
 import { ReviewPane } from "./review.js";
+import { safe } from "./terminal.js";
 import { stackPrs, type Stacked } from "./stack.js";
 import {
   compare,
@@ -80,11 +81,6 @@ function decisionColor(decision: NormalizedPr["reviewDecision"]): string {
       : colors.warning;
 }
 
-// Provider text is untrusted, including ANSI escape sequences and newlines.
-function safe(text: string): string {
-  // eslint-disable-next-line no-control-regex -- prevent terminal control sequences in provider content
-  return text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
-}
 function shorten(text: string, width: number): string {
   const clean = safe(text);
   return clean.length > width

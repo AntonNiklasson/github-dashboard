@@ -40,7 +40,8 @@ function decode(text: string): string {
           name[1]?.toLowerCase() === "x"
             ? parseInt(name.slice(2), 16)
             : parseInt(name.slice(1), 10);
-        return Number.isFinite(code) && code > 0
+        // Out-of-range code points would make fromCodePoint throw.
+        return Number.isInteger(code) && code > 0 && code <= 0x10ffff
           ? String.fromCodePoint(code)
           : match;
       }
