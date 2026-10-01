@@ -123,8 +123,11 @@ function prStatus(pr: NormalizedPr, { list = false } = {}): Status | null {
   if (pr.mergeStateStatus === "DIRTY" || pr.mergeable === false)
     return { text: "Conflicts", color: colors.warning, badge: true };
   if (pr.draft) return null;
+  // List rows show the queue via the yellow icon and title instead.
   if (pr.inMergeQueue)
-    return { text: "In merge queue", color: colors.warning, icon: icons.queue };
+    return list
+      ? null
+      : { text: "In merge queue", color: colors.warning, icon: icons.queue };
   if (pr.reviewDecision === "APPROVED")
     return { text: "Approved", color: colors.success, icon: icons.approved };
   if (pr.reviewDecision === "CHANGES_REQUESTED")
@@ -281,7 +284,12 @@ function PrRow({
                     ? icons.queue
                     : icons.pr}
               </Text>{" "}
-              <Text bold color={active ? "cyan" : "white"}>
+              <Text
+                bold
+                color={
+                  pr.inMergeQueue ? colors.warning : active ? "cyan" : "white"
+                }
+              >
                 {title}
               </Text>
               {ciGlyph[pr.ciStatus] && (

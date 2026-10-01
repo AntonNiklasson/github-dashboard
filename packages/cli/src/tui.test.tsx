@@ -395,7 +395,8 @@ test("queued PRs get the merge-queue icon and no auto-merge line", () => {
   const queued = frame.split("\n").find((line) => line.includes("safe"))!;
   expect(queued).toContain("\uf4db");
   expect(queued).not.toContain("\uf407");
-  expect(frame).toContain("In merge queue");
+  // The icon and yellow title carry it; no second indicator in the row.
+  expect(frame).not.toContain("In merge queue");
   // Only the armed (not yet queued) PR shows the auto-merge line.
   expect(frame.match(/auto-merge/g)).toHaveLength(1);
   ui.unmount();
