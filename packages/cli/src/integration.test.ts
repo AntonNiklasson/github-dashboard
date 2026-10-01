@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 
+// Each test spawns several real CLI processes; CI runners need more than the
+// 5s default.
+vi.setConfig({ testTimeout: 20_000 });
+
 const root = mkdtempSync(join(tmpdir(), "ghd-cli-"));
 const env = { ...process.env, XDG_CACHE_HOME: root, XDG_CONFIG_HOME: root };
 let port: number;
