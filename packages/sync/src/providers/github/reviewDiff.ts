@@ -164,7 +164,7 @@ export async function postReviewComment(
   });
 }
 
-function splitRepo(repo: string): [string, string] {
+export function splitRepo(repo: string): [string, string] {
   const parts = repo.split("/");
   if (parts.length !== 2 || parts.some((part) => !/^[\w.-]+$/.test(part)))
     throw new Error("invalid repository identity");

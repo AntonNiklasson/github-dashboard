@@ -3,6 +3,12 @@ import { openCache } from "./cache/open.js";
 import { createStore, type Kind, type Metadata } from "./cache/store.js";
 import { authenticate, loadInstances, type GitHubInstance } from "./config.js";
 import { fetchAuthoredPrs } from "./providers/github/fetchPrs.js";
+import {
+  approvePr,
+  togglePrAutoMerge,
+  togglePrDraft,
+  type PrTarget,
+} from "./providers/github/prActions.js";
 import { fetchReviews } from "./providers/github/fetchReviews.js";
 import { fetchNotifications } from "./providers/github/fetchNotifications.js";
 import {
@@ -183,6 +189,15 @@ export function createSync(options: SyncOptions = {}) {
       await postReviewComment(instance, request);
     });
   }
+  // PR write actions share the queue with syncs, like review comments.
+  type ActionRequest = PrTarget & { instanceId: string };
+  const action =
+    <T>(run: (instance: GitHubInstance, target: PrTarget) => Promise<T>) =>
+    (request: ActionRequest) =>
+      enqueue(async () => {
+        const instance = await configuredInstance(request.instanceId);
+        return run(instance, { repo: request.repo, number: request.number });
+      });
   function close(): Promise<void> {
     if (!closing)
       closing = tail.then(() => {
@@ -198,6 +213,9 @@ export function createSync(options: SyncOptions = {}) {
     listNotifications: store.listNotifications,
     getPullRequestDiff,
     createReviewComment,
+    approvePullRequest: action(approvePr),
+    togglePullRequestDraft: action(togglePrDraft),
+    togglePullRequestAutoMerge: action(togglePrAutoMerge),
   };
 }
 function message(err: unknown): string {
