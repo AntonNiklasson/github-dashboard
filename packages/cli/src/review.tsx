@@ -1,5 +1,5 @@
 import { Box, Text, useInput, useWindowSize } from "ink";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   lineRange,
   type DiffFile,
@@ -11,6 +11,61 @@ import {
 
 type Runtime = ReturnType<typeof createSync>;
 type Mode = "browse" | "compose" | "confirm" | "sending";
+type View = "tree" | "file";
+type TreeEntry = {
+  path: string;
+  name: string;
+  depth: number;
+  prefix: string;
+  fileIndex?: number;
+};
+
+// Build a navigable tree from GitHub's flat file list. Directory paths are
+// unique selection keys; files keep their original index for review comments.
+function fileTree(files: DiffFile[], collapsed: Set<string>): TreeEntry[] {
+  type Node = {
+    path: string;
+    name: string;
+    fileIndex?: number;
+    children: Map<string, Node>;
+  };
+  const root: Node = { path: "", name: "", children: new Map() };
+  files.forEach((file, fileIndex) => {
+    let parent = root;
+    for (const part of file.path.split("/")) {
+      const path = parent.path ? `${parent.path}/${part}` : part;
+      let node = parent.children.get(part);
+      if (!node) {
+        node = { path, name: part, children: new Map() };
+        parent.children.set(part, node);
+      }
+      parent = node;
+    }
+    parent.fileIndex = fileIndex;
+  });
+  const result: TreeEntry[] = [];
+  const visit = (node: Node, depth: number, prefix: string) => {
+    const children = [...node.children.values()].sort((a, b) => {
+      const aDir = a.fileIndex === undefined;
+      const bDir = b.fileIndex === undefined;
+      return aDir === bDir ? a.name.localeCompare(b.name) : aDir ? -1 : 1;
+    });
+    children.forEach((child, index) => {
+      const last = index === children.length - 1;
+      result.push({
+        path: child.path,
+        name: child.name,
+        depth,
+        prefix: `${prefix}${last ? "└─" : "├─"}`,
+        fileIndex: child.fileIndex,
+      });
+      if (child.fileIndex === undefined && !collapsed.has(child.path))
+        visit(child, depth + 1, `${prefix}${last ? "  " : "│ "}`);
+    });
+  };
+  visit(root, 0, "");
+  return result;
+}
 const diffColors = {
   add: "#4ade80",
   delete: "#fb7185",
@@ -19,7 +74,14 @@ const diffColors = {
   gutter: "#94a3b8",
   cursor: "#27334d",
   visual: "#493e31",
+  renamed: "#fbbf24",
 } as const;
+
+export function treeFileColor(status: string): string | undefined {
+  if (status === "removed") return diffColors.delete;
+  if (status === "renamed") return diffColors.renamed;
+  return undefined;
+}
 
 // Keep provider text inert even when shown inside a highlighted diff line.
 function safe(value: string): string {
@@ -66,6 +128,9 @@ export function ReviewPane({
   const [diff, setDiff] = useState<PullRequestDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<View>("tree");
+  const [treeSelection, setTreeSelection] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [fileIndex, setFileIndex] = useState(0);
   const [cursor, setCursor] = useState(0);
   const [visualStart, setVisualStart] = useState<number | null>(null);
@@ -74,11 +139,29 @@ export function ReviewPane({
   const [posted, setPosted] = useState("");
   const file = diff?.files[fileIndex];
   const lines = file?.lines ?? [];
+  const entries = useMemo(
+    () => fileTree(diff?.files ?? [], collapsed),
+    [diff, collapsed],
+  );
+
+  const treeIndex = Math.max(
+    0,
+    entries.findIndex((entry) => entry.path === treeSelection),
+  );
   const visible = Math.max(
     1,
-    height - (mode === "compose" || mode === "confirm" ? 15 : 10),
+    height - (mode === "compose" || mode === "confirm" ? 15 : 9),
   );
   const start = Math.max(0, cursor - visible + 1);
+  const treeStart = Math.max(0, treeIndex - visible + 1);
+  const splitTree = width >= 72;
+  const treeWidth = splitTree
+    ? Math.min(38, Math.floor((width - 2) * 0.38))
+    : width - 2;
+  const previewWidth = width - treeWidth - 6;
+  const previewIndex = entries[treeIndex]?.fileIndex;
+  const previewFile =
+    previewIndex === undefined ? null : diff?.files[previewIndex];
 
   useEffect(() => {
     let active = true;
@@ -181,11 +264,50 @@ export function ReviewPane({
         setDraft((value) => value + safe(input));
       return;
     }
-    if (key.escape || input === "q") {
+    if (input === "q") onQuit();
+    else if (key.tab && onTab) onTab(key.shift ? -1 : 1);
+    else if (view === "tree") {
+      if (key.escape) onBack();
+      else if (key.upArrow || input === "k" || key.pageUp)
+        setTreeSelection(
+          entries[Math.max(0, treeIndex - (key.pageUp ? visible : 1))]?.path ??
+            null,
+        );
+      else if (key.downArrow || input === "j" || key.pageDown)
+        setTreeSelection(
+          entries[
+            Math.min(
+              entries.length - 1,
+              treeIndex + (key.pageDown ? visible : 1),
+            )
+          ]?.path ?? null,
+        );
+      else if (key.return && entries[treeIndex]) {
+        const entry = entries[treeIndex];
+        if (entry.fileIndex === undefined) {
+          setCollapsed((current) => {
+            const next = new Set(current);
+            if (next.has(entry.path)) next.delete(entry.path);
+            else next.add(entry.path);
+            return next;
+          });
+        } else {
+          setFileIndex(entry.fileIndex);
+          setCursor(0);
+          setVisualStart(null);
+          setPosted("");
+          setError(null);
+          setView("file");
+        }
+      }
+    } else if (key.escape) {
       if (visualStart !== null) setVisualStart(null);
-      else onBack();
-    } else if (key.tab && onTab) onTab(key.shift ? -1 : 1);
-    else if (key.upArrow || input === "k")
+      else {
+        setTreeSelection(file?.path ?? null);
+        setError(null);
+        setView("tree");
+      }
+    } else if (key.upArrow || input === "k")
       setCursor((value) => Math.max(0, value - 1));
     else if (key.downArrow || input === "j")
       setCursor((value) => Math.max(0, Math.min(lines.length - 1, value + 1)));
@@ -222,8 +344,10 @@ export function ReviewPane({
   }
   const feedback = error
     ? `Error: ${error}`
-    : posted ||
-      (visualStart === null ? rangeLabel : `VISUAL LINE  ${rangeLabel}`);
+    : view === "tree"
+      ? ""
+      : posted ||
+        (visualStart === null ? rangeLabel : `VISUAL LINE  ${rangeLabel}`);
 
   return (
     // Hosted in the details Diff tab, which already shows the PR title.
@@ -232,76 +356,189 @@ export function ReviewPane({
         {safe(pr.author)} · {safe(pr.headBranch)} → {safe(pr.baseBranch)} ·{" "}
         {diff?.headSha.slice(0, 9) ?? "loading commit"}
       </Text>
-      <Text bold color="yellow" wrap="truncate-end">
-        {loading ? (
-          "Loading diff…"
-        ) : diff?.files.length ? (
-          <>
-            FILE {fileIndex + 1}/{diff.files.length} {safe(file?.path ?? "")} ·{" "}
-            {safe(file?.status ?? "")}{" "}
-            <Text color={diffColors.add}>
-              +{lines.filter((line) => line.kind === "add").length}
-            </Text>{" "}
-            <Text color={diffColors.delete}>
-              -{lines.filter((line) => line.kind === "delete").length}
-            </Text>{" "}
-            [ / ] files
-          </>
-        ) : (
-          "No changed files"
-        )}
-      </Text>
-      {loading ? (
-        <Text color="gray">Fetching this PR from GitHub…</Text>
-      ) : lines.length ? (
-        lines.slice(start, start + visible).map((line, offset) => {
-          const index = start + offset;
-          const selected = index >= selectedStart && index <= selectedEnd;
-          const color = diffColors[line.kind];
-          const sign =
-            line.kind === "add"
-              ? "+"
-              : line.kind === "delete"
-                ? "-"
-                : line.kind === "hunk"
-                  ? "@"
-                  : " ";
-          return (
-            <Text
-              key={`${fileIndex}/${index}`}
-              backgroundColor={
-                selected
-                  ? visualStart === null
-                    ? diffColors.cursor
-                    : diffColors.visual
-                  : undefined
-              }
-              wrap="truncate-end"
-            >
-              <Text
-                color={index === cursor ? diffColors.hunk : diffColors.gutter}
-              >
-                {index === cursor ? "❯" : " "}{" "}
-                {String(line.oldLine ?? "").padStart(4)}{" "}
-                {String(line.newLine ?? "").padStart(4)}{" "}
-              </Text>
-              <Text
-                bold={line.kind === "add" || line.kind === "delete"}
-                color={color}
-              >
-                {sign} {cut(line.text, width - 20)}
-              </Text>
+      {view === "tree" ? (
+        <Box flexGrow={1} flexDirection="row" overflow="hidden">
+          <Box width={treeWidth} flexDirection="column" overflow="hidden">
+            <Text bold color="yellow">
+              {loading
+                ? "Loading diff…"
+                : `FILES  ${diff?.files.length ?? 0} changed`}
             </Text>
-          );
-        })
+            {loading ? (
+              <Text color="gray">Fetching this PR from GitHub…</Text>
+            ) : entries.length ? (
+              entries
+                .slice(treeStart, treeStart + visible)
+                .map((entry, offset) => {
+                  const index = treeStart + offset;
+                  const selected = index === treeIndex;
+                  const entryFile =
+                    entry.fileIndex === undefined
+                      ? null
+                      : diff!.files[entry.fileIndex];
+                  return (
+                    <Text
+                      key={entry.path}
+                      backgroundColor={selected ? diffColors.cursor : undefined}
+                      wrap="truncate-end"
+                    >
+                      <Text
+                        color={selected ? diffColors.hunk : diffColors.gutter}
+                      >
+                        {selected ? "❯" : " "} {entry.prefix}
+                        {entryFile
+                          ? "  "
+                          : collapsed.has(entry.path)
+                            ? "▸ "
+                            : "▾ "}
+                      </Text>
+                      <Text
+                        bold={selected}
+                        color={
+                          entryFile
+                            ? treeFileColor(entryFile.status)
+                            : diffColors.hunk
+                        }
+                      >
+                        {cut(
+                          entry.name,
+                          Math.max(1, treeWidth - entry.depth * 2 - 4),
+                        )}
+                        {entryFile ? "" : "/"}
+                      </Text>
+                    </Text>
+                  );
+                })
+            ) : (
+              <Text color="gray">No changed files</Text>
+            )}
+          </Box>
+          {splitTree && (
+            <Box
+              flexGrow={1}
+              flexDirection="column"
+              borderStyle="single"
+              borderLeft
+              borderTop={false}
+              borderBottom={false}
+              borderRight={false}
+              borderColor={diffColors.gutter}
+              paddingX={1}
+            >
+              {previewFile ? (
+                <>
+                  <Text bold color="yellow" wrap="truncate-end">
+                    {cut(previewFile.path, previewWidth)}
+                  </Text>
+                  {previewFile.lines.length ? (
+                    previewFile.lines.slice(0, visible).map((line, index) => (
+                      <Text
+                        key={index}
+                        wrap="truncate-end"
+                        color={diffColors[line.kind]}
+                      >
+                        <Text color={diffColors.gutter}>
+                          {String(line.oldLine ?? "").padStart(4)}{" "}
+                          {String(line.newLine ?? "").padStart(4)}{" "}
+                        </Text>
+                        {line.kind === "add"
+                          ? "+"
+                          : line.kind === "delete"
+                            ? "-"
+                            : line.kind === "hunk"
+                              ? "@"
+                              : " "}{" "}
+                        {cut(line.text, Math.max(1, previewWidth - 14))}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text color="gray">
+                      No text patch (binary or large file)
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <Text color="gray">Select a file to preview</Text>
+              )}
+            </Box>
+          )}
+        </Box>
       ) : (
-        <Text color="gray">
-          {loading
-            ? ""
-            : "No text patch (binary or large file); no line comments available"}
-        </Text>
+        <>
+          <Text bold color="yellow" wrap="truncate-end">
+            {loading ? (
+              "Loading diff…"
+            ) : diff?.files.length ? (
+              <>
+                FILE {fileIndex + 1}/{diff.files.length}{" "}
+                {safe(file?.path ?? "")} · {safe(file?.status ?? "")}{" "}
+                <Text color={diffColors.add}>
+                  +{lines.filter((line) => line.kind === "add").length}
+                </Text>{" "}
+                <Text color={diffColors.delete}>
+                  -{lines.filter((line) => line.kind === "delete").length}
+                </Text>{" "}
+                [ / ] files
+              </>
+            ) : (
+              "No changed files"
+            )}
+          </Text>
+          {loading ? (
+            <Text color="gray">Fetching this PR from GitHub…</Text>
+          ) : lines.length ? (
+            lines.slice(start, start + visible).map((line, offset) => {
+              const index = start + offset;
+              const selected = index >= selectedStart && index <= selectedEnd;
+              const color = diffColors[line.kind];
+              const sign =
+                line.kind === "add"
+                  ? "+"
+                  : line.kind === "delete"
+                    ? "-"
+                    : line.kind === "hunk"
+                      ? "@"
+                      : " ";
+              return (
+                <Text
+                  key={`${fileIndex}/${index}`}
+                  backgroundColor={
+                    selected
+                      ? visualStart === null
+                        ? diffColors.cursor
+                        : diffColors.visual
+                      : undefined
+                  }
+                  wrap="truncate-end"
+                >
+                  <Text
+                    color={
+                      index === cursor ? diffColors.hunk : diffColors.gutter
+                    }
+                  >
+                    {index === cursor ? "❯" : " "}{" "}
+                    {String(line.oldLine ?? "").padStart(4)}{" "}
+                    {String(line.newLine ?? "").padStart(4)}{" "}
+                  </Text>
+                  <Text
+                    bold={line.kind === "add" || line.kind === "delete"}
+                    color={color}
+                  >
+                    {sign} {cut(line.text, width - 20)}
+                  </Text>
+                </Text>
+              );
+            })
+          ) : (
+            <Text color="gray">
+              {loading
+                ? ""
+                : "No text patch (binary or large file); no line comments available"}
+            </Text>
+          )}
+        </>
       )}
-      <Box flexGrow={1} />
+      {view === "file" && <Box flexGrow={1} />}
       {(mode === "compose" || mode === "confirm" || mode === "sending") && (
         <Box
           flexDirection="column"
@@ -330,14 +567,11 @@ export function ReviewPane({
             ))}
         </Box>
       )}
-      <Text color={error ? "red" : "gray"} wrap="truncate-end">
-        {cut(feedback, width - 6)}
-      </Text>
-      <Text color="gray" wrap="truncate-end">
-        {mode === "browse"
-          ? "j/k lines  [ ] files  V visual line  c/Enter comment  Esc back"
-          : "Comments are posted only after y confirmation · Ctrl+C quits"}
-      </Text>
+      {feedback && (
+        <Text color={error ? "red" : "gray"} wrap="truncate-end">
+          {cut(feedback, width - 6)}
+        </Text>
+      )}
     </Box>
   );
 }

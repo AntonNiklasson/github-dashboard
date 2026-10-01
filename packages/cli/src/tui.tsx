@@ -470,7 +470,6 @@ export function Dashboard({
   runtime,
   cycle,
   error,
-  syncing,
   stopping = false,
   initialKind = "prs",
   initialInstanceId,
@@ -484,7 +483,6 @@ export function Dashboard({
   runtime: Runtime;
   cycle: SyncResult | null;
   error: string | null;
-  syncing: boolean;
   stopping?: boolean;
   initialKind?: SyncKind;
   initialInstanceId?: string;
@@ -523,10 +521,9 @@ export function Dashboard({
   const [menu, setMenu] = useState<"sort" | "copy" | "open" | "action" | null>(
     null,
   );
-  // Footer prompt; Enter or y runs it (plus `also`, e.g. q for quit).
+  // Footer prompt for actions that need explicit confirmation.
   const [confirm, setConfirm] = useState<{
     prompt: string;
-    also?: string;
     run: () => void;
   } | null>(null);
   // Optimistic PR fields after an action, until a resync catches up (GitHub's
@@ -619,7 +616,6 @@ export function Dashboard({
       );
   }, [activeDetailTab, itemKey]);
 
-  const count = (kind: SyncKind) => itemsFor(runtime, kind, instanceId).length;
   const failures =
     cycle?.results.flatMap((result) =>
       result.fetches
@@ -631,29 +627,28 @@ export function Dashboard({
             `${result.instanceId}/${fetch.kind} ${fetch.status}${fetch.reason ? `: ${fetch.reason}` : ""}`,
         ),
     ) ?? [];
-  // Routine sync state lives in the top bar's SYNCING / READY; the status line
-  // only appears for things worth reading.
+  // Only show actionable sync failures or interaction feedback in the footer.
   const status = stopping
     ? "Quitting…"
     : error
       ? `Sync error: ${error}`
       : failures.join(" | ");
   const statusText = message || status;
-  const footerLines = statusText ? 2 : 1;
+  const footerLines =
+    Number(!!statusText) + Number(!!(confirm || menu || searching));
   // Scroll window by actual row heights. Chrome: the top bar, the sort line,
-  // and the footer (key hints, plus the status line when it has content).
+  // and any contextual prompt or status line.
   const budget = Math.max(1, rows - 2 - footerLines);
   const { start, end } = scrollWindow(listed.map(rowHeight), selected, budget);
   const visible = Math.max(1, end - start);
   const instanceOptions: { id: string | null; label: string }[] =
     instances.length ? instances : [{ id: null, label: "No instances" }];
   const activeInstance = instanceId;
-  // Instances share the top bar with the view tabs and sync status: show
-  // them all when they fit, else just the active one with ‹ › hints.
+  // Instances share the top bar with the view tabs: show them all when they
+  // fit, else just the active one with ‹ › hints.
   const tabWidth = 20;
   const viewTabsWidth = tabs.reduce(
-    (sum, kind) =>
-      sum + tabLabels[kind].length + String(count(kind)).length + 3,
+    (sum, kind) => sum + tabLabels[kind].length + 2,
     0,
   );
   const instancesWidth = instanceOptions.reduce(
@@ -667,7 +662,10 @@ export function Dashboard({
   const fitsAll = instancesWidth <= width - viewTabsWidth - 14;
   const firstTab = fitsAll ? 0 : activeTabIndex;
   const tabCount = fitsAll ? instanceOptions.length : 1;
-  const visibleTabs = instanceOptions.slice(firstTab, firstTab + tabCount);
+  const visibleTabs =
+    instances.length === 1
+      ? []
+      : instanceOptions.slice(firstTab, firstTab + tabCount);
   const changed = (kind: SyncKind) => {
     setTab(kind);
     setIndex(0);
@@ -766,12 +764,12 @@ export function Dashboard({
       }
       if (confirm) {
         setConfirm(null);
-        if (
-          key.return ||
-          input === "y" ||
-          (confirm.also && input === confirm.also)
-        )
-          confirm.run();
+        if (key.return || input === "y") confirm.run();
+        return;
+      }
+      // In search, q is text; in action confirmations, it cancels the action.
+      if (input === "q" && !searching) {
+        onQuit();
         return;
       }
       if (help) {
@@ -823,9 +821,7 @@ export function Dashboard({
         }
         return;
       }
-      if (input === "q")
-        setConfirm({ prompt: "Quit?", also: "q", run: onQuit });
-      else if (input === "?") setHelp(true);
+      if (input === "?") setHelp(true);
       else if (input === "/") {
         setSearching(true);
         setQuery("");
@@ -901,7 +897,7 @@ export function Dashboard({
 
   return (
     <Box width={width} height={rows} flexDirection="column">
-      {/* One top bar: views on the left, instances and sync state on the right. */}
+      {/* One top bar: views on the left, instances on the right. */}
       <Box justifyContent="space-between" paddingX={1}>
         <Box gap={2}>
           {tabs.map((kind) => (
@@ -910,7 +906,7 @@ export function Dashboard({
               bold={tab === kind}
               color={tab === kind ? "cyan" : "gray"}
             >
-              {tabLabels[kind]} {count(kind)}
+              {tabLabels[kind]}
             </Text>
           ))}
         </Box>
@@ -932,10 +928,6 @@ export function Dashboard({
           {firstTab + tabCount < instanceOptions.length && (
             <Text color="gray">›</Text>
           )}
-          <Text color={syncing ? "yellow" : "green"}>
-            {"  "}
-            {syncing ? "● SYNCING" : "● READY"}
-          </Text>
         </Box>
       </Box>
       <Box flexGrow={1} flexDirection="row">
@@ -956,7 +948,9 @@ export function Dashboard({
             <Text>
               1 / 2 / 3 Switch My work, Requested reviews, Notifications
             </Text>
-            <Text>i Next instance (wraps); [ / ] previous / next</Text>
+            {instances.length > 1 && (
+              <Text>i Next instance (wraps); [ / ] previous / next</Text>
+            )}
             <Text>j / k or ↑ / ↓ Select item; PgUp / PgDn scroll</Text>
             <Text>
               / Search title, repository or instance; Enter applies, Esc clears
@@ -972,7 +966,7 @@ export function Dashboard({
               s then key Sort by field (again flips); S flips direction
             </Text>
             <Text>r Refresh (queued after any active fetch)</Text>
-            <Text>q Quit (Enter, y or q again confirms; Ctrl-C quits now)</Text>
+            <Text>q Quit immediately (Ctrl-C also quits)</Text>
             <Text>Enter Show PR details; Enter / d again reviews the diff</Text>
             <Text>Notifications: Enter opens in browser, e marks done</Text>
             <Text>Esc Back to list / clear filter</Text>
@@ -1051,7 +1045,7 @@ export function Dashboard({
             paddingX={1}
           >
             <Box justifyContent="space-between">
-              {/* The tab bar already names the view and its count. */}
+              {/* The tab bar already names the view. */}
               <Text color={colors.muted}>
                 {query ? `${filtered.length} of ${available.length} match` : ""}
               </Text>
@@ -1103,56 +1097,45 @@ export function Dashboard({
           </Text>
         </Box>
       )}
-      <Box paddingX={1}>
-        {confirm ? (
-          <Text wrap="truncate-end">
-            <Text bold color={colors.warning}>
-              {confirm.prompt.toUpperCase()}
-              {"  "}
+      {(confirm || menu || searching) && (
+        <Box paddingX={1}>
+          {confirm ? (
+            <Text wrap="truncate-end">
+              <Text bold color={colors.warning}>
+                {confirm.prompt.toUpperCase()}
+                {"  "}
+              </Text>
+              <Text color="gray">
+                Enter / y confirm · any other key cancels
+              </Text>
             </Text>
-            <Text color="gray">
-              Enter / y{confirm.also ? ` / ${confirm.also}` : ""} confirm · any
-              other key cancels
+          ) : menu ? (
+            <LeaderMenu
+              title={menu.toUpperCase()}
+              options={
+                menu === "open"
+                  ? opens
+                  : menu === "action"
+                    ? actions
+                    : menu === "sort"
+                      ? sortFields[tab].map((field) => ({
+                          key: sortKeys[field],
+                          label:
+                            field === sort.field
+                              ? `${field} ${sort.dir === "asc" ? "↑" : "↓"}`
+                              : field,
+                          active: field === sort.field,
+                        }))
+                      : copies
+              }
+            />
+          ) : (
+            <Text color="gray" wrap="truncate-end">
+              {`SEARCH /${query}█  Enter apply · Esc cancel`}
             </Text>
-          </Text>
-        ) : menu ? (
-          <LeaderMenu
-            title={menu.toUpperCase()}
-            options={
-              menu === "open"
-                ? opens
-                : menu === "action"
-                  ? actions
-                  : menu === "sort"
-                    ? sortFields[tab].map((field) => ({
-                        key: sortKeys[field],
-                        label:
-                          field === sort.field
-                            ? `${field} ${sort.dir === "asc" ? "↑" : "↓"}`
-                            : field,
-                        active: field === sort.field,
-                      }))
-                    : copies
-            }
-          />
-        ) : (
-          <Text color="gray" wrap="truncate-end">
-            {tabbed && activeDetailTab === "diff"
-              ? "DIFF  Tab/Shift-Tab switch tab · Esc back to list"
-              : searching
-                ? `SEARCH /${query}█  Enter apply · Esc cancel`
-                : help
-                  ? "HELP  Tab/Shift-Tab views · i next instance · j/k move · / search · o open · y copy · r refresh · q quit · any key closes"
-                  : detail
-                    ? tabbed
-                      ? "DETAILS  Tab/1-3 tabs · j/k scroll · o open · . actions · y copy · Esc back"
-                      : "DETAILS  o open · y copy · Esc back"
-                    : tab === "notifications"
-                      ? "Tab views  i instance  Enter/o open in browser  e done  s sort  y copy  / search  ? help  q quit"
-                      : "Tab views  i instance  Enter details  o open  . actions  s sort  y copy  / search  ? help  q quit"}
-          </Text>
-        )}
-      </Box>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -1179,7 +1162,6 @@ export async function runTui(options: {
   let wake: (() => void) | null = null;
   let cycle: SyncResult | null = null;
   let error: string | null = null;
-  let syncing = false;
   let app: ReturnType<typeof render> | undefined;
   let crash: unknown;
   const quit = () => {
@@ -1193,7 +1175,6 @@ export async function runTui(options: {
         runtime={runtime}
         cycle={cycle}
         error={error}
-        syncing={syncing}
         stopping={abort.signal.aborted}
         {...remembered}
         onRefresh={() => {
@@ -1211,7 +1192,6 @@ export async function runTui(options: {
         runtime={runtime}
         cycle={null}
         error={null}
-        syncing={false}
         {...remembered}
         onRefresh={() => {
           refresh = true;
@@ -1241,8 +1221,6 @@ export async function runTui(options: {
     );
     while (!abort.signal.aborted) {
       refresh = false;
-      syncing = true;
-      update();
       const outcome = await Promise.race([
         runtime.sync({ instanceId: options.instanceId }).then(
           (result) => ({ result }),
@@ -1255,7 +1233,6 @@ export async function runTui(options: {
         cycle = outcome.result;
         error = null;
       } else error = errorMessage(outcome.err);
-      syncing = false;
       update();
       if (abort.signal.aborted || refresh) continue;
       const controller = new AbortController();
