@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { openCache } from "./cache/open.js";
 import { createStore, type Kind, type Metadata } from "./cache/store.js";
 import { authenticate, loadInstances, type GitHubInstance } from "./config.js";
+import { fetchPullRequestComments } from "./providers/github/comments.js";
 import { fetchAuthoredPrs } from "./providers/github/fetchPrs.js";
 import {
   approvePr,
@@ -176,6 +177,16 @@ export function createSync(options: SyncOptions = {}) {
       return fetchPullRequestDiff(instance, request.repo, request.number);
     });
   }
+  function getPullRequestComments(request: {
+    instanceId: string;
+    repo: string;
+    number: number;
+  }) {
+    return enqueue(async () => {
+      const instance = await configuredInstance(request.instanceId);
+      return fetchPullRequestComments(instance, request.repo, request.number);
+    });
+  }
   function createReviewComment(request: {
     instanceId: string;
     repo: string;
@@ -212,6 +223,7 @@ export function createSync(options: SyncOptions = {}) {
     listPullRequests: store.listPullRequests,
     listNotifications: store.listNotifications,
     getPullRequestDiff,
+    getPullRequestComments,
     createReviewComment,
     approvePullRequest: action(approvePr),
     togglePullRequestDraft: action(togglePrDraft),

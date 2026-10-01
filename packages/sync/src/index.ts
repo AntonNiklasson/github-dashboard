@@ -8,6 +8,7 @@ export {
 } from "./engine.js";
 export type { Instance, Notification } from "./cache/store.js";
 export type { NormalizedPr } from "./providers/github/normalize.js";
+export type { PrComment } from "./providers/github/comments.js";
 export {
   lineRange,
   type DiffFile,
