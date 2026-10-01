@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Octokit } from "@octokit/rest";
 import { parse } from "yaml";
 import { z } from "zod";
+import { silentLog } from "./providers/github/client.js";
 
 export interface GitHubInstance {
   id: string;
@@ -75,7 +76,7 @@ async function resolveUsername(
     return cached;
   }
 
-  const client = new Octokit({ auth: token, baseUrl });
+  const client = new Octokit({ auth: token, baseUrl, log: silentLog });
   const { data } = await client.users.getAuthenticated();
   usernameCache.set(key, data.login);
 
