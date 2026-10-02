@@ -1,56 +1,46 @@
 # GitHub Dashboard
 
-A keyboard-driven dashboard for staying on top of your GitHub pull requests, reviews, and notifications. Supports multiple GitHub instances (github.com + GitHub Enterprise) side by side.
-
-Act on a PR from your keyboard without leaving the dashboard:
-
-- Toggle draft state
-- Rerun failed CI jobs
-- Change PR titles
-- Approve and close PRs
-- ...and more!
+A keyboard-driven dashboard for your GitHub pull requests, review requests and notifications, across multiple GitHub instances (github.com + GitHub Enterprise).
 
 ![Dashboard screenshot](./demo.png)
 
-## Download
+## Clients
 
-Pre-built macOS app is available from the [Releases page](https://github.com/AntonNiklasson/github-dashboard/releases).
+There are currently two clients:
 
-## Keyboard shortcuts
+- **TUI** (`packages/cli`) — terminal UI built on the new sync engine (`packages/sync`, SQLite cache + bulk GraphQL). Browse PRs/reviews/notifications, read descriptions and comments, review diffs and post line comments, toggle draft/auto-merge, approve. Press `?` for keyboard shortcuts.
+- **Web app** (`packages/web` + `packages/server`, optionally wrapped in Electron via `packages/desktop`) — browser dashboard backed by its own Hono API server and cache. **Not yet migrated to the sync engine.** A pre-built macOS app is on the [Releases page](https://github.com/AntonNiklasson/github-dashboard/releases).
 
-| Key | Action |
-|---|---|
-| `j` / `k` or `↓` / `↑` | Move down / up |
-| `h` / `l` or `←` / `→` | Move between columns |
-| `Tab` | Switch instance tab |
-| `Enter` / `Space` | Open detail panel |
-| `o` | Open PR in browser |
-| `r` | Open repo |
-| `.` | Action menu |
-| `y` | Copy menu |
-| `d` | Toggle draft |
-| `m` | Toggle auto-merge |
-| `a` | Approve PR |
-| `c` | Close PR |
-| `e` | Dismiss review / notification |
-| `?` | Show shortcut help |
+## Development
 
-### Inside the detail panel
+Requires Node 22+ and pnpm. TUI icons need a Nerd Font.
 
-| Key | Action |
-|---|---|
-| `h` / `l` or `←` / `→` | Switch tab (Overview / Comments / Files) |
-| `j` / `k` or `↓` / `↑` | Scroll |
-| `Esc` | Close panel |
+```sh
+pnpm install
+
+pnpm dev:cli           # TUI, restarts on source changes
+pnpm dev:web           # web app: server (:7100) + Vite (:7200)
+pnpm dev               # web app in an Electron window
+```
+
+Other useful commands:
+
+```sh
+pnpm cli tui --demo    # TUI with sample data; no config or network (after `pnpm build`)
+pnpm typecheck
+pnpm test
+pnpm lint
+pnpm fmt:check
+```
+
+The CLI also has non-interactive commands for scripting (after `pnpm build`): `pnpm --silent cli once --json`, `pnpm --silent cli list --json` (offline, reads the cache) and `pnpm cli watch`. They accept `--instance` and `--kind` (`prs`, `reviews`, `notifications`).
 
 ## Configuration
 
-The dashboard reads `~/.config/github-dashboard/config.yml` (honors `$XDG_CONFIG_HOME` if set). On first launch the Welcome screen offers a "Set it up for me!" button that scaffolds the file and opens it in your default editor.
-
-The config file:
+Both clients read `~/.config/github-dashboard/config.yml` (honors `$XDG_CONFIG_HOME`):
 
 ```yaml
-theme: system
+theme: system # web app only: system | light | dark
 instances: # one or more
   - domain: github.com
     token: ghp_...
@@ -59,72 +49,11 @@ instances: # one or more
     token: ghp_...
 ```
 
-- **instances** — at least one GitHub instance. List as many as you like (github.com and any number of GHES installs).
-  - **domain** — `github.com` or your GHES host. Accepts a bare host (`ghe.example.com`), a URL (`https://ghe.example.com`), or the full API base — `https://` and `/api/v3` are filled in automatically. For github.com, the API base is set to `https://api.github.com`.
-  - **token** — personal access token (needs `repo`, `notifications` scopes). For github.com, [create one with the scopes pre-selected](https://github.com/settings/tokens/new?scopes=repo,notifications&description=GitHub%20Dashboard).
-  - **label** — optional display name in the tab strip. Defaults to the domain.
-- **theme** — `system` (default), `light`, or `dark`
+- **domain** — `github.com` or a GHES host. A bare host, URL or full API base all work.
+- **token** — personal access token with `repo` and `notifications` scopes ([create one for github.com](https://github.com/settings/tokens/new?scopes=repo,notifications&description=GitHub%20Dashboard)).
+- **label** — optional display name. Defaults to the domain.
 
-## Notifications
+TUI state lives in XDG dirs and is safe to delete:
 
-The Notifications column is intentionally narrower than GitHub's own inbox — it drops items that are either already represented elsewhere in the dashboard or are pure noise:
-
-| Reason | Subject | Why it's dropped |
-|---|---|---|
-| `review_requested` | any | Shown in the Reviews column |
-| `ci_activity` | any | Visible on the PR itself |
-| `author` | `PullRequest` | Your own PR, shown in My work |
-| `state_change` | `PullRequest` | Your own PR, shown in My work / Reviews |
-| `subscribed` | any | Auto-subscription noise |
-
-Everything else (mentions, team mentions, assignments, comments on threads you participate in, security alerts, …) flows through unchanged.
-
-## Architecture
-
-```mermaid
-%%{init: {'sequence': {'mirrorActors': false}}}%%
-sequenceDiagram
-    participant Browser
-    participant Server
-    participant GH as github.com
-    participant GHE as GitHub Enterprise
-
-    loop every 10s
-        Browser->>Server: GET /api/*
-        Server-->>Browser: cached data
-    end
-
-    loop every 30s
-        Server->>GH: fetch PRs / reviews / notifications
-        GH-->>Server: update cache
-        Server->>GHE: fetch PRs / reviews / notifications
-        GHE-->>Server: update cache
-    end
-```
-
-The server keeps a disk-backed cache of the last sync and serves the browser from that, so the UI stays snappy and the API is hit at a predictable cadence regardless of how many tabs are open.
-
-### Standalone sync CLI
-
-The separate CLI uses `packages/sync`'s public runtime; the existing API server has not yet been migrated. Build with `pnpm build`, then run:
-
-```sh
-pnpm --silent cli once --instance github-com --kind prs --json
-pnpm --silent cli list --json    # offline, reads the persisted SQLite cache
-pnpm cli watch --interval 25    # log/JSON polling for scripts
-pnpm cli                       # interactive TUI, polls every 25 seconds
-pnpm dev:cli                   # TUI with automatic restart on source changes
-pnpm cli tui --demo            # TUI with hardcoded sample data; no config or network
-```
-
-`pnpm dev:cli` runs directly from TypeScript (no build needed) and watches imported CLI and sync sources. Restarts preserve the disk cache, but reset UI selection and discard unsent comment drafts. `q` stops the TUI; Ctrl+C at the watcher prompt exits watch mode.
-
-`tui` (Ink; Node 22+; icons need a Nerd Font) shows cached items immediately, one instance at a time (the first configured, or `--instance`) with a dense PR list, then refreshes. PRs whose base branch is another listed PR's head branch nest under it as a stack. Use Tab/Shift-Tab or 1–3 for views, `i` to cycle instances (or [ / ] for previous/next), ↑/↓ or j/k for items, / to search, r to refresh, ? for help, and q to quit. `s` opens a sort menu (then c created, u updated, n name, s status, z size, a author, r repo; repeating the active key flips direction, S flips directly). `o` opens an open menu (o PR, c checks, d diff, a author's PRs on the host, r repo). `.` opens an actions menu: on My work, d toggles draft and m toggles auto-merge (squash; not offered to arm on drafts); on Requested reviews, a approves after a y/Enter confirmation. Actions post to GitHub immediately and trigger a refresh. `y` opens a copy menu (n number, u URL, b branch, r review request, f changed files). Enter shows details with tabs (Tab/Shift-Tab or 1–3): Description (rendered Markdown), Comments (conversation and inline review threads, fetched on demand) and Diff; j/k scroll the first two, and Enter or d jumps to Diff. The Diff tab starts with a tree of changed files and, on wide terminals, a preview of the selected file on the right: j/k navigates, Enter expands/collapses directories or opens a file's full scrollable patch, Esc returns to the PR list. In a file, j/k navigates lines, [ / ] switches files, V starts/ends a visual line selection, and c (or Enter) drafts a review comment on the selected line(s); Esc returns to the tree. Enter adds a newline to the draft; Ctrl+D previews the target; y explicitly posts, n returns to editing, Esc cancels or returns to the list. Binary/oversized files without a text patch cannot be commented on. GitHub may reject a comment if the PR head changes after the diff loads. On Notifications, Enter or o opens the notification's subject in the browser and e marks it done (GitHub's inbox Done: archived until new activity), hiding it immediately and restoring it if GitHub rejects the change. Opening a PR fetches its diff on demand (requires network/auth); cached lists remain offline. Confirming a comment posts it immediately to GitHub, not as a pending review. In the TUI, q and Ctrl+C quit immediately; quitting doesn't wait for an in-flight fetch. Other commands drain active work on SIGINT/SIGTERM. `--instance` and `--kind` (initial TUI view: `prs`, `reviews`, `notifications`) work on all commands; `--json` works on non-TUI commands. Omit instance/kind for all configured targets. Config is read from `$XDG_CONFIG_HOME/github-dashboard/config.yml` (default `~/.config/github-dashboard/config.yml`). Cache is at `$XDG_CACHE_HOME/github-dashboard/cache.sqlite` (default `~/.cache/github-dashboard/cache.sqlite`). The TUI remembers per-view sorting and the last view and instance in `$XDG_STATE_HOME/github-dashboard/tui.json` (default `~/.local/state/github-dashboard/tui.json`); `--kind`/`--instance` override it, `--demo` never writes it, and deleting the file resets it. `list` never reads config or accesses the network. JSON writes one object per cycle to stdout, with `cycle: null` for offline/initial watch output. Failures and skips retain old snapshots. Exit codes: 0 success (including rate-budget skips and clean watch shutdown), 1 invalid arguments/config or structural error, 2 one-shot fetch/auth failures. Diagnostics go to stderr. The disposable sync cache upgrades by rebuilding on schema-version mismatch.
-
-## Developing locally
-
-```bash
-pnpm install
-pnpm dev       # full target: server + web + Electron
-pnpm dev:web   # browser-only, no Electron window
-```
+- `~/.cache/github-dashboard/cache.sqlite` — sync cache
+- `~/.local/state/github-dashboard/tui.json` — last view, instance and sorting
