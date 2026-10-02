@@ -639,10 +639,14 @@ test("details tabs: description, comments (lazy), diff; Esc to list", async () =
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  1 changed"));
   ui.stdin.write("j");
   await vi.waitFor(() => expect(ui.lastFrame()).toMatch(/❯.*a\.ts/));
-  ui.stdin.write("\r");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("new code"));
-  ui.stdin.write("\x1b");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  1 changed"));
+  ui.stdin.write("\r"); // focus the diff
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).toContain("Select a diff line"),
+  );
+  ui.stdin.write("\x1b"); // back to the tree
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).not.toContain("Select a diff line"),
+  );
   ui.stdin.write("\x1b");
   await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("new code"));
   expect(ui.lastFrame()).toContain("safe [2J title");

@@ -104,8 +104,12 @@ test("Enter details → visual line range → multiline draft → confirmation �
     }),
   );
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("Comment posted"));
-  ui.stdin.write("\x1b");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  1 changed"));
+  ui.stdin.write("\x1b"); // back to the tree; footer clears
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).not.toContain("Comment posted"),
+  );
+  expect(ui.lastFrame()).toContain("FILES  1 changed");
+  expect(ui.lastFrame()).toContain("added"); // diff stays visible
   expect(onBack).not.toHaveBeenCalled();
   ui.stdin.write("\x1b");
   await vi.waitFor(() => expect(onBack).toHaveBeenCalledOnce());
@@ -155,15 +159,19 @@ test("tree groups nested paths and opens the selected file", async () => {
   ui.stdin.write("j"); // src/nested/a.ts
   await vi.waitFor(() => expect(ui.lastFrame()).toMatch(/❯.*a\.ts/));
   expect(ui.lastFrame()).toContain("src/nested/a.ts");
-  expect(ui.lastFrame()).toContain("more"); // preview, before opening the file
-  expect(ui.lastFrame()).not.toContain("FILE 2/3");
-  ui.stdin.write("\r");
+  expect(ui.lastFrame()).toContain("more"); // preview, before focusing it
+  expect(ui.lastFrame()).toContain("FILE 2/3 src/nested/a.ts");
+  expect(ui.lastFrame()).not.toContain("Select a diff line");
+  ui.stdin.write("\r"); // focus the diff; tree stays visible
   await vi.waitFor(() =>
-    expect(ui.lastFrame()).toContain("FILE 2/3 src/nested/a.ts"),
+    expect(ui.lastFrame()).toContain("Select a diff line"),
   );
+  expect(ui.lastFrame()).toContain("FILES  3 changed");
   expect(ui.lastFrame()).toContain("more");
   ui.stdin.write("\x1b");
-  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  3 changed"));
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).not.toContain("Select a diff line"),
+  );
   expect(ui.lastFrame()).toMatch(/❯.*a\.ts/);
   expect(ui.lastFrame()).toContain("├─");
   expect(ui.lastFrame()).toContain("└─");
