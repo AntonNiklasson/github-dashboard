@@ -58,6 +58,27 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// GitHub renders <details> collapsed unless it has `open`: keep only the
+// summary of collapsed ones and unwrap open ones. Innermost blocks first.
+const innermostDetails =
+  /<details\b([^>]*)>((?:(?!<details\b)[\s\S])*?)<\/details\s*>/i;
+function collapseDetails(source: string): string {
+  let text = source;
+  let match: RegExpExecArray | null;
+  while ((match = innermostDetails.exec(text))) {
+    const [whole, attributes = "", content = ""] = match;
+    const summary = content.match(/<summary\b[^>]*>([\s\S]*?)<\/summary\s*>/i);
+    const replacement = /(^|\s)open(\s|=|$)/i.test(attributes)
+      ? content.replace(/<\/?summary\b[^>]*>/gi, "")
+      : `\n\n▸ ${stripHtml(summary?.[1] ?? "Details").replace(/\s+/g, " ") || "Details"}\n\n`;
+    text =
+      text.slice(0, match.index) +
+      replacement +
+      text.slice(match.index + whole.length);
+  }
+  return text;
+}
+
 function inline(tokens: Token[] | undefined): ReactNode[] {
   return (tokens ?? []).map((token, i) => {
     switch (token.type) {
@@ -269,7 +290,7 @@ function blocks(tokens: Token[], depth: number, spaced: boolean) {
 
 function contentTokens(source: string): Token[] {
   return marked
-    .lexer(source.replace(/\r\n?/g, "\n"), { gfm: true })
+    .lexer(collapseDetails(source.replace(/\r\n?/g, "\n")), { gfm: true })
     .filter(
       (token) =>
         token.type !== "space" &&

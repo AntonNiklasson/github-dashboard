@@ -195,6 +195,7 @@ export function createDemoRuntime(): Runtime {
         path: null,
         line: null,
         inReplyToId: null,
+        minimized: null,
       },
       {
         id: 2,
@@ -204,6 +205,7 @@ export function createDemoRuntime(): Runtime {
         path: "packages/sync/src/engine.ts",
         line: 42,
         inReplyToId: null,
+        minimized: null,
       },
       {
         id: 3,
@@ -213,6 +215,7 @@ export function createDemoRuntime(): Runtime {
         path: "packages/sync/src/engine.ts",
         line: 42,
         inReplyToId: 2,
+        minimized: null,
       },
     ],
     createReviewComment: async () => {

@@ -50,7 +50,13 @@ function Comment({ comment, reply }: { comment: PrComment; reply: boolean }) {
           </Text>
         )}
       </Text>
-      <Markdown source={comment.body} />
+      {comment.minimized ? (
+        <Text color={colors.subtle}>
+          ▸ Hidden on GitHub as {safe(comment.minimized)}
+        </Text>
+      ) : (
+        <Markdown source={comment.body} />
+      )}
     </Box>
   );
 }

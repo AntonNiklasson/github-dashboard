@@ -12,6 +12,7 @@ const server = createServer((req, res) => {
     return send([
       {
         id: 1,
+        node_id: "IC_1",
         user: { login: "a" },
         body: "late",
         created_at: "2026-01-03T00:00:00Z",
@@ -21,6 +22,7 @@ const server = createServer((req, res) => {
     return send([
       {
         id: 2,
+        node_id: "PRRC_2",
         user: { login: "b" },
         body: "inline",
         created_at: "2026-01-01T00:00:00Z",
@@ -29,6 +31,7 @@ const server = createServer((req, res) => {
       },
       {
         id: 3,
+        node_id: "PRRC_3",
         user: null,
         body: "reply",
         created_at: "2026-01-02T00:00:00Z",
@@ -37,6 +40,16 @@ const server = createServer((req, res) => {
         in_reply_to_id: 2,
       },
     ]);
+  if (req.url === "/graphql")
+    return send({
+      data: {
+        nodes: [
+          { id: "IC_1", isMinimized: true, minimizedReason: "OUTDATED" },
+          { id: "PRRC_2", isMinimized: false, minimizedReason: null },
+          { id: "PRRC_3", isMinimized: true, minimizedReason: null },
+        ],
+      },
+    });
   res.writeHead(404).end("{}");
 });
 let instance: GitHubInstance;
@@ -55,10 +68,17 @@ afterAll(() => server.close());
 test("merges conversation and review comments chronologically", async () => {
   const comments = await fetchPullRequestComments(instance, "o/r", 7);
   expect(
-    comments.map((c) => [c.id, c.author, c.path, c.line, c.inReplyToId]),
+    comments.map((c) => [
+      c.id,
+      c.author,
+      c.path,
+      c.line,
+      c.inReplyToId,
+      c.minimized,
+    ]),
   ).toEqual([
-    [2, "b", "src/a.ts", 4, null],
-    [3, "unknown", "src/a.ts", 4, 2],
-    [1, "a", null, null, null],
+    [2, "b", "src/a.ts", 4, null, null],
+    [3, "unknown", "src/a.ts", 4, 2, "hidden"],
+    [1, "a", null, null, null, "outdated"],
   ]);
 });

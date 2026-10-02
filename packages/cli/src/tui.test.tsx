@@ -568,6 +568,7 @@ test("details tabs: description, comments (lazy), diff; Esc to list", async () =
       path: "src/a.ts",
       line: 1,
       inReplyToId: null,
+      minimized: null,
     },
     {
       id: 2,
@@ -577,6 +578,7 @@ test("details tabs: description, comments (lazy), diff; Esc to list", async () =
       path: "src/a.ts",
       line: 1,
       inReplyToId: 1,
+      minimized: null,
     },
   ]);
   const runtime = {

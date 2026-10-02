@@ -48,3 +48,17 @@ test("out-of-range numeric entities don't crash rendering", () => {
   expect(output).toContain("ok A");
   expect(output).toContain("code &#x110000; &#1114112;");
 });
+
+test("collapsed <details> show only their summary", () => {
+  const output = frame(
+    "Coverage report\n\n<details>\n<summary><b>Coverage</b> 81%</summary>\n\n| File | % |\n| - | - |\n| a.ts | 90 |\n\n<details><summary>Inner</summary>nested body</details>\n</details>\n\n<details open><summary>Open</summary>\n\nvisible body\n</details>\n\nafter",
+  );
+  expect(output).toContain("Coverage report");
+  expect(output).toContain("▸ Coverage 81%");
+  expect(output).not.toContain("a.ts");
+  expect(output).not.toContain("Inner");
+  expect(output).not.toContain("nested body");
+  expect(output).toContain("Open");
+  expect(output).toContain("visible body");
+  expect(output).toContain("after");
+});

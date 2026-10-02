@@ -14,6 +14,39 @@ export interface PrComment {
   line: number | null;
   /** Review comment this one replies to (thread root), if any. */
   inReplyToId: number | null;
+  /** Why the comment is hidden on GitHub (e.g. "outdated"), if it is. */
+  minimized: string | null;
+}
+
+type MinimizedResponse = {
+  nodes: Array<{
+    id?: string;
+    isMinimized?: boolean;
+    minimizedReason?: string | null;
+  } | null>;
+};
+
+// REST doesn't expose hidden ("minimized") state; look it up by node ID.
+async function minimizedReasons(
+  client: ReturnType<typeof getClient>,
+  ids: string[],
+): Promise<Map<string, string>> {
+  const reasons = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const data = await client.graphql<MinimizedResponse>(
+      `query($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Node { id }
+          ... on Minimizable { isMinimized minimizedReason }
+        }
+      }`,
+      { ids: ids.slice(i, i + 100) },
+    );
+    for (const node of data.nodes)
+      if (node?.id && node.isMinimized)
+        reasons.set(node.id, node.minimizedReason?.toLowerCase() || "hidden");
+  }
+  return reasons;
 }
 
 export async function fetchPullRequestComments(
@@ -39,6 +72,10 @@ export async function fetchPullRequestComments(
       per_page: 100,
     }),
   ]);
+  const minimized = await minimizedReasons(
+    client,
+    [...issueComments, ...reviewComments].map((c) => c.node_id),
+  );
   return [
     ...issueComments.map((c) => ({
       id: c.id,
@@ -48,6 +85,7 @@ export async function fetchPullRequestComments(
       path: null,
       line: null,
       inReplyToId: null,
+      minimized: minimized.get(c.node_id) ?? null,
     })),
     ...reviewComments.map((c) => ({
       id: c.id,
@@ -57,6 +95,7 @@ export async function fetchPullRequestComments(
       path: c.path,
       line: c.line ?? c.original_line ?? null,
       inReplyToId: c.in_reply_to_id ?? null,
+      minimized: minimized.get(c.node_id) ?? null,
     })),
   ].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
