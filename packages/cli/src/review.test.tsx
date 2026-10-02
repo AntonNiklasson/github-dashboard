@@ -1,7 +1,7 @@
 import { render } from "ink-testing-library";
 import { expect, test, vi } from "vitest";
 import { createSync, type NormalizedPr } from "sync";
-import { ReviewPane } from "./review.js";
+import { ReviewPane, treeFileColor } from "./review.js";
 
 const pr = {
   id: 1,
@@ -28,6 +28,13 @@ const diff = {
   ],
 } as Awaited<ReturnType<ReturnType<typeof createSync>["getPullRequestDiff"]>>;
 
+test("tree colors only removed and renamed filenames", () => {
+  expect(treeFileColor("removed")).toBe("#fb7185");
+  expect(treeFileColor("renamed")).toBe("#fbbf24");
+  expect(treeFileColor("modified")).toBeUndefined();
+  expect(treeFileColor("added")).toBeUndefined();
+});
+
 // Ink processes keys asynchronously; wait for each mode before sending the next key.
 test("Enter details → visual line range → multiline draft → confirmation → API", async () => {
   const createReviewComment = vi.fn(async () => {});
@@ -45,6 +52,16 @@ test("Enter details → visual line range → multiline draft → confirmation �
       onQuit={() => {}}
     />,
   );
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  1 changed"));
+  expect(ui.lastFrame()).toContain("▾ src/");
+  expect(ui.lastFrame()).not.toContain("added");
+  ui.stdin.write("\r"); // expand/collapse directory
+  await vi.waitFor(() => expect(ui.lastFrame()).not.toContain("a.ts"));
+  ui.stdin.write("\r");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("a.ts"));
+  ui.stdin.write("j");
+  await vi.waitFor(() => expect(ui.lastFrame()).toMatch(/❯.*a\.ts/));
+  ui.stdin.write("\r");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("added"));
   expect(runtime.getPullRequestDiff).toHaveBeenCalledWith({
     instanceId: "local",
@@ -88,9 +105,140 @@ test("Enter details → visual line range → multiline draft → confirmation �
   );
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("Comment posted"));
   ui.stdin.write("\x1b");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  1 changed"));
+  expect(onBack).not.toHaveBeenCalled();
+  ui.stdin.write("\x1b");
   await vi.waitFor(() => expect(onBack).toHaveBeenCalledOnce());
   ui.unmount();
 });
+test("tree groups nested paths and opens the selected file", async () => {
+  const runtime = {
+    getPullRequestDiff: vi.fn(async () => ({
+      headSha: diff.headSha,
+      files: [
+        { path: "src/z.ts", status: "added", lines: diff.files[0]!.lines },
+        {
+          path: "src/nested/a.ts",
+          status: "modified",
+          lines: diff.files[0]!.lines,
+        },
+        { path: "tests/a.ts", status: "modified", lines: [] },
+      ],
+    })),
+  } as unknown as ReturnType<typeof createSync>;
+  const ui = render(
+    <ReviewPane
+      runtime={runtime}
+      instanceId="local"
+      pr={pr}
+      onBack={() => {}}
+      onQuit={() => {}}
+    />,
+  );
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  3 changed"));
+  expect(ui.lastFrame()).toContain("src/");
+  expect(ui.lastFrame()).not.toContain("modified");
+  expect(ui.lastFrame()).not.toContain("+2");
+  expect(ui.lastFrame()).toContain("nested/");
+  expect(ui.lastFrame()).toContain("tests/");
+  expect(ui.lastFrame()).not.toContain("more");
+  ui.stdin.write("j"); // src/nested/
+  await vi.waitFor(() => expect(ui.lastFrame()).toMatch(/❯.*▾ nested\//));
+  ui.stdin.write("\r");
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()!.match(/a\.ts/g)).toHaveLength(1),
+  );
+  ui.stdin.write("\r");
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()!.match(/a\.ts/g)).toHaveLength(2),
+  );
+  ui.stdin.write("j"); // src/nested/a.ts
+  await vi.waitFor(() => expect(ui.lastFrame()).toMatch(/❯.*a\.ts/));
+  expect(ui.lastFrame()).toContain("src/nested/a.ts");
+  expect(ui.lastFrame()).toContain("more"); // preview, before opening the file
+  expect(ui.lastFrame()).not.toContain("FILE 2/3");
+  ui.stdin.write("\r");
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).toContain("FILE 2/3 src/nested/a.ts"),
+  );
+  expect(ui.lastFrame()).toContain("more");
+  ui.stdin.write("\x1b");
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  3 changed"));
+  expect(ui.lastFrame()).toMatch(/❯.*a\.ts/);
+  expect(ui.lastFrame()).toContain("├─");
+  expect(ui.lastFrame()).toContain("└─");
+  ui.stdin.write("j"); // src/z.ts
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("src/z.ts"));
+  ui.stdin.write("j"); // tests/
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).toContain("Select a file to preview"),
+  );
+  ui.stdin.write("j"); // tests/a.ts (no text patch)
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("tests/a.ts"));
+  expect(ui.lastFrame()).toContain("No text patch (binary or large file)");
+  ui.unmount();
+});
+
+test("large trees scroll to the selected file", async () => {
+  const runtime = {
+    getPullRequestDiff: vi.fn(async () => ({
+      headSha: diff.headSha,
+      files: Array.from({ length: 30 }, (_, index) => ({
+        path: `file-${String(index).padStart(2, "0")}.ts`,
+        status: "modified",
+        lines: diff.files[0]!.lines,
+      })),
+    })),
+  } as unknown as ReturnType<typeof createSync>;
+  const ui = render(
+    <ReviewPane
+      runtime={runtime}
+      instanceId="local"
+      pr={pr}
+      onBack={() => {}}
+      onQuit={() => {}}
+    />,
+  );
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  30 changed"));
+  expect(ui.lastFrame()).not.toContain("file-29.ts");
+  for (let i = 0; i < 29; i++) {
+    ui.stdin.write("j");
+    await vi.waitFor(() =>
+      expect(ui.lastFrame()).toMatch(
+        new RegExp(`❯.*file-${String(i + 1).padStart(2, "0")}\\.ts`),
+      ),
+    );
+  }
+  expect(ui.lastFrame()).not.toContain("file-00.ts");
+  ui.stdin.write("\r");
+  await vi.waitFor(() =>
+    expect(ui.lastFrame()).toContain("FILE 30/30 file-29.ts"),
+  );
+  ui.unmount();
+});
+
+test("q quits directly from the diff", async () => {
+  const onQuit = vi.fn();
+  const onBack = vi.fn();
+  const runtime = {
+    getPullRequestDiff: vi.fn(async () => diff),
+  } as unknown as ReturnType<typeof createSync>;
+  const ui = render(
+    <ReviewPane
+      runtime={runtime}
+      instanceId="local"
+      pr={pr}
+      onBack={onBack}
+      onQuit={onQuit}
+    />,
+  );
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("FILES  1 changed"));
+  ui.stdin.write("q");
+  await vi.waitFor(() => expect(onQuit).toHaveBeenCalledOnce());
+  expect(onBack).not.toHaveBeenCalled();
+  ui.unmount();
+});
+
 test("invalid hunk and binary file cannot post", async () => {
   const createReviewComment = vi.fn(async () => {});
   const runtime = {
@@ -109,6 +257,8 @@ test("invalid hunk and binary file cannot post", async () => {
       onQuit={() => {}}
     />,
   );
+  await vi.waitFor(() => expect(ui.lastFrame()).toContain("binary.png"));
+  ui.stdin.write("\r");
   await vi.waitFor(() => expect(ui.lastFrame()).toContain("No text patch"));
   ui.stdin.write("c");
   await vi.waitFor(() =>

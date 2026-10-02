@@ -155,44 +155,6 @@ export const SEARCH_REVIEWS = /* GraphQL */ `
       nodes {
         ... on PullRequest {
           ...PrFields
-          reviewRequests(first: 50) {
-            nodes {
-              requestedReviewer {
-                __typename
-                ... on User { login }
-              }
-            }
-          }
-          timelineItems(
-            itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]
-            first: 100
-          ) {
-            nodes {
-              __typename
-              ... on ReviewRequestedEvent {
-                createdAt
-                actor {
-                  __typename
-                  login
-                }
-                requestedReviewer {
-                  __typename
-                  ... on User { login }
-                }
-              }
-              ... on ReviewRequestRemovedEvent {
-                createdAt
-                actor {
-                  __typename
-                  login
-                }
-                requestedReviewer {
-                  __typename
-                  ... on User { login }
-                }
-              }
-            }
-          }
         }
       }
     }
@@ -204,26 +166,7 @@ export const SEARCH_REVIEWS = /* GraphQL */ `
   }
 `;
 
-export interface ReviewRequestedReviewer {
-  __typename: "User" | "Team" | string;
-  login?: string;
-}
-
-export interface TimelineEventNode {
-  __typename: "ReviewRequestedEvent" | "ReviewRequestRemovedEvent";
-  createdAt: string;
-  actor: { __typename: string; login: string } | null;
-  requestedReviewer: ReviewRequestedReviewer | null;
-}
-
-export interface ReviewPrNode extends PrNode {
-  reviewRequests: {
-    nodes: Array<{ requestedReviewer: ReviewRequestedReviewer | null }>;
-  };
-  timelineItems: { nodes: TimelineEventNode[] };
-}
-
 export interface SearchReviewsResponse {
-  search: { nodes: Array<ReviewPrNode | null> };
+  search: { nodes: Array<PrNode | null> };
   rateLimit: RateLimitInfo;
 }

@@ -13,7 +13,6 @@ import {
   mergeActionLabel,
 } from "./merge-decision";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
-import { showCodeOwnerRequestsAtom } from "./filters";
 import { useChords } from "./use-chords";
 import {
   type Action,
@@ -631,9 +630,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const queryClient = useQueryClient();
   const { instances, prs, reviews, notifications } = source;
   const [dismissed, setDismissed] = useAtom(dismissedReviewsAtom);
-  const [showCodeOwnerRequests, setShowCodeOwnerRequests] = useAtom(
-    showCodeOwnerRequestsAtom,
-  );
   const [prSort, setPrSort] = useAtom(prSortAtom);
   const [reviewSort, setReviewSort] = useAtom(reviewSortAtom);
   const [notificationSort, setNotificationSort] = useAtom(notificationSortAtom);
@@ -647,9 +643,8 @@ function Dashboard({ source }: { source: DashboardSource }) {
     () =>
       reviews.data
         .filter((r) => !isDismissed(dismissed, r.repo, r.number, r.updatedAt))
-        .filter((r) => showCodeOwnerRequests || r.autoAssigned !== true)
         .sort((a, b) => compareReviews(a, b, reviewSort)),
-    [reviews.data, dismissed, showCodeOwnerRequests, reviewSort],
+    [reviews.data, dismissed, reviewSort],
   );
 
   const sortedNotifications = useMemo(
@@ -935,9 +930,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
             .catch(() => {})
             .finally(() => setTogglingDraftId(null));
         }
-      } else if (e.key === "f" && activeSection === "reviews") {
-        e.preventDefault();
-        setShowCodeOwnerRequests((v) => !v);
       } else if (e.key === "e" && activeSection === "reviews") {
         const r = reviewsRef.current[focusIndex];
         if (r) {
@@ -1068,35 +1060,11 @@ function Dashboard({ source }: { source: DashboardSource }) {
           nav.setFocusIndex(0);
         }}
         right={
-          <div className="flex gap-x-4">
-            <label
-              className="flex cursor-pointer items-center gap-1.5 select-none"
-              title="Show reviews that CODEOWNERS auto-attached to you (directly or via a team). Manual user and team requests are always shown."
-              onClick={(e) => e.stopPropagation()}
-            >
-              <input
-                type="checkbox"
-                checked={showCodeOwnerRequests}
-                onChange={(e) => setShowCodeOwnerRequests(e.target.checked)}
-                className="h-3 w-3 rounded"
-              />
-              <span
-                className={
-                  "text-[10px] uppercase tracking-tight " +
-                  (showCodeOwnerRequests
-                    ? "text-foreground"
-                    : "text-muted-foreground/70")
-                }
-              >
-                Code owners
-              </span>
-            </label>
-            <SortControl
-              fields={REVIEW_SORT_FIELDS}
-              value={reviewSort}
-              onChange={setReviewSort}
-            />
-          </div>
+          <SortControl
+            fields={REVIEW_SORT_FIELDS}
+            value={reviewSort}
+            onChange={setReviewSort}
+          />
         }
       >
         {reviews.isLoading ? (
