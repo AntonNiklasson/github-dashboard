@@ -7,3 +7,11 @@ Enter `queued`, then `queue-failed`, to move the fixture PR into and out of the 
 The current board changes its queue icon; the dedicated merge-queue section in #84 is a subsequent product change. This harness supplies the repeatable state transitions for developing it.
 
 `pnpm --filter harness test` checks the simulator through the real engine: transitions, outage, recovery, and persisted snapshots across restart. Unsupported GitHub calls fail with 501 so new engine behavior requires an explicit fixture update.
+
+## Browser feedback loop
+
+Install Chromium once with `pnpm --filter harness exec playwright install chromium`, then run `pnpm test:e2e` from the root. No MCP connection or real GitHub access is required.
+
+The browser check runs the built renderer and real API/engine on disposable ports, then changes the upstream fixture. It verifies SQLite snapshots, normal GUI polling (without reloading), queue entry/exit, failure preservation, recovery, and absence of duplicate PRs. Browser console errors, runtime exceptions, unexpected external requests and unsuccessful API responses fail the check.
+
+Failures retain a Playwright trace and screenshot in `packages/harness/test-results/`. The HTML report includes API responses, upstream requests, and server logs; open it with `pnpm --filter harness exec playwright show-report`. The same check runs in CI and uploads its report on failure.

@@ -34,7 +34,13 @@ export function PrStateIcon({
 
   switch (status) {
     case "merge-queue":
-      return <GitMerge className="h-4 w-4 shrink-0 text-amber-500" />;
+      return (
+        <GitMerge
+          role="img"
+          aria-label="In merge queue"
+          className="h-4 w-4 shrink-0 text-amber-500"
+        />
+      );
     case "merged":
       return <GitPullRequest className="h-4 w-4 shrink-0 text-purple-500" />;
     case "closed":
@@ -50,6 +56,12 @@ export function PrStateIcon({
         </svg>
       );
     case "ready":
-      return <GitPullRequest className="h-4 w-4 shrink-0 text-green-600" />;
+      return (
+        <GitPullRequest
+          role="img"
+          aria-label="Ready for review"
+          className="h-4 w-4 shrink-0 text-green-600"
+        />
+      );
   }
 }
