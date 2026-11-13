@@ -143,3 +143,48 @@ test("mutation guards survive reopen, protect all list writes, merge patches and
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("health and rate-budget errors from an old identity cannot overwrite a replacement", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ghd-health-store-"));
+  const old = process.env.XDG_CACHE_HOME;
+  process.env.XDG_CACHE_HOME = dir;
+  const { db } = openCache();
+  try {
+    const store = createStore(db);
+    const instance = {
+      id: "health",
+      label: "Health",
+      baseUrl: "https://api.github.com",
+      username: "u",
+      credentialKey: "old",
+    };
+    store.reconcile([instance]);
+    store.recordHealth(
+      "health",
+      "prs",
+      { status: "failed", reason: "old failure", retryAt: null },
+      "old",
+    );
+    store.reconcile([{ ...instance, credentialKey: "new" }]);
+    expect(
+      store.recordHealth(
+        "health",
+        "prs",
+        { status: "failed", reason: "late failure", retryAt: null },
+        "old",
+      ),
+    ).toBe(false);
+    store.recordBudget("health", "graphql", { remaining: 0 }, "old");
+    expect(store.health("health", "prs").status).toBe("never");
+    expect(store.budget("health", "graphql")).toBeUndefined();
+    store.reconcile([]);
+    expect(() =>
+      store.recordBudget("health", "graphql", { remaining: 0 }, "new"),
+    ).not.toThrow();
+  } finally {
+    db.close();
+    if (old === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = old;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

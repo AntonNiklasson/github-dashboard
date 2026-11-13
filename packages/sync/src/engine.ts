@@ -5,6 +5,7 @@ import {
   type CacheMutation,
   type Kind,
   type Metadata,
+  type SyncHealth,
 } from "./cache/store.js";
 import { authenticate, loadInstances, type GitHubInstance } from "./config.js";
 import { fetchPullRequestComments } from "./providers/github/comments.js";
@@ -91,12 +92,25 @@ export function createSync(options: SyncOptions = {}) {
     )) {
       const fetches: FetchOutcome[] = [];
       results.push({ instanceId: instance.id, fetches });
+      const finish = (outcome: FetchOutcome, retryAt: string | null = null) => {
+        store.recordHealth(
+          instance.id,
+          outcome.kind,
+          {
+            status: outcome.status,
+            reason: outcome.reason ?? null,
+            retryAt,
+          },
+          credentialKey(instance),
+        );
+        fetches.push(outcome);
+      };
       let username: string;
       try {
         username = await (options.authenticate ?? authenticate)(instance);
       } catch (err) {
         for (const kind of kinds)
-          fetches.push({
+          finish({
             kind,
             status: "failed",
             count: 0,
@@ -112,7 +126,7 @@ export function createSync(options: SyncOptions = {}) {
         )
       ) {
         for (const kind of kinds)
-          fetches.push({
+          finish({
             kind,
             status: "skipped",
             count: 0,
@@ -130,14 +144,23 @@ export function createSync(options: SyncOptions = {}) {
           budget.reset_at &&
           Date.parse(budget.reset_at) > Date.now()
         ) {
-          fetches.push({
-            kind,
-            status: "skipped",
-            count: 0,
-            reason: `rate-limit floor (${FLOOR}) until ${budget.reset_at}`,
-          });
+          finish(
+            {
+              kind,
+              status: "skipped",
+              count: 0,
+              reason: `rate-limit floor (${FLOOR}) until ${budget.reset_at}`,
+            },
+            budget.reset_at,
+          );
           continue;
         }
+        store.recordHealth(
+          instance.id,
+          kind,
+          { status: "syncing", reason: null, retryAt: null },
+          credentialKey(instance),
+        );
         try {
           const result =
             kind === "prs"
@@ -156,7 +179,7 @@ export function createSync(options: SyncOptions = {}) {
             { credentialKey: credentialKey(instance), username },
           );
           if (!saved) {
-            fetches.push({
+            finish({
               kind,
               status: "skipped",
               count: 0,
@@ -164,7 +187,7 @@ export function createSync(options: SyncOptions = {}) {
             });
             continue;
           }
-          fetches.push({
+          finish({
             kind,
             status: result.data === null ? "unchanged" : "updated",
             count:
@@ -175,8 +198,14 @@ export function createSync(options: SyncOptions = {}) {
           });
         } catch (err) {
           const metadata = errorMetadata(err);
-          if (metadata) store.recordBudget(instance.id, resource, metadata);
-          fetches.push({
+          if (metadata)
+            store.recordBudget(
+              instance.id,
+              resource,
+              metadata,
+              credentialKey(instance),
+            );
+          finish({
             kind,
             status: "failed",
             count: 0,
@@ -282,6 +311,12 @@ export function createSync(options: SyncOptions = {}) {
       return reconcileConfiguration().then(() => {});
     },
     getSyncState: store.state,
+    getHealth: (): SyncHealth[] =>
+      store
+        .listInstances()
+        .flatMap((instance) =>
+          KINDS.map((kind) => store.health(instance.id, kind)),
+        ),
     recordMutation: (
       instanceId: string,
       mutation: CacheMutation,

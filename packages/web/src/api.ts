@@ -33,7 +33,18 @@ export class AutoMergeNotAllowedError extends Error {
   }
 }
 
+export interface SyncHealthEntry {
+  instanceId: string;
+  kind: "prs" | "reviews" | "notifications";
+  lastSuccessAt: string | null;
+  lastAttemptAt: string | null;
+  status: "never" | "syncing" | "updated" | "unchanged" | "skipped" | "failed";
+  reason: string | null;
+  retryAt: string | null;
+}
+
 export const api = {
+  syncHealth: () => fetchJson<SyncHealthEntry[]>("/api/sync/health"),
   getConfig: () => fetchJson<ConfigResponse>("/api/config"),
   createConfig: async () => {
     const res = await fetch("/api/config/create", { method: "POST" });
