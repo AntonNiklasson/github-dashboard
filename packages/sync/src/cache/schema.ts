@@ -1,4 +1,4 @@
-export const CACHE_SCHEMA_VERSION = 2;
+export const CACHE_SCHEMA_VERSION = 3;
 export const SCHEMA_DDL = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS sync_state (
  instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
  kind TEXT NOT NULL, last_run_at TEXT, last_etag TEXT,
  PRIMARY KEY(instance_id,kind)
+);
+CREATE TABLE IF NOT EXISTS mutation_guards (
+ instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+ target TEXT NOT NULL, payload TEXT NOT NULL CHECK(json_valid(payload)),
+ expires_at INTEGER NOT NULL, PRIMARY KEY(instance_id,target)
 );
 CREATE TABLE IF NOT EXISTS budgets (
  instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,

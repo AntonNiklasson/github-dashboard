@@ -13,6 +13,7 @@ app.setName("GitHub Dashboard");
 
 let mainWindow: BrowserWindow | null = null;
 let serverPort = 0;
+let closeEmbeddedServer: (() => Promise<void>) | undefined;
 
 async function findFreePort(): Promise<number> {
   return await new Promise((resolve, reject) => {
@@ -37,8 +38,9 @@ async function startEmbeddedServer(): Promise<void> {
   process.env.PORT = String(serverPort);
   process.env.GHD_WEB_DIST = path.join(process.resourcesPath, "web");
   // Importing has the side effect of starting the Hono server. The bundle
-  // lives at Resources/server.mjs (see extraResources in package.json).
-  await import(path.join(process.resourcesPath, "server.mjs"));
+  // lives beside main.js so external native dependencies resolve in app.asar.
+  const server = await import(path.join(__dirname, "server.mjs"));
+  closeEmbeddedServer = server.closeServer;
   await waitForServer();
 }
 
@@ -222,4 +224,19 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   app.quit();
+});
+
+// Electron doesn't emit SIGTERM on normal quit. Drain requests and close SQLite
+// before allowing the app to exit (with the same bounded wait as CLI signals).
+app.on("before-quit", (event) => {
+  if (!closeEmbeddedServer) return;
+  event.preventDefault();
+  const close = closeEmbeddedServer;
+  closeEmbeddedServer = undefined;
+  const force = setTimeout(() => app.exit(0), 2000);
+  force.unref();
+  close().finally(() => {
+    clearTimeout(force);
+    app.quit();
+  });
 });

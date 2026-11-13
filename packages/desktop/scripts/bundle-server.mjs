@@ -11,6 +11,8 @@ await build({
   outfile: outFile,
   bundle: true,
   platform: "node",
+  // Bundle workspace source even on a clean checkout (before sync/dist exists).
+  conditions: ["development"],
   target: "node20",
   format: "esm",
   banner: {
@@ -21,8 +23,8 @@ await build({
       "const require = __createRequire(import.meta.url);",
     ].join("\n"),
   },
-  // Node built-ins are not bundled. Everything else (hono, octokit, yaml) is.
-  external: [],
+  // Native addon is rebuilt/unpacked by electron-builder, not bundled.
+  external: ["better-sqlite3"],
 });
 
 console.log(`Bundled server → ${outFile}`);

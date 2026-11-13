@@ -6,7 +6,7 @@ import { cors } from "hono/cors";
 import { loadCache } from "./cache.js";
 import { getConfigStatus, getPort } from "./config.js";
 import { api } from "./routes.js";
-import { startSync } from "./sync.js";
+import { startSync, stopSync, stopSyncPolling } from "./sync.js";
 
 loadCache();
 
@@ -62,13 +62,25 @@ const server = serve({ fetch: app.fetch, port });
 // in-flight requests get a chance to finish — particularly mutations like
 // merge/approve in the packaged desktop app — then exit. The 2s timeout
 // fallback keeps Ctrl-C feeling instant if a request is wedged.
+let closing: Promise<void> | undefined;
+export function closeServer(): Promise<void> {
+  if (!closing) {
+    stopSyncPolling();
+    closing = new Promise<void>((resolve, reject) => {
+      server.close(() => {
+        stopSync().then(resolve, reject);
+      });
+    });
+  }
+  return closing;
+}
 let shuttingDown = false;
 const shutdown = () => {
   if (shuttingDown) return;
   shuttingDown = true;
   const force = setTimeout(() => process.exit(0), 2000);
   force.unref();
-  server.close(() => process.exit(0));
+  closeServer().finally(() => process.exit(0));
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
@@ -78,7 +90,9 @@ if (process.env.DEMO === "1") {
   console.log("DEMO mode: serving fixtures from .cache-demo, sync disabled");
   getConfigStatus();
 } else {
-  // Probe config + tokens, then start syncing regardless — sync skips
-  // instances that didn't resolve.
-  getConfigStatus().finally(() => startSync());
+  // Keep onboarding diagnostics, but let the engine authenticate each raw
+  // configured instance independently (one failed host must not block others).
+  getConfigStatus().finally(() => {
+    if (!closing) startSync();
+  });
 }

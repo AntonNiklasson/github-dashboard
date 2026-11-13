@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { openCache } from "./cache/open.js";
-import { createStore, type Kind, type Metadata } from "./cache/store.js";
+import {
+  createStore,
+  type CacheMutation,
+  type Kind,
+  type Metadata,
+} from "./cache/store.js";
 import { authenticate, loadInstances, type GitHubInstance } from "./config.js";
 import { fetchPullRequestComments } from "./providers/github/comments.js";
 import { fetchAuthoredPrs } from "./providers/github/fetchPrs.js";
@@ -46,13 +51,32 @@ export function createSync(options: SyncOptions = {}) {
   const { db } = openCache();
   const store = createStore(db);
   let tail: Promise<unknown> = Promise.resolve();
+  let localTail: Promise<unknown> = Promise.resolve();
   let closing: Promise<void> | undefined;
+
+  const credentialKey = (i: Pick<GitHubInstance, "baseUrl" | "token">) =>
+    createHash("sha256").update(`${i.baseUrl}\0${i.token}`).digest("hex");
+  function reconcileConfiguration() {
+    // Local config work must not wait for network requests. Serialize config
+    // loads separately so a slower load cannot overwrite a newer local one.
+    const work = localTail.then(async () => {
+      const configured = await (options.loadInstances ?? loadInstances)();
+      if (new Set(configured.map((i) => i.id)).size !== configured.length)
+        throw new Error("duplicate instance ID");
+      // Rotated credentials invalidate old data even when auth fails;
+      // unchanged credentials keep their data through auth failures.
+      store.reconcile(
+        configured.map((i) => ({ ...i, credentialKey: credentialKey(i) })),
+      );
+      return configured;
+    });
+    localTail = work.catch(() => {});
+    return work;
+  }
 
   async function cycle(request: SyncRequest): Promise<SyncResult> {
     const startedAt = new Date().toISOString();
-    const configured = await (options.loadInstances ?? loadInstances)();
-    if (new Set(configured.map((i) => i.id)).size !== configured.length)
-      throw new Error("duplicate instance ID");
+    const configured = await reconcileConfiguration();
     if (
       request.instanceId &&
       !configured.some((i) => i.id === request.instanceId)
@@ -61,15 +85,6 @@ export function createSync(options: SyncOptions = {}) {
     const kinds = request.kinds ?? KINDS;
     if (kinds.some((k) => !KINDS.includes(k)))
       throw new Error("unknown sync kind");
-    // Reconcile valid configuration independently of host availability. The
-    // credential key comes from config, so a rotated token invalidates old
-    // identity-specific data even if the new one fails to authenticate; an
-    // unchanged credential keeps its data through auth failures.
-    const credentialKey = (i: GitHubInstance) =>
-      createHash("sha256").update(`${i.baseUrl}\0${i.token}`).digest("hex");
-    store.reconcile(
-      configured.map((i) => ({ ...i, credentialKey: credentialKey(i) })),
-    );
     const results: SyncResult["results"] = [];
     for (const instance of configured.filter(
       (i) => !request.instanceId || i.id === request.instanceId,
@@ -89,13 +104,22 @@ export function createSync(options: SyncOptions = {}) {
           });
         continue;
       }
-      store.reconcile(
-        configured.map((i) => ({
-          ...i,
-          credentialKey: credentialKey(i),
-          ...(i.id === instance.id ? { username } : {}),
-        })),
-      );
+      if (
+        !store.updateAuthenticatedIdentity(
+          instance.id,
+          credentialKey(instance),
+          username,
+        )
+      ) {
+        for (const kind of kinds)
+          fetches.push({
+            kind,
+            status: "skipped",
+            count: 0,
+            reason: "identity changed during sync",
+          });
+        continue;
+      }
       const target = { ...instance, username };
       for (const kind of kinds) {
         const resource = kind === "notifications" ? "rest" : "graphql";
@@ -124,7 +148,22 @@ export function createSync(options: SyncOptions = {}) {
                     target,
                     store.state(instance.id, kind)?.last_etag ?? null,
                   );
-          store.save(instance.id, kind, result.data, result.metadata);
+          const saved = store.save(
+            instance.id,
+            kind,
+            result.data,
+            result.metadata,
+            { credentialKey: credentialKey(instance), username },
+          );
+          if (!saved) {
+            fetches.push({
+              kind,
+              status: "skipped",
+              count: 0,
+              reason: "identity changed during sync",
+            });
+            continue;
+          }
           fetches.push({
             kind,
             status: result.data === null ? "unchanged" : "updated",
@@ -161,12 +200,7 @@ export function createSync(options: SyncOptions = {}) {
   async function configuredInstance(
     instanceId: string,
   ): Promise<GitHubInstance> {
-    const configured = await (options.loadInstances ?? loadInstances)();
-    if (
-      new Set(configured.map((instance) => instance.id)).size !==
-      configured.length
-    )
-      throw new Error("duplicate instance ID");
+    const configured = await reconcileConfiguration();
     const instance = configured.find(
       (candidate) => candidate.id === instanceId,
     );
@@ -213,11 +247,29 @@ export function createSync(options: SyncOptions = {}) {
     (request: ActionRequest) =>
       enqueue(async () => {
         const instance = await configuredInstance(request.instanceId);
-        return run(instance, { repo: request.repo, number: request.number });
+        const result = await run(instance, {
+          repo: request.repo,
+          number: request.number,
+        });
+        if (result && typeof result === "object") {
+          store.recordMutation(
+            request.instanceId,
+            {
+              kind: "patch",
+              repo: request.repo,
+              number: request.number,
+              patch: result,
+            },
+            credentialKey(instance),
+          );
+        }
+        return result;
       });
   function close(): Promise<void> {
     if (!closing)
-      closing = tail.then(() => {
+      closing = tail.then(async () => {
+        // Queued network work may itself enqueue local reconciliation.
+        await localTail;
         db.close();
       });
     return closing;
@@ -225,6 +277,24 @@ export function createSync(options: SyncOptions = {}) {
   return {
     sync,
     close,
+    reconcileConfiguration: () => {
+      if (closing) return Promise.reject(new Error("sync runtime is closed"));
+      return reconcileConfiguration().then(() => {});
+    },
+    getSyncState: store.state,
+    recordMutation: (
+      instanceId: string,
+      mutation: CacheMutation,
+      expectedIdentity?: Pick<GitHubInstance, "baseUrl" | "token">,
+    ) =>
+      enqueue(async () => {
+        const instance = await configuredInstance(instanceId);
+        const key = credentialKey(instance);
+        // Detailed REST actions may finish after a config reload. Their cache
+        // patches belong only to the identity that performed the remote write.
+        if (expectedIdentity && credentialKey(expectedIdentity) !== key) return;
+        store.recordMutation(instanceId, mutation, key);
+      }),
     listInstances: store.listInstances,
     listPullRequests: store.listPullRequests,
     listNotifications: store.listNotifications,
@@ -238,6 +308,14 @@ export function createSync(options: SyncOptions = {}) {
       enqueue(async () => {
         const instance = await configuredInstance(request.instanceId);
         await markNotificationDone(instance, request.id);
+        store.recordMutation(
+          request.instanceId,
+          {
+            kind: "notificationDone",
+            id: request.id,
+          },
+          credentialKey(instance),
+        );
       }),
   };
 }
