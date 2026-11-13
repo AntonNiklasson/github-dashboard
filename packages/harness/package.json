@@ -6,7 +6,8 @@
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "scenario": "tsx --conditions=development src/run.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:desktop": "node scripts/desktop-smoke.mjs"
   },
   "dependencies": {
     "sync": "workspace:*"

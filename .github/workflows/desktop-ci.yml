@@ -21,12 +21,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm build
-
-      - run: pnpm --filter desktop build
-
-      - name: Package (unsigned, dir-only)
-        run: pnpm --filter desktop package:dir
-        env:
-          # Skip code-signing in CI — we just want to validate the package step.
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Build, package and launch the desktop app
+        run: pnpm test:desktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packaged-desktop-feedback
+          path: |
+            packages/harness/desktop-report/
+            packages/harness/desktop-test-results/
+          retention-days: 7
