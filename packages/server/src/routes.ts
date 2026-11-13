@@ -1,10 +1,5 @@
 import { Hono } from "hono";
-import {
-  cachedInstanceIds,
-  getCached,
-  patchCache,
-  setCached,
-} from "./cache.js";
+import { clearCache } from "./cache.js";
 import {
   createConfigFromExample,
   exampleConfig,
@@ -14,51 +9,17 @@ import {
   readConfig,
   resolveConfigPath,
 } from "./config.js";
-import {
-  fetchNotifications,
-  fetchPrs,
-  fetchReviews,
-  latestCheckRunsByName,
-} from "./fetchers.js";
+import { clearRepoSettings, latestCheckRunsByName } from "./fetchers.js";
 import { clearClients, getClient, getInstance } from "./github-client.js";
-import { recordMutation, scheduleResync } from "./sync.js";
-
-interface CachedListItem {
-  repo: string;
-  number: number;
-  draft?: boolean;
-}
-
-function removeFromList(repo: string, number: number) {
-  return (data: CachedListItem[] | null): CachedListItem[] =>
-    (data ?? []).filter(
-      (item) => !(item.repo === repo && item.number === number),
-    );
-}
-
-function setDraftInList(repo: string, number: number, draft: boolean) {
-  return (data: CachedListItem[] | null): CachedListItem[] =>
-    (data ?? []).map((item) =>
-      item.repo === repo && item.number === number ? { ...item, draft } : item,
-    );
-}
+import {
+  getSync,
+  listData,
+  recordMutation,
+  reloadSyncConfiguration,
+  scheduleResync,
+} from "./sync.js";
 
 const api = new Hono();
-
-/** Return cached data if available, otherwise fetch live and cache */
-async function cachedOrFetch<T>(
-  key: string,
-  fetcher: () => Promise<T>,
-  fresh = false,
-): Promise<T> {
-  if (!fresh) {
-    const cached = getCached<T>(key);
-    if (cached) return cached;
-  }
-  const data = await fetcher();
-  setCached(key, data);
-  return data;
-}
 
 async function configPayload() {
   const status = await getConfigStatus();
@@ -94,24 +55,14 @@ api.get("/config", async (c) => {
 });
 
 api.post("/config/reload", async (c) => {
-  // Snapshot cached instance IDs *before* invalidating so we can wipe caches
-  // for instances the user removed from config — they won't appear in the
-  // new payload but their stale data would otherwise survive.
-  const previousIds = cachedInstanceIds();
   invalidateConfigStatus();
   clearClients();
+  clearRepoSettings();
+  clearCache();
   const payload = await configPayload();
-  if (payload.status.kind === "ready") {
-    const ids = new Set([
-      ...previousIds,
-      ...payload.status.instances.map((i) => i.id),
-    ]);
-    for (const id of ids) {
-      setCached(`${id}:prs`, null);
-      setCached(`${id}:reviews`, null);
-      setCached(`${id}:notifications`, null);
-    }
-  }
+  // Invalid YAML is non-destructive; valid config still reconciles when a
+  // rotated token fails auth. Lists cannot be read while config is invalid.
+  await reloadSyncConfiguration().catch(() => {});
   return c.json(payload);
 });
 
@@ -128,11 +79,7 @@ api.post("/config/create", (c) => {
 api.get("/:instanceId/prs", async (c) => {
   const { instanceId } = c.req.param();
   const fresh = c.req.query("fresh") === "1";
-  const data = await cachedOrFetch(
-    `${instanceId}:prs`,
-    () => fetchPrs(instanceId),
-    fresh,
-  );
+  const data = await listData(instanceId, "prs", fresh);
   return c.json(data);
 });
 
@@ -140,11 +87,7 @@ api.get("/:instanceId/prs", async (c) => {
 api.get("/:instanceId/reviews", async (c) => {
   const { instanceId } = c.req.param();
   const fresh = c.req.query("fresh") === "1";
-  const data = await cachedOrFetch(
-    `${instanceId}:reviews`,
-    () => fetchReviews(instanceId),
-    fresh,
-  );
+  const data = await listData(instanceId, "reviews", fresh);
   return c.json(data);
 });
 
@@ -152,29 +95,14 @@ api.get("/:instanceId/reviews", async (c) => {
 api.get("/:instanceId/notifications", async (c) => {
   const { instanceId } = c.req.param();
   const fresh = c.req.query("fresh") === "1";
-  const data = await cachedOrFetch(
-    `${instanceId}:notifications`,
-    () => fetchNotifications(instanceId),
-    fresh,
-  );
+  const data = await listData(instanceId, "notifications", fresh);
   return c.json(data);
 });
 
 // Mark notification as done
 api.delete("/:instanceId/notifications/:threadId", async (c) => {
   const { instanceId, threadId } = c.req.param();
-  const client = await getClient(instanceId);
-
-  await client.activity.markThreadAsDone({ thread_id: Number(threadId) });
-
-  // Optimistically remove from cache so it disappears immediately
-  const cached = getCached<{ id: string }[]>(`${instanceId}:notifications`);
-  if (cached) {
-    setCached(
-      `${instanceId}:notifications`,
-      cached.filter((n) => n.id !== threadId),
-    );
-  }
+  await getSync().markNotificationDone({ instanceId, id: threadId });
 
   scheduleResync(instanceId, ["notifications"]);
 
@@ -184,13 +112,10 @@ api.delete("/:instanceId/notifications/:threadId", async (c) => {
 // Approve a PR
 api.post("/:instanceId/prs/:owner/:repo/:prNumber/approve", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
-  const client = await getClient(instanceId);
-
-  await client.pulls.createReview({
-    owner,
-    repo,
-    pull_number: Number(prNumber),
-    event: "APPROVE",
+  await getSync().approvePullRequest({
+    instanceId,
+    repo: `${owner}/${repo}`,
+    number: Number(prNumber),
   });
 
   scheduleResync(instanceId, ["prs", "reviews"]);
@@ -201,40 +126,20 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/approve", async (c) => {
 // Toggle auto-merge on a PR
 api.post("/:instanceId/prs/:owner/:repo/:prNumber/auto-merge", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
-  const client = await getClient(instanceId);
-  const num = Number(prNumber);
-
-  const { data: pr } = await client.pulls.get({
-    owner,
-    repo,
-    pull_number: num,
-  });
-
-  if (pr.auto_merge) {
-    // Disable auto-merge via GraphQL
-    await client.graphql(
-      `mutation($id: ID!) { disablePullRequestAutoMerge(input: { pullRequestId: $id }) { pullRequest { id } } }`,
-      { id: pr.node_id },
-    );
-  } else {
-    // Enable auto-merge via GraphQL (merge method: squash by default)
-    try {
-      await client.graphql(
-        `mutation($id: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { pullRequest { id } } }`,
-        { id: pr.node_id },
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/auto.?merge is not allowed/i.test(msg)) {
-        return c.json({ error: "auto_merge_not_allowed" }, 422);
-      }
-      throw err;
-    }
+  try {
+    const result = await getSync().togglePullRequestAutoMerge({
+      instanceId,
+      repo: `${owner}/${repo}`,
+      number: Number(prNumber),
+    });
+    scheduleResync(instanceId, ["prs", "reviews"]);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/auto.?merge is not allowed/i.test(msg))
+      return c.json({ error: "auto_merge_not_allowed" }, 422);
+    throw err;
   }
-
-  scheduleResync(instanceId, ["prs"]);
-
-  return c.json({ ok: true, autoMerge: !pr.auto_merge });
 });
 
 // Merge a PR directly (squash)
@@ -242,6 +147,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
   const num = Number(prNumber);
   const fullRepo = `${owner}/${repo}`;
+  const identity = await getInstance(instanceId);
   const client = await getClient(instanceId);
 
   try {
@@ -268,9 +174,15 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/merge", async (c) => {
     return c.json({ error: "merge_rejected", message }, 422);
   }
 
-  patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
-  patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
-  recordMutation(instanceId, { kind: "removed", repo: fullRepo, number: num });
+  await recordMutation(
+    instanceId,
+    {
+      kind: "removed",
+      repo: fullRepo,
+      number: num,
+    },
+    identity,
+  );
   scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true });
@@ -281,6 +193,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/close", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
   const num = Number(prNumber);
   const fullRepo = `${owner}/${repo}`;
+  const identity = await getInstance(instanceId);
   const client = await getClient(instanceId);
 
   await client.pulls.update({
@@ -290,9 +203,15 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/close", async (c) => {
     state: "closed",
   });
 
-  patchCache(`${instanceId}:prs`, removeFromList(fullRepo, num));
-  patchCache(`${instanceId}:reviews`, removeFromList(fullRepo, num));
-  recordMutation(instanceId, { kind: "removed", repo: fullRepo, number: num });
+  await recordMutation(
+    instanceId,
+    {
+      kind: "removed",
+      repo: fullRepo,
+      number: num,
+    },
+    identity,
+  );
   scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true });
@@ -307,6 +226,7 @@ api.patch("/:instanceId/prs/:owner/:repo/:prNumber", async (c) => {
     return c.json({ error: "Title is required" }, 400);
   }
 
+  const identity = await getInstance(instanceId);
   const client = await getClient(instanceId);
 
   await client.pulls.update({
@@ -316,7 +236,17 @@ api.patch("/:instanceId/prs/:owner/:repo/:prNumber", async (c) => {
     title,
   });
 
-  scheduleResync(instanceId, ["prs"]);
+  await recordMutation(
+    instanceId,
+    {
+      kind: "patch",
+      repo: `${owner}/${repo}`,
+      number: Number(prNumber),
+      patch: { title },
+    },
+    identity,
+  );
+  scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true, title });
 });
@@ -324,39 +254,19 @@ api.patch("/:instanceId/prs/:owner/:repo/:prNumber", async (c) => {
 // Toggle draft status on a PR
 api.post("/:instanceId/prs/:owner/:repo/:prNumber/toggle-draft", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
-  const client = await getClient(instanceId);
-  const num = Number(prNumber);
-  const fullRepo = `${owner}/${repo}`;
-
-  const { data: pr } = await client.pulls.get({
-    owner,
-    repo,
-    pull_number: num,
+  const result = await getSync().togglePullRequestDraft({
+    instanceId,
+    repo: `${owner}/${repo}`,
+    number: Number(prNumber),
   });
-
-  // The REST API doesn't support toggling draft, so use GraphQL
-  const mutation = pr.draft
-    ? `mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }`
-    : `mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { isDraft } } }`;
-
-  await client.graphql(mutation, { id: pr.node_id });
-
-  const newDraft = !pr.draft;
-  patchCache(`${instanceId}:prs`, setDraftInList(fullRepo, num, newDraft));
-  recordMutation(instanceId, {
-    kind: "draft",
-    repo: fullRepo,
-    number: num,
-    draft: newDraft,
-  });
-  scheduleResync(instanceId, ["prs"]);
-
-  return c.json({ ok: true, draft: newDraft });
+  scheduleResync(instanceId, ["prs", "reviews"]);
+  return c.json({ ok: true, ...result });
 });
 
 // Rerun CI for a PR
 api.post("/:instanceId/prs/:owner/:repo/:prNumber/rerun-ci", async (c) => {
   const { instanceId, owner, repo, prNumber } = c.req.param();
+  const identity = await getInstance(instanceId);
   const client = await getClient(instanceId);
   const num = Number(prNumber);
 
@@ -424,7 +334,17 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/rerun-ci", async (c) => {
     return c.json({ error: "Failed to rerun any workflow" }, 502);
   }
 
-  scheduleResync(instanceId, ["prs"]);
+  await recordMutation(
+    instanceId,
+    {
+      kind: "patch",
+      repo: `${owner}/${repo}`,
+      number: num,
+      patch: { ciStatus: "pending" },
+    },
+    identity,
+  );
+  scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true, triggered });
 });
@@ -437,6 +357,7 @@ api.post("/:instanceId/prs/:owner/:repo/:prNumber/comment", async (c) => {
   const num = Number(prNumber);
 
   await client.issues.createComment({ owner, repo, issue_number: num, body });
+  scheduleResync(instanceId, ["prs", "reviews"]);
 
   return c.json({ ok: true });
 });

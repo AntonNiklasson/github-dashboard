@@ -1,163 +1,123 @@
-import { setCached } from "./cache.js";
-import { getInstances } from "./config.js";
-import { fetchNotifications, fetchPrs, fetchReviews } from "./fetchers.js";
+import { createSync, type CacheMutation, type SyncKind } from "sync";
+import { getCached } from "./cache.js";
+import { loadSyncInstances, type GitHubInstance } from "./config.js";
 
-const SYNC_INTERVAL = 30_000; // 30s
-
-export type ResyncKey = "prs" | "reviews" | "notifications";
-
-const RESYNC_FETCHERS: Record<
-  ResyncKey,
-  (instanceId: string) => Promise<unknown>
-> = {
-  prs: fetchPrs,
-  reviews: fetchReviews,
-  notifications: fetchNotifications,
-};
-
+const SYNC_INTERVAL = 30_000;
+export type ResyncKey = SyncKind;
 const ALL_KEYS: ResyncKey[] = ["prs", "reviews", "notifications"];
+let runtime: ReturnType<typeof createSync> | undefined;
+let interval: ReturnType<typeof setInterval> | undefined;
+let stopped = false;
+const pending = new Map<string, Promise<void>>();
 
-const pending = new Set<Promise<unknown>>();
-
-// Tracks recent client-driven mutations so a stale resync (GitHub's search
-// index lags by seconds after a merge/close/draft toggle) doesn't re-introduce
-// the old state. Entries expire after MUTATION_TTL.
-type MutationRecord =
-  | { kind: "removed"; repo: string; number: number; expiresAt: number }
-  | {
-      kind: "draft";
-      repo: string;
-      number: number;
-      draft: boolean;
-      expiresAt: number;
-    };
-
-const MUTATION_TTL = 60_000;
-const mutations = new Map<string, MutationRecord>();
-
-function mutationKey(instanceId: string, repo: string, number: number) {
-  return `${instanceId}:${repo}:${number}`;
+export function getSync() {
+  if (process.env.DEMO === "1")
+    throw new Error("mutations are disabled in demo mode");
+  if (stopped) throw new Error("server sync is closed");
+  return (runtime ??= createSync({ loadInstances: loadSyncInstances }));
 }
 
-export function recordMutation(
+export async function listData(
   instanceId: string,
-  m:
-    | { kind: "removed"; repo: string; number: number }
-    | { kind: "draft"; repo: string; number: number; draft: boolean },
-): void {
-  mutations.set(mutationKey(instanceId, m.repo, m.number), {
-    ...m,
-    expiresAt: Date.now() + MUTATION_TTL,
-  });
-}
-
-function activeMutations(instanceId: string): MutationRecord[] {
-  const now = Date.now();
-  const out: MutationRecord[] = [];
-  for (const [k, v] of mutations) {
-    if (v.expiresAt <= now) {
-      mutations.delete(k);
-      continue;
-    }
-    if (k.startsWith(`${instanceId}:`)) out.push(v);
-  }
-  return out;
-}
-
-interface ListItem {
-  repo: string;
-  number: number;
-  draft?: boolean;
-}
-
-function applyMutations(
-  instanceId: string,
-  key: ResyncKey,
-  data: unknown,
-): unknown {
-  if (key !== "prs" && key !== "reviews") return data;
-  const muts = activeMutations(instanceId);
-  if (muts.length === 0) return data;
-  const items = data as ListItem[];
-
-  const filtered = items.filter(
-    (item) =>
-      !muts.some(
-        (m) =>
-          m.kind === "removed" &&
-          m.repo === item.repo &&
-          m.number === item.number,
-      ),
-  );
-
-  if (key === "reviews") return filtered;
-
-  return filtered.map((item) => {
-    const draftMut = muts.find(
-      (m): m is Extract<MutationRecord, { kind: "draft" }> =>
-        m.kind === "draft" && m.repo === item.repo && m.number === item.number,
+  kind: ResyncKey,
+  fresh = false,
+) {
+  // Demo fixtures must never open or write the user's shared cache.
+  if (process.env.DEMO === "1") return getCached(`${instanceId}:${kind}`) ?? [];
+  const engine = getSync();
+  await engine.reconcileConfiguration();
+  if (!engine.listInstances().some((i) => i.id === instanceId))
+    throw new Error(`unknown instance: ${instanceId}`);
+  const state = engine.getSyncState(instanceId, kind);
+  if (fresh || !state?.last_run_at) {
+    const result = await engine.sync({ instanceId, kinds: [kind] });
+    const failure = result.results[0]?.fetches.find(
+      (f) =>
+        f.status === "failed" ||
+        (!state?.last_run_at && f.status === "skipped"),
     );
-    return draftMut ? { ...item, draft: draftMut.draft } : item;
-  });
+    if (failure) throw new Error(failure.reason ?? "Sync failed");
+  } else if (Date.now() - Date.parse(state.last_run_at) >= SYNC_INTERVAL) {
+    scheduleResync(instanceId, [kind]);
+  }
+  return kind === "notifications"
+    ? engine.listNotifications(instanceId)
+    : engine.listPullRequests(instanceId, kind);
+}
+
+export async function reloadSyncConfiguration(): Promise<void> {
+  if (process.env.DEMO === "1") return;
+  // The engine re-reads valid raw config independently of auth diagnostics:
+  // removed instances/rotated credentials are purged even when auth fails.
+  await getSync().reconcileConfiguration();
+}
+
+export async function recordMutation(
+  instanceId: string,
+  mutation: CacheMutation,
+  expectedIdentity?: Pick<GitHubInstance, "baseUrl" | "token">,
+) {
+  await getSync().recordMutation(instanceId, mutation, expectedIdentity);
 }
 
 export async function resyncInstance(
   instanceId: string,
   keys: ResyncKey[] = ALL_KEYS,
 ): Promise<void> {
-  await Promise.all(
-    keys.map(async (key) => {
-      try {
-        const data = await RESYNC_FETCHERS[key](instanceId);
-        setCached(
-          `${instanceId}:${key}`,
-          applyMutations(instanceId, key, data),
-        );
-      } catch (err) {
-        console.error(
-          `Sync failed for ${instanceId}:${key}:`,
-          err instanceof Error ? err.message : err,
-        );
-      }
-    }),
-  );
-}
-
-/**
- * Fire-and-forget resync after a mutation. Lets the route respond fast while
- * the cache is refreshed in the background, so the next client poll sees the
- * new state without waiting for the 30s sync cycle.
- */
-export function scheduleResync(instanceId: string, keys: ResyncKey[]): void {
-  const p = resyncInstance(instanceId, keys).finally(() => {
-    pending.delete(p);
-  });
-  pending.add(p);
-}
-
-/** Test seam: await all in-flight resyncs. */
-export async function waitForPendingResyncs(): Promise<void> {
-  while (pending.size > 0) {
-    await Promise.allSettled(pending);
+  const result = await getSync().sync({ instanceId, kinds: keys });
+  for (const { fetches } of result.results) {
+    for (const f of fetches) {
+      if (f.status === "failed")
+        console.error(`Sync failed for ${instanceId}:${f.kind}:`, f.reason);
+    }
   }
+}
+
+export function scheduleResync(instanceId: string, keys: ResyncKey[]): void {
+  if (stopped || process.env.DEMO === "1") return;
+  const key = `${instanceId}:${[...keys].sort().join(",")}`;
+  if (pending.has(key)) return;
+  const work = resyncInstance(instanceId, keys)
+    .catch((err) =>
+      console.error("Sync failed:", err instanceof Error ? err.message : err),
+    )
+    .finally(() => pending.delete(key));
+  pending.set(key, work);
+}
+
+export async function waitForPendingResyncs(): Promise<void> {
+  while (pending.size) await Promise.allSettled(pending.values());
 }
 
 async function syncAll() {
-  const instances = await getInstances();
-  if (instances.length === 0) {
-    console.log("No instances configured, skipping sync");
-    return;
+  try {
+    // One queued cycle avoids overlap and reconciles config before fetching.
+    await getSync().sync();
+  } catch (err) {
+    console.error("Sync failed:", err instanceof Error ? err.message : err);
   }
-  console.log(`Syncing ${instances.length} instance(s)...`);
-  await Promise.all(instances.map((inst) => resyncInstance(inst.id)));
-  console.log("Sync complete");
 }
 
 export function startSync() {
-  // Initial sync immediately
-  syncAll();
-  // Then repeat. unref() so the interval alone doesn't keep the event loop
-  // alive on shutdown — the HTTP listener does that, and gets closed
-  // explicitly when we exit.
-  setInterval(syncAll, SYNC_INTERVAL).unref();
+  if (stopped || interval || process.env.DEMO === "1") return;
+  const tick = () => {
+    if (pending.has("all")) return;
+    const work = syncAll().finally(() => pending.delete("all"));
+    pending.set("all", work);
+  };
+  tick();
+  interval = setInterval(tick, SYNC_INTERVAL);
+  interval.unref();
+}
+
+export function stopSyncPolling() {
+  if (interval) clearInterval(interval);
+  interval = undefined;
+}
+
+export async function stopSync() {
+  stopped = true;
+  stopSyncPolling();
+  await waitForPendingResyncs();
+  await runtime?.close();
 }

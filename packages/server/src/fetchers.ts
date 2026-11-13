@@ -7,6 +7,12 @@ interface RepoSettings {
 }
 
 const inFlightRepoSettings = new Map<string, Promise<RepoSettings>>();
+let repoSettingsGeneration = 0;
+export function clearRepoSettings() {
+  repoSettingsGeneration++;
+  inFlightRepoSettings.clear();
+}
+
 const REPO_SETTINGS_TTL_MS = 2 * 60 * 1000;
 
 export async function getRepoSettings(
@@ -24,18 +30,20 @@ export async function getRepoSettings(
   if (cached) return cached;
   const existing = inFlightRepoSettings.get(key);
   if (existing) return existing;
+  const generation = repoSettingsGeneration;
   const promise = (async () => {
     try {
       const { data } = await client.repos.get({ owner, repo });
       const settings: RepoSettings = {
         autoMergeAllowed: data.allow_auto_merge ?? false,
       };
-      setCached(key, settings);
+      if (generation === repoSettingsGeneration) setCached(key, settings);
       return settings;
     } catch {
       return { autoMergeAllowed: false };
     } finally {
-      inFlightRepoSettings.delete(key);
+      if (generation === repoSettingsGeneration)
+        inFlightRepoSettings.delete(key);
     }
   })();
   inFlightRepoSettings.set(key, promise);
