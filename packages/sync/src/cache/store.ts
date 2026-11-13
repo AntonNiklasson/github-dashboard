@@ -17,6 +17,14 @@ export interface Instance {
   username: string;
 }
 export type Kind = "prs" | "reviews" | "notifications";
+export type PullRequestPatch = Partial<
+  Pick<NormalizedPr, "draft" | "title" | "autoMerge" | "ciStatus">
+>;
+export type CacheMutation =
+  | { kind: "removed"; repo: string; number: number }
+  | { kind: "patch"; repo: string; number: number; patch: PullRequestPatch }
+  | { kind: "notificationDone"; id: string };
+
 export interface Metadata {
   etag?: string | null;
   remaining?: number | null;
@@ -65,8 +73,151 @@ export function createStore(db: Cache) {
       );
     }
   }
+  // Guards live beside snapshots so another process/in-flight fetch cannot
+  // resurrect stale search-index data after a successful write.
+  const clearNotificationEtag = db.prepare(
+    "UPDATE sync_state SET last_etag=NULL WHERE instance_id=? AND kind='notifications'",
+  );
+  const hasNotificationGuard = db.prepare(
+    "SELECT 1 FROM mutation_guards WHERE instance_id=? AND target LIKE 'notification:%' AND expires_at>? LIMIT 1",
+  );
+  const guards = db.prepare(
+    "SELECT payload FROM mutation_guards WHERE instance_id=? AND expires_at>?",
+  );
+  function applyMutations<T extends NormalizedPr | Notification>(
+    id: string,
+    kind: Kind,
+    data: T[],
+  ): T[] {
+    const mutations = (guards.all(id, Date.now()) as { payload: string }[]).map(
+      (r) => JSON.parse(r.payload) as CacheMutation,
+    );
+    return data.flatMap((item) => {
+      if (kind === "notifications") {
+        return mutations.some(
+          (m) =>
+            m.kind === "notificationDone" && m.id === (item as Notification).id,
+        )
+          ? []
+          : [item];
+      }
+      let patched = item;
+      for (const m of mutations) {
+        if (
+          m.kind === "notificationDone" ||
+          m.repo !== (item as NormalizedPr).repo ||
+          m.number !== (item as NormalizedPr).number
+        )
+          continue;
+        if (m.kind === "removed") return [];
+        patched = { ...patched, ...m.patch };
+      }
+      return [patched];
+    });
+  }
   return {
+    recordMutation(
+      id: string,
+      mutation: CacheMutation,
+      credentialKey?: string,
+    ) {
+      db.transaction(() => {
+        const current = oldInstance.get(id) as
+          | { credential_key: string }
+          | undefined;
+        if (
+          credentialKey !== undefined &&
+          current?.credential_key !== credentialKey
+        )
+          return;
+        db.prepare("DELETE FROM mutation_guards WHERE expires_at<=?").run(
+          Date.now(),
+        );
+        const target =
+          mutation.kind === "notificationDone"
+            ? `notification:${mutation.id}`
+            : `pr:${mutation.repo}:${mutation.number}`;
+        const previous = db
+          .prepare(
+            "SELECT payload FROM mutation_guards WHERE instance_id=? AND target=?",
+          )
+          .get(id, target) as { payload: string } | undefined;
+        const old = previous
+          ? (JSON.parse(previous.payload) as CacheMutation)
+          : undefined;
+        const merged =
+          old?.kind === "removed"
+            ? old
+            : old?.kind === "patch" && mutation.kind === "patch"
+              ? { ...mutation, patch: { ...old.patch, ...mutation.patch } }
+              : mutation;
+        db.prepare(
+          "INSERT OR REPLACE INTO mutation_guards VALUES (?,?,?,?)",
+        ).run(id, target, JSON.stringify(merged), Date.now() + 60_000);
+        for (const kind of ["prs", "reviews"] as const) {
+          const items = applyMutations(
+            id,
+            kind,
+            this.listPullRequests(id, kind),
+          );
+          clear.run(id, kind);
+          for (const item of items)
+            insert.run(
+              id,
+              kind,
+              String(item.id),
+              item.updatedAt,
+              JSON.stringify(item),
+            );
+        }
+        const notifications = applyMutations(
+          id,
+          "notifications",
+          this.listNotifications(id),
+        );
+        clearNotifications.run(id);
+        for (const item of notifications)
+          insertNotification.run(
+            id,
+            item.id,
+            JSON.stringify(item),
+            item.updatedAt,
+          );
+        // A dismissal changes the local snapshot; don't reuse an ETag for its old contents.
+        if (mutation.kind === "notificationDone") clearNotificationEtag.run(id);
+      })();
+    },
     listInstances: () => listInstances.all() as Instance[],
+    updateAuthenticatedIdentity(
+      id: string,
+      expectedCredentialKey: string,
+      username: string,
+    ): boolean {
+      return db.transaction(() => {
+        const current = oldInstance.get(id) as
+          | {
+              label: string;
+              base_url: string;
+              username: string;
+              credential_key: string;
+            }
+          | undefined;
+        // Authentication may finish after another runtime rotates or removes
+        // this identity. Update only the row whose credentials were checked.
+        if (current?.credential_key !== expectedCredentialKey) return false;
+        if (current.username !== username) {
+          remove.run(id);
+          upsert.run({
+            id,
+            label: current.label,
+            baseUrl: current.base_url,
+            username,
+            credentialKey: current.credential_key,
+          });
+        }
+        return true;
+      })();
+    },
     reconcile(
       configured: {
         id: string;
@@ -119,7 +270,9 @@ export function createStore(db: Cache) {
       ).map((r) => JSON.parse(r.payload) as Notification);
     },
     state: (id: string, kind: Kind) =>
-      state.get(id, kind) as { last_etag: string | null } | undefined,
+      state.get(id, kind) as
+        | { last_run_at: string | null; last_etag: string | null }
+        | undefined,
     budget: (id: string, resource: string) =>
       budget.get(id, resource) as
         | { remaining: number | null; reset_at: string | null }
@@ -130,12 +283,25 @@ export function createStore(db: Cache) {
       kind: Kind,
       data: NormalizedPr[] | Notification[] | null,
       metadata: Metadata,
-    ) {
-      db.transaction(() => {
+      identity?: { credentialKey: string; username: string },
+    ): boolean {
+      return db.transaction(() => {
+        const current = oldInstance.get(id) as
+          | { credential_key: string; username: string }
+          | undefined;
+        // Another runtime may have reconciled a rotated identity while this
+        // request was on the wire. Never publish its old credential's data.
+        if (
+          identity &&
+          (!current ||
+            current.credential_key !== identity.credentialKey ||
+            current.username !== identity.username)
+        )
+          return false;
         if (data !== null) {
           if (kind === "notifications") {
             clearNotifications.run(id);
-            for (const item of data as Notification[])
+            for (const item of applyMutations(id, kind, data as Notification[]))
               insertNotification.run(
                 id,
                 item.id,
@@ -144,7 +310,7 @@ export function createStore(db: Cache) {
               );
           } else {
             clear.run(id, kind);
-            for (const item of data as NormalizedPr[])
+            for (const item of applyMutations(id, kind, data as NormalizedPr[]))
               insert.run(
                 id,
                 kind,
@@ -160,11 +326,20 @@ export function createStore(db: Cache) {
           new Date().toISOString(),
           metadata.etag ?? null,
         );
+        // A guarded snapshot isn't the full upstream representation. Keep
+        // fetching unconditionally until guards expire, or a revived thread
+        // could stay hidden forever behind an unchanged ETag.
+        if (
+          kind === "notifications" &&
+          hasNotificationGuard.get(id, Date.now())
+        )
+          clearNotificationEtag.run(id);
         recordBudget(
           id,
           kind === "notifications" ? "rest" : "graphql",
           metadata,
         );
+        return true;
       })();
     },
   };

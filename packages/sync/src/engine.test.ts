@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, expect, test } from "vitest";
 import { createSync } from "./index.js";
+import { openCache } from "./cache/open.js";
+import { createStore } from "./cache/store.js";
 
 const root = mkdtempSync(join(tmpdir(), "ghd-runtime-"));
 const old = process.env.XDG_CACHE_HOME;
@@ -90,6 +92,113 @@ test("a rotated token invalidates the old identity even when auth fails", async 
   ).toBe("");
   await rotated.close();
 });
+test.each(["rotated", "removed"])(
+  "authentication cannot restore an identity %s by another runtime",
+  async (change) => {
+    const { username: _configured, ...credentials } = instance;
+    const target = { ...credentials, id: "pending-auth" };
+    const peer = { ...credentials, id: "peer" };
+    let configured = [target, peer];
+    let started!: () => void;
+    const began = new Promise<void>((resolve) => (started = resolve));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const first = createSync({
+      loadInstances: () => configured,
+      authenticate: async () => {
+        started();
+        await gate;
+        return "old-login";
+      },
+    });
+    const second = createSync({
+      loadInstances: () => configured,
+      authenticate: async () => "new-login",
+    });
+    const { db } = openCache();
+    const store = createStore(db);
+    const pending = first.sync({
+      instanceId: target.id,
+      kinds: ["notifications"],
+    });
+    try {
+      await began;
+      configured = [
+        ...(change === "rotated" ? [{ ...target, token: "rotated" }] : []),
+        { ...peer, token: "new-peer", label: "New peer" },
+      ];
+      await second.sync({ kinds: [] });
+      const notification = {
+        id: "new-notification",
+        title: "New identity",
+        type: "Issue",
+        reason: "mention",
+        repo: "o/r",
+        url: "https://example.com/o/r/issues/1",
+        unread: true,
+        updatedAt: "2026-01-01T00:00:00Z",
+      };
+      for (const i of configured)
+        store.save(i.id, "notifications", [notification], {
+          etag: '"new"',
+          remaining: 1000,
+        });
+      const identities = second.listInstances();
+      release();
+      expect((await pending).results[0].fetches).toEqual([
+        {
+          kind: "notifications",
+          status: "skipped",
+          count: 0,
+          reason: "identity changed during sync",
+        },
+      ]);
+      expect(first.listInstances()).toEqual(identities);
+      for (const i of configured) {
+        expect(first.listNotifications(i.id)).toEqual([notification]);
+        expect(first.getSyncState(i.id, "notifications")?.last_etag).toBe(
+          '"new"',
+        );
+        expect(store.budget(i.id, "rest")?.remaining).toBe(1000);
+      }
+      if (change === "removed") {
+        expect(first.listNotifications(target.id)).toEqual([]);
+        expect(first.getSyncState(target.id, "notifications")).toBeUndefined();
+      }
+    } finally {
+      release();
+      await pending;
+      await first.close();
+      await second.close();
+      db.close();
+    }
+  },
+);
+
+test("close drains local reconciliation and rejects later local work", async () => {
+  let started!: () => void;
+  const began = new Promise<void>((resolve) => (started = resolve));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const sync = createSync({
+    loadInstances: async () => {
+      started();
+      await gate;
+      return [instance];
+    },
+  });
+  const local = sync.reconcileConfiguration();
+  await began;
+  const closed = sync.close();
+  let didClose = false;
+  void closed.then(() => (didClose = true));
+  await expect(sync.reconcileConfiguration()).rejects.toThrow("closed");
+  expect(didClose).toBe(false);
+  release();
+  await local;
+  await closed;
+});
+
 afterAll(() => {
   if (old === undefined) delete process.env.XDG_CACHE_HOME;
   else process.env.XDG_CACHE_HOME = old;
