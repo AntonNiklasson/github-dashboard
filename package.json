@@ -9,7 +9,7 @@
     "demo:web": "DEMO=1 pnpm dev:web",
     "build": "pnpm --filter sync build && pnpm --filter cli build && pnpm --filter server build && pnpm --filter web build",
     "build:desktop": "pnpm build && pnpm --filter desktop build && pnpm --filter desktop package",
-    "lint": "oxlint",
+    "lint": "oxlint && pnpm check:boundaries",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
     "typecheck": "pnpm --filter sync build && pnpm -r typecheck",
@@ -18,7 +18,8 @@
     "cli": "node packages/cli/dist/index.js",
     "dev:cli": "pnpm --filter cli dev",
     "scenario": "pnpm --filter web build && pnpm --filter harness scenario",
-    "test:e2e": "pnpm --filter sync build && pnpm --filter web build && pnpm --filter harness test:e2e"
+    "test:e2e": "pnpm --filter sync build && pnpm --filter web build && pnpm --filter harness test:e2e",
+    "check:boundaries": "node --test scripts/check-boundaries.test.mjs && node scripts/check-boundaries.mjs"
   },
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260420.1",

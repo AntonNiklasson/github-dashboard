@@ -17,3 +17,7 @@ The browser check runs the built renderer and real API/engine on disposable port
 Failures retain a Playwright trace and screenshot in `packages/harness/test-results/`. The HTML report includes API responses, upstream requests, and server logs; open it with `pnpm --filter harness exec playwright show-report`. The same check runs in CI and uploads its report on failure.
 
 Additional phases: `conflicts`, `needs-approval`, `changes-requested`, `empty`, `assigned`, `review-requested`, `unassigned`, and `rate-limited` (20-second reset). Assignment-only and review-request-only fixtures are distinct: the current engine still uses review requests; changing the product inbox query belongs to #84. Tests can use `startScenario({ instances: 2 })` and target the second upstream with `setPhase(phase, 1)` / `syncPrs(1)` to check partial outages.
+
+## GitHub access boundary
+
+`pnpm check:boundaries` parses production TypeScript and checks client dependencies. GitHub/network clients and direct server/CLI requests must stay in `packages/sync`; renderer requests are centralized in `api.ts` and use relative `/api/` URLs. Consumers may import only the public `sync` entry point. Electron's loopback readiness probe and port allocation are explicit exceptions; its updater remains separate from dashboard data access. Tests and the simulator may implement an HTTP server. This is a regression guard, not a security sandbox. It runs as part of lint and CI.
