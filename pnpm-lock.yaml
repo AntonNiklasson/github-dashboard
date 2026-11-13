@@ -97,9 +97,6 @@ importers:
       '@hono/node-server':
         specifier: ^1.14.1
         version: 1.19.11(hono@4.12.9)
-      '@octokit/rest':
-        specifier: ^22.0.1
-        version: 22.0.1
       hono:
         specifier: ^4.7.6
         version: 4.12.9

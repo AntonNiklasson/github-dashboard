@@ -34,7 +34,6 @@ const sections: { title: string; shortcuts: [string, string][] }[] = [
       ["d", "Toggle draft"],
       ["m", "Toggle auto-merge"],
       ["a", "Approve PR"],
-      ["c", "Close PR"],
       ["e", "Dismiss review / notification"],
       ["s", "Cycle sort dimension"],
       ["S", "Toggle sort direction"],

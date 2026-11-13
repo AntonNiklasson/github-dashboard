@@ -9,7 +9,7 @@ A keyboard-driven dashboard for your GitHub pull requests, review requests and n
 There are currently two clients:
 
 - **TUI** (`packages/cli`) — terminal UI built on the new sync engine (`packages/sync`, SQLite cache + bulk GraphQL). Browse PRs/reviews/notifications, read descriptions and comments, review diffs and post line comments, toggle draft/auto-merge, approve. Press `?` for keyboard shortcuts.
-- **Web app** (`packages/web` + `packages/server`, optionally wrapped in Electron via `packages/desktop`) — browser dashboard backed by its own Hono API server and cache. **Not yet migrated to the sync engine.** A pre-built macOS app is on the [Releases page](https://github.com/AntonNiklasson/github-dashboard/releases).
+- **Web app** (`packages/web` + `packages/server`, optionally wrapped in Electron via `packages/desktop`) — browser dashboard backed by a Hono API adapter to the shared sync engine and SQLite cache. A pre-built macOS app is on the [Releases page](https://github.com/AntonNiklasson/github-dashboard/releases).
 
 ## Development
 
@@ -57,3 +57,7 @@ TUI state lives in XDG dirs and is safe to delete:
 
 - `~/.cache/github-dashboard/cache.sqlite` — sync cache
 - `~/.local/state/github-dashboard/tui.json` — last view, instance and sorting
+
+### Desktop/web sync engine scope
+
+The desktop and web clients use `packages/sync` for all GitHub access, including authentication, list synchronization, comments and file diffs. Supported writes are approval, draft/ready toggling, auto-merge toggling and notification dismissal. Direct merge/close, title editing, CI reruns, posting conversation comments, closed-PR search, colleague browsing, and detailed commit/check lists are currently unavailable; use “Open in browser” for those operations. The local Hono HTTP API remains the renderer transport, but owns no GitHub client or live cache.

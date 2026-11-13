@@ -1,11 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, GitBranch, GitCommit } from "lucide-react";
+import { ArrowRight, GitBranch } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { type Comment, buildThreads } from "../pr-comment-threads";
 import { MarkdownBody } from "./MarkdownBody";
 import { ReviewStamp } from "./ReviewStamp";
-import { StatusBadge } from "./StatusBadge";
 import { TimeAgo } from "./TimeAgo";
 
 interface PanelPr {
@@ -57,12 +56,20 @@ export function PrPanel({
     setTimeout(onClose, ANIM_MS);
   };
 
-  const { data: meta, isLoading: metaLoading } = useQuery({
-    queryKey: ["pr-meta", pr.instanceId, pr.repo, pr.number],
-    queryFn: () => api.prMeta(pr.instanceId, pr.repo, pr.number),
+  const {
+    data: diff,
+    isLoading: diffLoading,
+    error: diffError,
+  } = useQuery({
+    queryKey: ["pr-diff", pr.instanceId, pr.repo, pr.number],
+    queryFn: () => api.prDiff(pr.instanceId, pr.repo, pr.number),
   });
 
-  const { data: comments, isLoading: commentsLoading } = useQuery({
+  const {
+    data: comments,
+    isLoading: commentsLoading,
+    error: commentsError,
+  } = useQuery({
     queryKey: ["pr-comments", pr.instanceId, pr.repo, pr.number],
     queryFn: () => api.prComments(pr.instanceId, pr.repo, pr.number),
     enabled: activeTab === "comments",
@@ -70,7 +77,7 @@ export function PrPanel({
 
   const tabCounts: Partial<Record<Tab, number>> = {
     comments: pr.commentCount,
-    files: meta?.files.length,
+    files: diff?.files.length,
   };
 
   useEffect(() => {
@@ -192,19 +199,27 @@ export function PrPanel({
           ref={scrollRef}
           className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
         >
-          {activeTab === "overview" && (
-            <OverviewTab pr={pr} meta={meta} isLoading={metaLoading} />
-          )}
-          {activeTab === "comments" && (
-            <CommentsTab
-              pr={pr}
-              comments={comments}
-              isLoading={commentsLoading}
-            />
-          )}
-          {activeTab === "files" && (
-            <FilesTab files={meta?.files} isLoading={metaLoading} />
-          )}
+          {activeTab === "overview" && <OverviewTab pr={pr} />}
+          {activeTab === "comments" &&
+            (commentsError ? (
+              <p role="alert" className="text-sm text-destructive">
+                Failed to load comments: {commentsError.message}
+              </p>
+            ) : (
+              <CommentsTab
+                pr={pr}
+                comments={comments}
+                isLoading={commentsLoading}
+              />
+            ))}
+          {activeTab === "files" &&
+            (diffError ? (
+              <p role="alert" className="text-sm text-destructive">
+                Failed to load files: {diffError.message}
+              </p>
+            ) : (
+              <FilesTab files={diff?.files} isLoading={diffLoading} />
+            ))}
         </div>
       </div>
       <div
@@ -219,15 +234,7 @@ export function PrPanel({
   );
 }
 
-function OverviewTab({
-  pr,
-  meta,
-  isLoading,
-}: {
-  pr: PanelPr;
-  meta: Awaited<ReturnType<typeof api.prMeta>> | undefined;
-  isLoading: boolean;
-}) {
+function OverviewTab({ pr }: { pr: PanelPr }) {
   const approvedCount = pr.reviews.approved.length;
   const changesCount = pr.reviews.changesRequested.length;
   const missingCodeOwner =
@@ -259,15 +266,6 @@ function OverviewTab({
             <span>/</span>
             <span className="text-red-600">-{pr.deletions}</span>
           </span>
-          {meta?.commits && (
-            <span className="flex items-center gap-1">
-              <GitCommit className="h-3 w-3" />
-              <span>
-                {meta.commits.length} commit
-                {meta.commits.length === 1 ? "" : "s"}
-              </span>
-            </span>
-          )}
         </div>
       </section>
 
@@ -305,12 +303,6 @@ function OverviewTab({
         </section>
       )}
 
-      {/* CI Checks + Commits (two-column) */}
-      <div className="grid gap-5 sm:grid-cols-2">
-        <CiSection meta={meta} isLoading={isLoading} />
-        <CommitsSection commits={meta?.commits} />
-      </div>
-
       {/* Description */}
       {pr.body && (
         <section>
@@ -321,87 +313,6 @@ function OverviewTab({
         </section>
       )}
     </div>
-  );
-}
-
-function CiSection({
-  meta,
-  isLoading,
-}: {
-  meta: Awaited<ReturnType<typeof api.prMeta>> | undefined;
-  isLoading: boolean;
-}) {
-  if (isLoading) {
-    return (
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          CI Checks
-        </h3>
-        <p className="text-xs text-muted-foreground">Loading...</p>
-      </section>
-    );
-  }
-  if (!meta || meta.checks.length === 0) return <div />;
-  const allPassing = meta.checks.every((c) => c.conclusion === "success");
-  if (allPassing) {
-    return (
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          CI Checks
-        </h3>
-        <div className="flex items-center gap-2">
-          <StatusBadge status="success" />
-          <span className="text-xs text-muted-foreground">
-            {meta.checks.length} checks
-          </span>
-        </div>
-      </section>
-    );
-  }
-  return (
-    <section>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        CI Checks
-      </h3>
-      <div className="space-y-1">
-        {meta.checks.map((check) => (
-          <div key={check.name} className="flex items-center gap-2 text-sm">
-            <CheckIcon conclusion={check.conclusion} status={check.status} />
-            <span className="truncate">{check.name}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function CommitsSection({
-  commits,
-}: {
-  commits: Awaited<ReturnType<typeof api.prMeta>>["commits"] | undefined;
-}) {
-  if (!commits || commits.length === 0) return <div />;
-  return (
-    <section>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Commits ({commits.length})
-      </h3>
-      <div className="overflow-hidden rounded-md border">
-        {commits.map((c, i) => (
-          <div
-            key={c.sha}
-            className={`flex items-baseline gap-2 px-3 py-1.5 text-sm ${
-              i > 0 ? "border-t" : ""
-            }`}
-          >
-            <code className="shrink-0 font-mono text-xs text-muted-foreground">
-              {c.sha.slice(0, 7)}
-            </code>
-            <span className="truncate">{c.message.split("\n")[0]}</span>
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }
 
@@ -477,7 +388,7 @@ function FilesTab({
   files,
   isLoading,
 }: {
-  files: Awaited<ReturnType<typeof api.prMeta>>["files"] | undefined;
+  files: Awaited<ReturnType<typeof api.prDiff>>["files"] | undefined;
   isLoading: boolean;
 }) {
   if (isLoading) {
@@ -490,102 +401,44 @@ function FilesTab({
 
   return (
     <div className="space-y-4">
-      {files.map((f) => (
-        <div key={f.filename}>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="truncate font-mono font-medium">{f.filename}</span>
-            <span className="shrink-0 text-green-600">+{f.additions}</span>
-            <span className="shrink-0 text-red-600">-{f.deletions}</span>
+      {files.map((file) => (
+        <div key={file.path}>
+          <div className="truncate font-mono text-xs font-medium">
+            {file.path}
           </div>
-          {f.patch && (
+          {file.lines.length > 0 ? (
             <pre className="mt-1 overflow-x-auto rounded bg-muted p-2 font-mono text-[11px] leading-relaxed">
-              {f.patch.split("\n").map((line, i) => (
+              {file.lines.map((line, i) => (
                 <div
                   key={i}
                   className={
-                    line.startsWith("+")
-                      ? "text-green-700 bg-green-50 dark:text-green-400 dark:bg-green-900/30"
-                      : line.startsWith("-")
-                        ? "text-red-700 bg-red-50 dark:text-red-400 dark:bg-red-900/30"
-                        : line.startsWith("@@")
+                    line.kind === "add"
+                      ? "text-green-700 dark:text-green-400"
+                      : line.kind === "delete"
+                        ? "text-red-700 dark:text-red-400"
+                        : line.kind === "hunk"
                           ? "text-blue-600 dark:text-blue-400"
                           : ""
                   }
                 >
-                  {line}
+                  {line.kind === "add"
+                    ? "+"
+                    : line.kind === "delete"
+                      ? "-"
+                      : line.kind === "context"
+                        ? " "
+                        : ""}
+                  {line.text}
                 </div>
               ))}
             </pre>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Diff unavailable. Open the PR in GitHub to view this file.
+            </p>
           )}
         </div>
       ))}
     </div>
   );
-}
-
-function CheckIcon({
-  conclusion,
-  status,
-}: {
-  conclusion: string | null;
-  status: string;
-}) {
-  if (status === "in_progress" || status === "queued") {
-    return (
-      <svg
-        className="h-3.5 w-3.5 animate-spin text-yellow-500"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2.5}
-      >
-        <circle
-          cx="12"
-          cy="12"
-          r="10"
-          strokeDasharray="60"
-          strokeDashoffset="20"
-        />
-      </svg>
-    );
-  }
-  if (conclusion === "success") {
-    return (
-      <svg
-        className="h-3.5 w-3.5 text-green-600"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20 6L9 17l-5-5" />
-      </svg>
-    );
-  }
-  if (conclusion === "failure") {
-    return (
-      <svg
-        className="h-3.5 w-3.5 text-red-600"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M18 6L6 18" />
-        <path d="M6 6l12 12" />
-      </svg>
-    );
-  }
-  if (conclusion === "skipped" || conclusion === "neutral") {
-    return (
-      <span className="h-3.5 w-3.5 text-center text-xs text-muted-foreground">
-        –
-      </span>
-    );
-  }
-  return <span className="h-3.5 w-3.5" />;
 }

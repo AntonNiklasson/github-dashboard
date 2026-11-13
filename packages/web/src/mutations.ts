@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AutoMergeNotAllowedError, api } from "./api";
+import { api } from "./api";
 import type { Notification, PR, ReviewRequest } from "./types";
 
 interface Target {
@@ -60,74 +60,9 @@ export async function toggleAutoMerge(
     await api.toggleAutoMerge(target.instanceId, target.repo, target.number);
   } catch (err) {
     restore(qc, snap);
-    if (!(err instanceof AutoMergeNotAllowedError)) {
-      toast.error("Failed to toggle auto-merge");
-    }
-    throw err;
-  }
-}
-
-export async function mergePr(qc: QueryClient, target: Target): Promise<void> {
-  const prsSnap = snapshot<PR[]>(qc, "prs");
-  const reviewsSnap = snapshot<ReviewRequest[]>(qc, "reviews");
-
-  qc.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-    old?.filter((pr) => !matches(target)(pr)),
-  );
-  qc.setQueriesData<ReviewRequest[]>({ queryKey: ["reviews"] }, (old) =>
-    old?.filter((r) => !matches(target)(r)),
-  );
-
-  try {
-    await api.mergePr(target.instanceId, target.repo, target.number);
-    toast.success("PR merged");
-  } catch (err) {
-    restore(qc, prsSnap);
-    restore(qc, reviewsSnap);
-
-    // mergeStateStatus="CLEAN" can lie when repo rulesets impose extra
-    // requirements GraphQL doesn't reflect. Always attempt to arm
-    // auto-merge as a fallback — the server returns AutoMergeNotAllowedError
-    // when the repo really disallows it (more reliable than the cached
-    // autoMergeAllowed flag, which can be stale).
-    const reason = err instanceof Error ? err.message : "Failed to merge PR";
-    try {
-      await api.toggleAutoMerge(target.instanceId, target.repo, target.number);
-      qc.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-        old?.map((pr) =>
-          matches(target)(pr) ? { ...pr, autoMerge: true } : pr,
-        ),
-      );
-      toast.success(`Auto-merge enabled — direct merge blocked: ${reason}`);
-      return;
-    } catch {
-      // Fallback failed (repo doesn't allow auto-merge, or some other
-      // error) — surface the original merge error since that's what the
-      // user tried to do.
-    }
-    toast.error(reason);
-    throw err;
-  }
-}
-
-export async function closePr(qc: QueryClient, target: Target): Promise<void> {
-  const prsSnap = snapshot<PR[]>(qc, "prs");
-  const reviewsSnap = snapshot<ReviewRequest[]>(qc, "reviews");
-
-  qc.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-    old?.filter((pr) => !matches(target)(pr)),
-  );
-  qc.setQueriesData<ReviewRequest[]>({ queryKey: ["reviews"] }, (old) =>
-    old?.filter((r) => !matches(target)(r)),
-  );
-
-  try {
-    await api.closePr(target.instanceId, target.repo, target.number);
-    toast.success("PR closed");
-  } catch (err) {
-    restore(qc, prsSnap);
-    restore(qc, reviewsSnap);
-    toast.error("Failed to close PR");
+    toast.error(
+      err instanceof Error ? err.message : "Failed to toggle auto-merge",
+    );
     throw err;
   }
 }
@@ -164,46 +99,6 @@ export async function dismissNotification(
   } catch (err) {
     restore(qc, snap);
     toast.error("Failed to dismiss notification");
-    throw err;
-  }
-}
-
-export async function updatePrTitle(
-  qc: QueryClient,
-  target: Target,
-  title: string,
-): Promise<void> {
-  const snap = snapshot<PR[]>(qc, "prs");
-  qc.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-    old?.map((pr) => (matches(target)(pr) ? { ...pr, title } : pr)),
-  );
-  try {
-    await api.updatePrTitle(
-      target.instanceId,
-      target.repo,
-      target.number,
-      title,
-    );
-  } catch (err) {
-    restore(qc, snap);
-    toast.error("Failed to update title");
-    throw err;
-  }
-}
-
-export async function rerunCi(qc: QueryClient, target: Target): Promise<void> {
-  const snap = snapshot<PR[]>(qc, "prs");
-  qc.setQueriesData<PR[]>({ queryKey: ["prs"] }, (old) =>
-    old?.map((pr) =>
-      matches(target)(pr) ? { ...pr, ciStatus: "pending" } : pr,
-    ),
-  );
-  try {
-    await api.rerunCi(target.instanceId, target.repo, target.number);
-    toast.success("Rerunning failed jobs");
-  } catch (err) {
-    restore(qc, snap);
-    toast.error("Failed to rerun jobs");
     throw err;
   }
 }
