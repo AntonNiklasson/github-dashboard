@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { Octokit } from "@octokit/rest";
+import { authenticate } from "sync";
 import { parse } from "yaml";
 import { z } from "zod";
 
@@ -215,9 +215,13 @@ async function probeInstance(
   baseUrl: string,
 ): Promise<ProbeResult> {
   try {
-    const client = new Octokit({ auth: token, baseUrl });
-    const { data } = await client.users.getAuthenticated();
-    return { ok: true, username: data.login };
+    const username = await authenticate({
+      id: baseUrl,
+      label: baseUrl,
+      token,
+      baseUrl,
+    });
+    return { ok: true, username };
   } catch (err) {
     return classifyProbeError(err);
   }

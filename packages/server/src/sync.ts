@@ -1,6 +1,6 @@
-import { createSync, type CacheMutation, type SyncKind } from "sync";
+import { createSync, type SyncKind } from "sync";
 import { getCached } from "./cache.js";
-import { loadSyncInstances, type GitHubInstance } from "./config.js";
+import { loadSyncInstances } from "./config.js";
 
 const SYNC_INTERVAL = 30_000;
 export type ResyncKey = SyncKind;
@@ -50,14 +50,6 @@ export async function reloadSyncConfiguration(): Promise<void> {
   // The engine re-reads valid raw config independently of auth diagnostics:
   // removed instances/rotated credentials are purged even when auth fails.
   await getSync().reconcileConfiguration();
-}
-
-export async function recordMutation(
-  instanceId: string,
-  mutation: CacheMutation,
-  expectedIdentity?: Pick<GitHubInstance, "baseUrl" | "token">,
-) {
-  await getSync().recordMutation(instanceId, mutation, expectedIdentity);
 }
 
 export async function resyncInstance(

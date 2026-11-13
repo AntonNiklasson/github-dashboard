@@ -13,12 +13,18 @@ const octokitHolder = vi.hoisted(
   }),
 );
 
-vi.mock("@octokit/rest", async () => {
+vi.mock("sync", async () => {
   const { octokitStub } = await import("./test-utils/octokit-mock.js");
   octokitHolder.ctor = octokitStub({ login: "alice" });
   return {
-    get Octokit() {
-      return octokitHolder.ctor;
+    authenticate: async (instance: { token: string; baseUrl: string }) => {
+      const client = new octokitHolder.ctor({
+        auth: instance.token,
+        baseUrl: instance.baseUrl,
+      }) as {
+        users: { getAuthenticated: () => Promise<{ data: { login: string } }> };
+      };
+      return (await client.users.getAuthenticated()).data.login;
     },
   };
 });

@@ -44,24 +44,12 @@ export function CopyMenu({ target, onClose }: Props) {
       label: "Changed files",
       key: "f",
       value: async () => {
-        const meta = await api.prMeta(
+        const meta = await api.prDiff(
           target.instanceId,
           target.repo,
           target.number,
         );
-        return meta.files.map((f) => f.filename).join("\n");
-      },
-    },
-    {
-      label: "Commit history",
-      key: "c",
-      value: async () => {
-        const meta = await api.prMeta(
-          target.instanceId,
-          target.repo,
-          target.number,
-        );
-        return meta.commits.map((c) => `${c.sha} ${c.message}`).join("\n");
+        return meta.files.map((f) => f.path).join("\n");
       },
     },
   ];
@@ -74,6 +62,8 @@ export function CopyMenu({ target, onClose }: Props) {
       await navigator.clipboard.writeText(text);
       onClose();
       toast(`Copied ${item.label.toLowerCase()}`);
+    } catch {
+      toast.error("Failed to copy");
     } finally {
       setLoading(false);
     }

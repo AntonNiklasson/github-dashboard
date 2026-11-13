@@ -18,3 +18,5 @@ export {
 } from "./providers/github/reviewDiff.js";
 
 export type { CacheMutation, PullRequestPatch } from "./cache/store.js";
+
+export { authenticate } from "./config.js";

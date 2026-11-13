@@ -6,19 +6,10 @@ import { atomWithStorage } from "jotai/utils";
 import { ArrowUpCircle, Loader2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AutoMergeNotAllowedError, api, type ConfigResponse } from "./api";
-import {
-  STALE_CACHE_RECOVERY_PROMPT,
-  decideMergeAction,
-  mergeActionLabel,
-} from "./merge-decision";
+import { api, type ConfigResponse } from "./api";
 import { dismissKey, dismissedReviewsAtom, isDismissed } from "./dismissed";
 import { useChords } from "./use-chords";
-import {
-  type Action,
-  ActionMenu,
-  CommentDialog,
-} from "./components/ActionMenu";
+import { type Action, ActionMenu } from "./components/ActionMenu";
 import { type CopyTarget, CopyMenu } from "./components/CopyMenu";
 import { PrPanel } from "./components/PrPanel";
 import { Text } from "./components/Text";
@@ -49,7 +40,6 @@ import {
   useAllNotifications,
   useAllReviewRequests,
   useAuthoredPrs,
-  useColleaguePrs,
   useKeyboardNav,
   useNotifications,
   useReviewRequests,
@@ -169,8 +159,6 @@ export function App() {
     };
   }, []);
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const filterParam = urlParams.get("filter");
   const showWelcome = configRes?.status.kind === "error";
 
   const instanceTabs = instances.map((i) => ({ id: i.id, label: i.label }));
@@ -308,7 +296,6 @@ export function App() {
                   ? instances[0]
                   : instances.find((i) => i.id === activeTab)) ?? instances[0]
               }
-              authorFilter={filterParam ?? undefined}
             />
           )
         ) : null}
@@ -342,64 +329,20 @@ interface FocusedItem {
   ciStatus?: string;
 }
 
-interface CommentingPr {
-  instanceId: string;
-  repo: string;
-  number: number;
-}
-
-function confirmAndMerge(
+function toggleAutoMerge(
   queryClient: ReturnType<typeof useQueryClient>,
   item: FocusedItem & { instanceId: string; repo: string; number: number },
-  message: string,
 ): void {
-  if (!confirm(message)) return;
+  if (!confirm(item.autoMerge ? "Disable auto-merge?" : "Enable auto-merge?"))
+    return;
   mutations
-    .mergePr(queryClient, {
-      instanceId: item.instanceId,
-      repo: item.repo,
-      number: item.number,
-    })
+    .toggleAutoMerge(queryClient, item, !!item.autoMerge)
     .catch(() => {});
-}
-
-function autoMergeOrFallback(
-  queryClient: ReturnType<typeof useQueryClient>,
-  item: FocusedItem & { instanceId: string; repo: string; number: number },
-): void {
-  const decision = decideMergeAction(item);
-  const target = {
-    instanceId: item.instanceId,
-    repo: item.repo,
-    number: item.number,
-  };
-
-  if (decision.kind === "disable_auto_merge") {
-    mutations.toggleAutoMerge(queryClient, target, true).catch(() => {});
-    return;
-  }
-
-  if (decision.kind === "merge") {
-    confirmAndMerge(queryClient, item, decision.prompt);
-    return;
-  }
-
-  // arm_auto_merge
-  if (!confirm(decision.prompt)) return;
-  mutations.toggleAutoMerge(queryClient, target, false).catch((err) => {
-    // Cache said allow_auto_merge=true but server disagrees — fall through
-    // and merge directly (user already expressed merge intent).
-    if (err instanceof AutoMergeNotAllowedError) {
-      confirmAndMerge(queryClient, item, STALE_CACHE_RECOVERY_PROMPT);
-    }
-  });
 }
 
 function getActionsForItem(
   item: FocusedItem,
   queryClient: ReturnType<typeof useQueryClient>,
-  setEditingPrNumber?: (prNumber: number) => void,
-  setCommentingPr?: (pr: CommentingPr) => void,
 ): Action[] {
   const actions: Action[] = [
     {
@@ -446,55 +389,15 @@ function getActionsForItem(
     // GitHub rejects enablePullRequestAutoMerge on draft PRs.
     if (item.autoMerge || !item.draft) {
       actions.push({
-        label: mergeActionLabel(decideMergeAction(item)),
+        label: item.autoMerge ? "Disable auto-merge" : "Enable auto-merge",
         key: "m",
         onSelect: () => {
-          autoMergeOrFallback(queryClient, {
+          toggleAutoMerge(queryClient, {
             ...item,
             instanceId: item.instanceId!,
             repo: item.repo!,
             number: item.number!,
           });
-        },
-      });
-    }
-
-    if (setEditingPrNumber) {
-      actions.push({
-        label: "Edit title",
-        key: "t",
-        onSelect: () => {
-          setEditingPrNumber(item.number!);
-        },
-      });
-    }
-
-    if (setCommentingPr) {
-      actions.push({
-        label: "Post comment",
-        key: "c",
-        onSelect: () => {
-          setCommentingPr({
-            instanceId: item.instanceId!,
-            repo: item.repo!,
-            number: item.number!,
-          });
-        },
-      });
-    }
-
-    if (item.ciStatus === "failure") {
-      actions.push({
-        label: "Rerun failed jobs",
-        key: "i",
-        onSelect: () => {
-          mutations
-            .rerunCi(queryClient, {
-              instanceId: item.instanceId!,
-              repo: item.repo!,
-              number: item.number!,
-            })
-            .catch(() => {});
         },
       });
     }
@@ -514,20 +417,6 @@ function getActionsForItem(
       onSelect: () => {
         mutations
           .approvePr(queryClient, {
-            instanceId: item.instanceId!,
-            repo: item.repo!,
-            number: item.number!,
-          })
-          .catch(() => {});
-      },
-    });
-    actions.push({
-      label: "Close",
-      key: "x",
-      confirm: "Are you sure you want to close this PR?",
-      onSelect: () => {
-        mutations
-          .closePr(queryClient, {
             instanceId: item.instanceId!,
             repo: item.repo!,
             number: item.number!,
@@ -590,16 +479,8 @@ function MultiInstanceDashboard({ instances }: { instances: Instance[] }) {
   return <Dashboard source={source} />;
 }
 
-function SingleInstanceDashboard({
-  instance,
-  authorFilter,
-}: {
-  instance: Instance;
-  authorFilter?: string;
-}) {
-  const prs = authorFilter
-    ? useColleaguePrs(instance.id, authorFilter)
-    : useAuthoredPrs(instance.id);
+function SingleInstanceDashboard({ instance }: { instance: Instance }) {
+  const prs = useAuthoredPrs(instance.id);
   const reviews = useReviewRequests(instance.id);
   const notifications = useNotifications(instance.id);
   const source: DashboardSource = {
@@ -667,28 +548,14 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const [copyMenu, setCopyMenu] = useState<CopyTarget | null>(null);
   const [panelItem, setPanelItem] = useState<FocusedItem | null>(null);
   const [togglingDraftId, setTogglingDraftId] = useState<PR["id"] | null>(null);
-  const [editingPrNumber, setEditingPrNumber] = useState<number | null>(null);
-  const [commentingPr, setCommentingPr] = useState<CommentingPr | null>(null);
-  const [commentLoading, setCommentLoading] = useState(false);
   const actionMenuTimerRef = useRef<number | null>(null);
 
   const overlayOpenRef = useRef(false);
   const updateOverlay = () => {
-    overlayOpenRef.current = !!(
-      actionMenu ||
-      copyMenu ||
-      panelItem ||
-      editingPrNumber ||
-      commentingPr
-    );
+    overlayOpenRef.current = !!(actionMenu || copyMenu || panelItem);
   };
-  useEffect(updateOverlay, [
-    actionMenu,
-    copyMenu,
-    panelItem,
-    editingPrNumber,
-    commentingPr,
-  ]);
+
+  useEffect(updateOverlay, [actionMenu, copyMenu, panelItem]);
 
   const openActionMenu = (item: FocusedItem) => {
     nav.setPaused(true);
@@ -723,8 +590,8 @@ function Dashboard({ source }: { source: DashboardSource }) {
     setPanelItem(item);
     const { instanceId, repo, number } = item;
     queryClient.prefetchQuery({
-      queryKey: ["pr-meta", instanceId, repo, number],
-      queryFn: () => api.prMeta(instanceId, repo, number),
+      queryKey: ["pr-diff", instanceId, repo, number],
+      queryFn: () => api.prDiff(instanceId, repo, number),
     });
     queryClient.prefetchQuery({
       queryKey: ["pr-comments", instanceId, repo, number],
@@ -859,7 +726,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
             toast.error("Mark the PR as ready before merging");
             return;
           }
-          autoMergeOrFallback(queryClient, {
+          toggleAutoMerge(queryClient, {
             ...item,
             instanceId: item.instanceId,
             repo: item.repo,
@@ -880,26 +747,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
           e.preventDefault();
           mutations
             .approvePr(queryClient, {
-              instanceId: item.instanceId,
-              repo: item.repo,
-              number: item.number,
-            })
-            .catch(() => {});
-        }
-      } else if (
-        e.key === "c" &&
-        (activeSection === "prs" || activeSection === "reviews")
-      ) {
-        if (
-          item?.repo &&
-          item.number &&
-          item.instanceId &&
-          !item.readOnly &&
-          confirm("Close this PR?")
-        ) {
-          e.preventDefault();
-          mutations
-            .closePr(queryClient, {
               instanceId: item.instanceId,
               repo: item.repo,
               number: item.number,
@@ -1030,21 +877,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
             focusIndex={nav.focusIndex}
             isFocusedSection={nav.activeSection === "prs"}
             togglingDraftId={togglingDraftId ?? undefined}
-            editingPrNumber={editingPrNumber ?? undefined}
-            onSaveTitle={async (prNumber, title) => {
-              const pr = sortedPrs.find((p) => p.number === prNumber);
-              if (!pr) return;
-              const instanceId = pr.instanceId ?? instances[0]?.id;
-              if (!instanceId) return;
-              await mutations
-                .updatePrTitle(
-                  queryClient,
-                  { instanceId, repo: pr.repo, number: prNumber },
-                  title,
-                )
-                .catch(() => {});
-              setEditingPrNumber(null);
-            }}
           />
         )}
       </Column>
@@ -1113,18 +945,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
 
       {actionMenu && (
         <ActionMenu
-          actions={getActionsForItem(
-            actionMenu,
-            queryClient,
-            (num) => {
-              setEditingPrNumber(num);
-              if (panelItem) closePanel();
-            },
-            (pr) => {
-              setCommentingPr(pr);
-              if (panelItem) closePanel();
-            },
-          )}
+          actions={getActionsForItem(actionMenu, queryClient)}
           onClose={closeActionMenu}
         />
       )}
@@ -1158,34 +979,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
             onClose={closePanel}
           />
         )}
-
-      {commentingPr && (
-        <CommentDialog
-          loading={commentLoading}
-          onSubmit={async (body) => {
-            setCommentLoading(true);
-            try {
-              await api.postComment(
-                commentingPr.instanceId,
-                commentingPr.repo,
-                commentingPr.number,
-                body,
-              );
-              toast("Comment posted");
-              setCommentingPr(null);
-              if (!panelItem) nav.setPaused(false);
-            } catch {
-              toast("Failed to post comment");
-            } finally {
-              setCommentLoading(false);
-            }
-          }}
-          onClose={() => {
-            setCommentingPr(null);
-            if (!panelItem) nav.setPaused(false);
-          }}
-        />
-      )}
 
       {chords.showPopup && chords.activeGroup && (
         <WhichKey group={chords.activeGroup} onClose={chords.cancel} />
