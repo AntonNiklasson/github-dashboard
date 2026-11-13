@@ -24,7 +24,7 @@ export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
       {reviews.map((pr, i) => {
         const focused = isFocusedSection && focusIndex === i;
         return (
-          <FocusLi key={pr.id} focused={focused}>
+          <FocusLi key={`${pr.instanceId ?? ""}:${pr.id}`} focused={focused}>
             <PrCard
               {...pr}
               mergeStatus={toMergeStatus(pr)}

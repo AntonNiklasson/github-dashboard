@@ -1,6 +1,20 @@
 import { createServer } from "node:http";
 
-export type Phase = "in-flight" | "queued" | "queue-failed" | "offline";
+export const PHASES = [
+  "in-flight",
+  "queued",
+  "queue-failed",
+  "offline",
+  "conflicts",
+  "needs-approval",
+  "changes-requested",
+  "empty",
+  "assigned",
+  "review-requested",
+  "unassigned",
+  "rate-limited",
+] as const;
+export type Phase = (typeof PHASES)[number];
 export const SCENARIO_TITLE = "Ship the status board";
 export const SCENARIO_TOKEN = "scenario-token";
 export const SCENARIO_USER = "scenario-user";
@@ -48,6 +62,7 @@ export async function startGitHub() {
           ![
             `author:${SCENARIO_USER} type:pr state:open`,
             `review-requested:${SCENARIO_USER} type:pr state:open`,
+            `assignee:${SCENARIO_USER} type:pr state:open`,
           ].includes(variables.q)
         ) {
           send(501, { message: "Unsupported scenario GraphQL request" });
@@ -56,14 +71,34 @@ export async function startGitHub() {
         send(200, {
           data: {
             search: {
-              nodes: variables.q.startsWith("author:")
-                ? [pullRequest(phase)]
-                : [],
+              nodes:
+                phase === "empty"
+                  ? []
+                  : variables.q.startsWith("author:")
+                    ? [pullRequest(phase)]
+                    : (variables.q.startsWith("assignee:") &&
+                          phase === "assigned") ||
+                        (variables.q.startsWith("review-requested:") &&
+                          phase === "review-requested")
+                      ? [
+                          {
+                            ...pullRequest(phase),
+                            id: "PR_review",
+                            databaseId: 202,
+                            number: 202,
+                            title: "Review the storage change",
+                            author: { login: "colleague", avatarUrl: "" },
+                          },
+                        ]
+                      : [],
             },
             rateLimit: {
               cost: 1,
-              remaining: 5000,
-              resetAt: "2099-01-01T00:00:00Z",
+              remaining: phase === "rate-limited" ? 0 : 5000,
+              resetAt:
+                phase === "rate-limited"
+                  ? new Date(Date.now() + 20_000).toISOString()
+                  : "2099-01-01T00:00:00Z",
             },
           },
         });
@@ -120,9 +155,14 @@ function pullRequest(phase: Exclude<Phase, "offline">) {
           ? "2026-01-01T12:01:00Z"
           : "2026-01-01T12:02:00Z",
     isDraft: false,
-    mergeable: "MERGEABLE",
+    mergeable: phase === "conflicts" ? "CONFLICTING" : "MERGEABLE",
     mergeStateStatus: "CLEAN",
-    reviewDecision: "APPROVED",
+    reviewDecision:
+      phase === "needs-approval"
+        ? "REVIEW_REQUIRED"
+        : phase === "changes-requested"
+          ? "CHANGES_REQUESTED"
+          : "APPROVED",
     additions: 12,
     deletions: 3,
     headRefName: "feature/status-board",
@@ -148,7 +188,23 @@ function pullRequest(phase: Exclude<Phase, "offline">) {
         },
       ],
     },
-    reviews: { nodes: [{ state: "APPROVED", author: { login: "reviewer" } }] },
+    assignees: {
+      nodes: phase === "assigned" ? [{ login: SCENARIO_USER }] : [],
+    },
+    reviews: {
+      nodes:
+        phase === "needs-approval"
+          ? []
+          : [
+              {
+                state:
+                  phase === "changes-requested"
+                    ? "CHANGES_REQUESTED"
+                    : "APPROVED",
+                author: { login: "reviewer" },
+              },
+            ],
+    },
     reviewThreads: { totalCount: 0, nodes: [] },
     autoMergeRequest: null,
     mergeQueueEntry: phase === "queued" ? { id: "queue-entry" } : null,
