@@ -20,3 +20,5 @@ export {
 export type { CacheMutation, PullRequestPatch } from "./cache/store.js";
 
 export { authenticate } from "./config.js";
+
+export type { SyncHealth } from "./cache/store.js";

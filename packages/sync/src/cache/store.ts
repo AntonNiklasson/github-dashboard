@@ -25,6 +25,16 @@ export type CacheMutation =
   | { kind: "patch"; repo: string; number: number; patch: PullRequestPatch }
   | { kind: "notificationDone"; id: string };
 
+export interface SyncHealth {
+  instanceId: string;
+  kind: Kind;
+  lastSuccessAt: string | null;
+  lastAttemptAt: string | null;
+  status: "never" | "syncing" | "updated" | "unchanged" | "skipped" | "failed";
+  reason: string | null;
+  retryAt: string | null;
+}
+
 export interface Metadata {
   etag?: string | null;
   remaining?: number | null;
@@ -93,6 +103,7 @@ export function createStore(db: Cache) {
       writeBudget(id, resource, metadata);
     })();
   }
+
   // Guards live beside snapshots so another process/in-flight fetch cannot
   // resurrect stale search-index data after a successful write.
   const clearNotificationEtag = db.prepare(
@@ -205,6 +216,54 @@ export function createStore(db: Cache) {
           );
         // A dismissal changes the local snapshot; don't reuse an ETag for its old contents.
         if (mutation.kind === "notificationDone") clearNotificationEtag.run(id);
+      })();
+    },
+    health(id: string, kind: Kind): SyncHealth {
+      const row = db
+        .prepare("SELECT * FROM sync_health WHERE instance_id=? AND kind=?")
+        .get(id, kind) as
+        | {
+            attempted_at: string;
+            status: SyncHealth["status"];
+            reason: string | null;
+            retry_at: string | null;
+          }
+        | undefined;
+      const snapshot = state.get(id, kind) as
+        | { last_run_at: string | null }
+        | undefined;
+      return {
+        instanceId: id,
+        kind,
+        lastSuccessAt: snapshot?.last_run_at ?? null,
+        lastAttemptAt: row?.attempted_at ?? null,
+        status: row?.status ?? "never",
+        reason: row?.reason ?? null,
+        retryAt: row?.retry_at ?? null,
+      };
+    },
+    recordHealth(
+      id: string,
+      kind: Kind,
+      outcome: Pick<SyncHealth, "status" | "reason" | "retryAt">,
+      credentialKey: string,
+    ) {
+      return db.transaction(() => {
+        const current = oldInstance.get(id) as
+          | { credential_key: string }
+          | undefined;
+        if (current?.credential_key !== credentialKey) return false;
+        db.prepare(
+          "INSERT OR REPLACE INTO sync_health VALUES (?,?,?,?,?,?)",
+        ).run(
+          id,
+          kind,
+          new Date().toISOString(),
+          outcome.status,
+          outcome.reason,
+          outcome.retryAt,
+        );
+        return true;
       })();
     },
     listInstances: () => listInstances.all() as Instance[],

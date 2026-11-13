@@ -30,6 +30,11 @@ it("syncs queue transitions into SQLite, preserves the last snapshot on failure,
       expect(prs).toHaveLength(1);
       expect(prs[0]).toMatchObject({ number: 101, inMergeQueue, ciStatus });
     }
+    const successful = engine
+      .getHealth()
+      .find((health) => health.kind === "prs")!;
+    expect(successful).toMatchObject({ status: "updated", reason: null });
+    expect(successful.lastSuccessAt).toBeTruthy();
     github.setPhase("offline");
     const failed = await engine.sync();
     expect(failed.results[0].fetches.every((f) => f.status === "failed")).toBe(
@@ -38,8 +43,17 @@ it("syncs queue transitions into SQLite, preserves the last snapshot on failure,
     expect(engine.listPullRequests(github.instance.id, "prs")[0].ciStatus).toBe(
       "failure",
     );
+    expect(
+      engine.getHealth().find((health) => health.kind === "prs"),
+    ).toMatchObject({
+      status: "failed",
+      lastSuccessAt: successful.lastSuccessAt,
+    });
     await engine.close();
     engine = createSync(options);
+    expect(
+      engine.getHealth().find((health) => health.kind === "prs")?.status,
+    ).toBe("failed");
     expect(engine.listPullRequests(github.instance.id, "prs")).toHaveLength(1);
     expect(engine.listPullRequests(github.instance.id, "prs")[0]).toMatchObject(
       { inMergeQueue: false, ciStatus: "failure" },

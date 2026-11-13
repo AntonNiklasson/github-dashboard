@@ -68,6 +68,13 @@ api.post("/config/create", (c) => {
   return c.json(result);
 });
 
+api.get("/sync/health", async (c) => {
+  if (process.env.DEMO === "1") return c.json([]);
+  const engine = getSync();
+  await engine.reconcileConfiguration();
+  return c.json(engine.getHealth());
+});
+
 // Authored PRs with CI + review status
 api.get("/:instanceId/prs", async (c) => {
   const { instanceId } = c.req.param();

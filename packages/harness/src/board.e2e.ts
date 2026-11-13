@@ -64,12 +64,20 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
       { number: 101, ciStatus: "failure" },
     ]);
     await expect(card.getByText("failing", { exact: true })).toBeVisible();
+    await expect(
+      page.getByLabel("Sync status: Sync failed — data may be stale", {
+        exact: true,
+      }),
+    ).toBeVisible();
 
     scenario.setPhase("in-flight");
     await scenario.syncPrs();
     await expect(card.getByText("passing", { exact: true })).toBeVisible();
     await expect(card).toHaveCount(1);
     expect(await scenario.persistedPrs()).toHaveLength(1);
+    await expect(
+      page.getByLabel("Sync status: Up to date", { exact: true }),
+    ).toBeVisible();
     expect(errors).toEqual([]);
     expect(apiResponses.length).toBeGreaterThan(3);
     expect(apiResponses.every((response) => response.status === 200)).toBe(
