@@ -91,6 +91,27 @@ describe("cache open", () => {
     db.close();
   });
 
+  test("adds health to v3 without discarding snapshots", () => {
+    const first = openCache();
+    first.db
+      .prepare(
+        "INSERT INTO instances VALUES ('x','X','https://api.github.com','user','key')",
+      )
+      .run();
+    first.db
+      .prepare("UPDATE meta SET value='3' WHERE key='schema_version'")
+      .run();
+    first.db.exec("DROP TABLE sync_health");
+    first.db.close();
+    const next = openCache();
+    expect(next.wiped).toBe(false);
+    expect(next.db.prepare("SELECT id FROM instances").all()).toEqual([
+      { id: "x" },
+    ]);
+    expect(next.db.prepare("SELECT * FROM sync_health").all()).toEqual([]);
+    next.db.close();
+  });
+
   test("wipeCacheFile removes the file", () => {
     const { db } = openCache();
     db.close();

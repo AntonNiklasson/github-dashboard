@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { resolveCachePath } from "./path.js";
-import { CACHE_SCHEMA_VERSION, SCHEMA_DDL } from "./schema.js";
+import { CACHE_SCHEMA_VERSION, SCHEMA_DDL, SYNC_HEALTH_DDL } from "./schema.js";
 
 export type Cache = Database.Database;
 
@@ -25,7 +25,15 @@ export function openCache(): OpenCacheResult {
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
     )
     .get();
-  const stored = hasMeta ? readSchemaVersion(db) : null;
+  let stored = hasMeta ? readSchemaVersion(db) : null;
+  // Health is additive: preserve v3 snapshots and mutation guards.
+  if (stored === 3 && CACHE_SCHEMA_VERSION === 4) {
+    db.transaction(() => {
+      db.exec(SYNC_HEALTH_DDL);
+      writeSchemaVersion(db, CACHE_SCHEMA_VERSION);
+    })();
+    stored = CACHE_SCHEMA_VERSION;
+  }
   if (
     (hasTables && stored !== CACHE_SCHEMA_VERSION) ||
     (stored !== null && stored !== CACHE_SCHEMA_VERSION)
