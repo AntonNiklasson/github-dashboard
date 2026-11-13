@@ -1,10 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { startScenario } from "./runtime.js";
+import { captureState } from "./artifacts.js";
 import { SCENARIO_TITLE } from "./github.js";
 
 test("renders conflict, review-request membership, approval and empty states", async ({
   page,
-}) => {
+}, testInfo) => {
   const scenario = await startScenario();
   try {
     for (const phase of [
@@ -42,13 +43,16 @@ test("renders conflict, review-request membership, approval and empty states", a
           .getByRole("listitem")
           .filter({ hasText: "Review the storage change" }),
       ).toHaveCount(phase === "review-requested" ? 1 : 0);
+      await captureState(page, testInfo, phase);
     }
   } finally {
     await scenario.close();
   }
 });
 
-test("keeps two instances separate when one fails", async ({ page }) => {
+test("keeps two instances separate when one fails", async ({
+  page,
+}, testInfo) => {
   const scenario = await startScenario({ instances: 2 });
   const errors: string[] = [];
   page.on("console", (message) => {
@@ -73,6 +77,7 @@ test("keeps two instances separate when one fails", async ({ page }) => {
         exact: true,
       }),
     ).toBeVisible();
+    await captureState(page, testInfo, "partial-outage");
     expect(errors).toEqual([]);
   } finally {
     await scenario.close();
@@ -81,7 +86,7 @@ test("keeps two instances separate when one fails", async ({ page }) => {
 
 test("shows a rate-limit pause and clears it after the budget resets", async ({
   page,
-}) => {
+}, testInfo) => {
   const scenario = await startScenario();
   try {
     await scenario.syncPrs();
@@ -96,6 +101,7 @@ test("shows a rate-limit pause and clears it after the budget resets", async ({
     await expect(paused).toBeVisible();
     await paused.click();
     await expect(page.getByText(/Retry after/).first()).toBeVisible();
+    await captureState(page, testInfo, "rate-limit-pause");
     scenario.setPhase("in-flight");
     await expect
       .poll(

@@ -19,7 +19,7 @@ jobs:
       - run: pnpm --filter harness exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: browser-feedback-loop
           path: |
