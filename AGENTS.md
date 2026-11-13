@@ -11,6 +11,8 @@ Close the loop before declaring done. Available tools:
 - `pnpm lint` — oxlint
 - `pnpm fmt:check` — oxfmt
 - `pnpm test:e2e` — browser scenario through the built web app, real API, sync engine, and temporary SQLite cache. Install Chromium once with `pnpm --filter harness exec playwright install chromium`. Failure traces, screenshots, and diagnostics go to `packages/harness/test-results/` and `playwright-report/`.
+- `pnpm test:desktop` — macOS packaged-app launch/restart/SQLite/shutdown check; restores the host native addon after packaging.
+- `pnpm check:boundaries` — enforce sync-only GitHub access (also part of lint).
 - `pnpm scenario` — interactive isolated board; enter `queued`, `queue-failed`, `offline`, or `in-flight` to drive upstream transitions. See `packages/harness/README.md`.
 - `pnpm dev:web` — runs server + web concurrently (long-running; start in background). For agent work prefer this over `pnpm dev`, which also spawns an Electron window. Stdout/stderr is tee'd to `.logs/server.log` and `.logs/web.log` — tail or read these to inspect output. Logs reset on each start; accumulate across hot reloads within a session.
 

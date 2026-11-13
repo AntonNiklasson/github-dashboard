@@ -10,6 +10,11 @@ const DEV_WEB_URL = "http://localhost:7200";
 // surfaces as "Electron" in the macOS app menu. Force it here so the dev menu
 // matches the packaged build (Info.plist sets it there).
 app.setName("GitHub Dashboard");
+// Keep automated runs (including Chromium session files) out of the real profile.
+if (process.env.GHD_USER_DATA_DIR) {
+  app.setPath("userData", process.env.GHD_USER_DATA_DIR);
+  app.setPath("sessionData", process.env.GHD_USER_DATA_DIR);
+}
 
 let mainWindow: BrowserWindow | null = null;
 let serverPort = 0;
@@ -217,7 +222,7 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(buildAppMenu());
   await createWindow();
 
-  if (app.isPackaged) {
+  if (app.isPackaged && process.env.GHD_DISABLE_UPDATES !== "1") {
     setupAutoUpdater();
   }
 });

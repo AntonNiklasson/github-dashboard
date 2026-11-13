@@ -25,3 +25,9 @@ Additional phases: `conflicts`, `needs-approval`, `changes-requested`, `empty`, 
 ## Visual review
 
 Every browser run captures named states (in-flight, queued, queue-failed, outage, recovered, conflicts, approval/review changes, empty lists, partial outage, and rate-limit pause). View PNG attachments in the HTML report, or download the `browser-feedback-loop` Actions artifact, uploaded on successful and failed runs. Screenshots use a pinned viewport, light theme, locale and timezone with animations disabled. These are review artifacts, not pixel-diff assertions; text/structure/state assertions determine correctness.
+
+## Packaged Electron smoke test
+
+On macOS, run `pnpm test:desktop`. It builds the app, creates an unsigned directory package without publishing, and launches that actual executable twice. The check verifies `app.isPackaged`, renderer data, the packaged SQLite addon, persistence across restart, isolated profile/config/cache paths, successful exit, and closure of each embedded HTTP server. It disables update downloads for this isolated run. The runner restores and probes the host Node SQLite ABI in `finally` because pnpm shares the addon with Electron packaging.
+
+Reports and screenshots are in `packages/harness/desktop-report/` and `desktop-test-results/`, also uploaded by Desktop CI. `GHD_PACKAGED_APP` can select an existing executable for direct Playwright runs; the default package path is macOS-specific. This does not test signing, installation, or updater delivery.

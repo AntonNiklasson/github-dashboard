@@ -19,7 +19,8 @@
     "dev:cli": "pnpm --filter cli dev",
     "scenario": "pnpm --filter web build && pnpm --filter harness scenario",
     "test:e2e": "pnpm --filter sync build && pnpm --filter web build && pnpm --filter harness test:e2e",
-    "check:boundaries": "node --test scripts/check-boundaries.test.mjs && node scripts/check-boundaries.mjs"
+    "check:boundaries": "node --test scripts/check-boundaries.test.mjs && node scripts/check-boundaries.mjs",
+    "test:desktop": "pnpm build && pnpm --filter desktop build && pnpm --filter harness test:desktop"
   },
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260420.1",
