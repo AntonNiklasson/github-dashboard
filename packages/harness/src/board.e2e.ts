@@ -25,7 +25,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     return route.continue();
   });
   try {
-    await scenario.syncPrs();
+    await scenario.syncAll();
     await page.goto(scenario.url);
     const card = page.getByRole("listitem").filter({ hasText: SCENARIO_TITLE });
     await expect(card).toHaveCount(1);
@@ -35,7 +35,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     ).toBeVisible();
 
     scenario.setPhase("queued");
-    await scenario.syncPrs();
+    await scenario.syncAll();
     expect(await scenario.persistedPrs()).toMatchObject([
       { number: 101, inMergeQueue: true, ciStatus: "pending" },
     ]);
@@ -48,7 +48,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     await expect(card).toHaveCount(1);
 
     scenario.setPhase("queue-failed");
-    await scenario.syncPrs();
+    await scenario.syncAll();
     expect(await scenario.persistedPrs()).toMatchObject([
       { number: 101, inMergeQueue: false, ciStatus: "failure" },
     ]);
@@ -59,7 +59,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     await expect(card).toHaveCount(1);
 
     scenario.setPhase("offline");
-    await expect(scenario.syncPrs()).rejects.toThrow("Scenario sync failed");
+    await expect(scenario.syncAll()).rejects.toThrow("Scenario sync failed");
     expect(await scenario.persistedPrs()).toMatchObject([
       { number: 101, ciStatus: "failure" },
     ]);
@@ -71,7 +71,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     ).toBeVisible();
 
     scenario.setPhase("in-flight");
-    await scenario.syncPrs();
+    await scenario.syncAll();
     await expect(card.getByText("passing", { exact: true })).toBeVisible();
     await expect(card).toHaveCount(1);
     expect(await scenario.persistedPrs()).toHaveLength(1);

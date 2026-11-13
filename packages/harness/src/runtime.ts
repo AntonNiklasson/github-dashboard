@@ -10,8 +10,9 @@ import { startGitHub, SCENARIO_TOKEN, type Phase } from "./github.js";
 const repo = resolve(import.meta.dirname, "../../..");
 
 /** Runs the real API + built renderer against an isolated upstream and cache. */
-export async function startScenario() {
+export async function startScenario(options: { instances?: number } = {}) {
   const root = mkdtempSync(join(tmpdir(), "ghd-scenario-"));
+  const upstreams: Awaited<ReturnType<typeof startGitHub>>[] = [];
   let github: Awaited<ReturnType<typeof startGitHub>> | undefined;
   let child: ChildProcess | undefined;
   let output = "";
@@ -28,18 +29,20 @@ export async function startScenario() {
         await exited;
         clearTimeout(force);
       }
-      await github?.close();
+      await Promise.all(upstreams.map((upstream) => upstream.close()));
       rmSync(root, { recursive: true, force: true });
     })());
   try {
-    github = await startGitHub();
+    for (let i = 0; i < (options.instances ?? 1); i++)
+      upstreams.push(await startGitHub());
+    github = upstreams[0];
     const instanceId = github.instance.id;
     const configHome = join(root, "config");
     const cacheHome = join(root, "cache");
     mkdirSync(join(configHome, "github-dashboard"), { recursive: true });
     writeFileSync(
       join(configHome, "github-dashboard/config.yml"),
-      `instances:\n  - domain: ${github.domain}\n    label: Scenario GitHub\n    token: ${SCENARIO_TOKEN}\n`,
+      `instances:\n${upstreams.map((upstream, i) => `  - domain: ${upstream.domain}\n    label: Scenario GitHub ${i + 1}\n    token: ${SCENARIO_TOKEN}\n`).join("")}`,
       { mode: 0o600 },
     );
     const port = await freePort();
@@ -97,14 +100,30 @@ export async function startScenario() {
     return {
       url,
       instanceId,
-      setPhase(phase: Phase) {
-        github!.setPhase(phase);
+      instanceIds: upstreams.map((upstream) => upstream.instance.id),
+      setPhase(phase: Phase, index = 0) {
+        upstreams[index].setPhase(phase);
       },
-      async syncPrs() {
-        const response = await fetch(`${url}/api/${instanceId}/prs?fresh=1`);
+      async syncPrs(index = 0) {
+        const response = await fetch(
+          `${url}/api/${upstreams[index].instance.id}/prs?fresh=1`,
+        );
         if (!response.ok)
           throw new Error(`Scenario sync failed (${response.status})`);
         return response.json();
+      },
+      async syncAll(index = 0) {
+        const results = await Promise.all(
+          ["prs", "reviews", "notifications"].map(async (kind) => {
+            const response = await fetch(
+              `${url}/api/${upstreams[index].instance.id}/${kind}?fresh=1`,
+            );
+            if (!response.ok)
+              throw new Error(`Scenario sync failed (${response.status})`);
+            return response.json();
+          }),
+        );
+        return results[0];
       },
       async persistedPrs() {
         // Open the actual database through the public engine API. Only its
@@ -124,7 +143,15 @@ export async function startScenario() {
           await reader.close();
         }
       },
-      diagnostics: () => ({ server: output, requests: [...github!.requests] }),
+      diagnostics: () => ({
+        server: output,
+        requests: upstreams.flatMap((upstream) =>
+          upstream.requests.map((request) => ({
+            instanceId: upstream.instance.id,
+            ...request,
+          })),
+        ),
+      }),
       close,
     };
   } catch (error) {
