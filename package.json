@@ -16,7 +16,8 @@
     "test": "pnpm --filter sync build && pnpm --filter cli build && pnpm -r test",
     "prepare": "husky",
     "cli": "node packages/cli/dist/index.js",
-    "dev:cli": "pnpm --filter cli dev"
+    "dev:cli": "pnpm --filter cli dev",
+    "scenario": "pnpm --filter web build && pnpm --filter harness scenario"
   },
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260420.1",
