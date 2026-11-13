@@ -61,3 +61,7 @@ TUI state lives in XDG dirs and is safe to delete:
 ### Desktop/web sync engine scope
 
 The desktop and web clients use `packages/sync` for all GitHub access, including authentication, list synchronization, comments and file diffs. Supported writes are approval, draft/ready toggling, auto-merge toggling and notification dismissal. Direct merge/close, title editing, CI reruns, posting conversation comments, closed-PR search, colleague browsing, and detailed commit/check lists are currently unavailable; use “Open in browser” for those operations. The local Hono HTTP API remains the renderer transport, but owns no GitHub client or live cache.
+
+### Repeatable feedback loop
+
+Run `pnpm scenario` to develop against a controllable local GitHub simulator, or `pnpm test:e2e` to check queue transitions in Chromium through the real sync engine and SQLite cache. Both use disposable configuration and fake credentials. See [the harness guide](packages/harness/README.md) for setup, controls, and failure artifacts.
