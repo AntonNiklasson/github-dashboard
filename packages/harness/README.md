@@ -21,3 +21,7 @@ Additional phases: `conflicts`, `needs-approval`, `changes-requested`, `empty`, 
 ## GitHub access boundary
 
 `pnpm check:boundaries` parses production TypeScript and checks client dependencies. GitHub/network clients and direct server/CLI requests must stay in `packages/sync`; renderer requests are centralized in `api.ts` and use relative `/api/` URLs. Consumers may import only the public `sync` entry point. Electron's loopback readiness probe and port allocation are explicit exceptions; its updater remains separate from dashboard data access. Tests and the simulator may implement an HTTP server. This is a regression guard, not a security sandbox. It runs as part of lint and CI.
+
+## Visual review
+
+Every browser run captures named states (in-flight, queued, queue-failed, outage, recovered, conflicts, approval/review changes, empty lists, partial outage, and rate-limit pause). View PNG attachments in the HTML report, or download the `browser-feedback-loop` Actions artifact, uploaded on successful and failed runs. Screenshots use a pinned viewport, light theme, locale and timezone with animations disabled. These are review artifacts, not pixel-diff assertions; text/structure/state assertions determine correctness.

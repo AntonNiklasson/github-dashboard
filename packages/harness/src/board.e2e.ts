@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { startScenario } from "./runtime.js";
+import { captureState } from "./artifacts.js";
 import { SCENARIO_TITLE } from "./github.js";
 
 test("polls queue entry, queue failure, and recovery through the real sync engine", async ({
@@ -34,6 +35,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
       card.getByRole("img", { name: "Ready for review", exact: true }),
     ).toBeVisible();
 
+    await captureState(page, testInfo, "in-flight");
     scenario.setPhase("queued");
     await scenario.syncAll();
     expect(await scenario.persistedPrs()).toMatchObject([
@@ -47,6 +49,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     await expect(card.getByText("pending", { exact: true })).toBeVisible();
     await expect(card).toHaveCount(1);
 
+    await captureState(page, testInfo, "queued");
     scenario.setPhase("queue-failed");
     await scenario.syncAll();
     expect(await scenario.persistedPrs()).toMatchObject([
@@ -58,6 +61,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     await expect(card.getByText("failing", { exact: true })).toBeVisible();
     await expect(card).toHaveCount(1);
 
+    await captureState(page, testInfo, "queue-failed");
     scenario.setPhase("offline");
     await expect(scenario.syncAll()).rejects.toThrow("Scenario sync failed");
     expect(await scenario.persistedPrs()).toMatchObject([
@@ -70,6 +74,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
       }),
     ).toBeVisible();
 
+    await captureState(page, testInfo, "upstream-outage");
     scenario.setPhase("in-flight");
     await scenario.syncAll();
     await expect(card.getByText("passing", { exact: true })).toBeVisible();
@@ -78,6 +83,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     await expect(
       page.getByLabel("Sync status: Up to date", { exact: true }),
     ).toBeVisible();
+    await captureState(page, testInfo, "recovered");
     expect(errors).toEqual([]);
     expect(apiResponses.length).toBeGreaterThan(3);
     expect(apiResponses.every((response) => response.status === 200)).toBe(

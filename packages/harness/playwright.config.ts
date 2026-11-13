@@ -10,6 +10,10 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     browserName: "chromium",
+    colorScheme: "light",
+    locale: "en-GB",
+    timezoneId: "UTC",
+    reducedMotion: "reduce",
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
