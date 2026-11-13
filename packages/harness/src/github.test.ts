@@ -86,3 +86,75 @@ it("rejects unexpected calls instead of pretending they succeeded", async () => 
     await github.close();
   }
 });
+
+it("distinguishes assignment from review requests and supports conflict, approval, empty, and budget states", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ghd-scenarios-"));
+  vi.stubEnv("XDG_CACHE_HOME", root);
+  const github = await startGitHub();
+  const engine = createSync({ loadInstances: () => [github.instance] });
+  try {
+    for (const [phase, expected] of [
+      ["conflicts", { mergeable: false }],
+      [
+        "needs-approval",
+        {
+          reviewDecision: "REVIEW_REQUIRED",
+          reviews: { approved: [], changesRequested: [] },
+        },
+      ],
+      [
+        "changes-requested",
+        {
+          reviewDecision: "CHANGES_REQUESTED",
+          reviews: { changesRequested: ["reviewer"] },
+        },
+      ],
+    ] as const) {
+      github.setPhase(phase);
+      await engine.sync();
+      expect(
+        engine.listPullRequests(github.instance.id, "prs")[0],
+      ).toMatchObject(expected);
+    }
+    github.setPhase("assigned");
+    await engine.sync();
+    // The existing product still uses review requests. Assignment-only PRs
+    // must not leak in until #84 changes that query explicitly.
+    expect(engine.listPullRequests(github.instance.id, "reviews")).toEqual([]);
+    const assigned = await fetch(`${github.domain}/api/graphql`, {
+      method: "POST",
+      headers: { authorization: `token ${github.instance.token}` },
+      body: JSON.stringify({
+        query: "fragment PrFields query",
+        variables: {
+          first: 100,
+          q: "assignee:scenario-user type:pr state:open",
+        },
+      }),
+    });
+    expect(
+      (await assigned.json()).data.search.nodes[0].assignees.nodes,
+    ).toEqual([{ login: "scenario-user" }]);
+    github.setPhase("review-requested");
+    await engine.sync();
+    expect(engine.listPullRequests(github.instance.id, "reviews")).toHaveLength(
+      1,
+    );
+    github.setPhase("unassigned");
+    await engine.sync();
+    expect(engine.listPullRequests(github.instance.id, "reviews")).toEqual([]);
+    github.setPhase("empty");
+    await engine.sync();
+    expect(engine.listPullRequests(github.instance.id, "prs")).toEqual([]);
+    github.setPhase("rate-limited");
+    await engine.sync();
+    await engine.sync();
+    expect(
+      engine.getHealth().find((health) => health.kind === "prs"),
+    ).toMatchObject({ status: "skipped", retryAt: expect.any(String) });
+  } finally {
+    await engine.close();
+    await github.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
