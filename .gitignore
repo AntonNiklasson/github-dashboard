@@ -11,3 +11,5 @@ pnpm-debug.log*
 packages/desktop/release/
 packages/harness/test-results/
 packages/harness/playwright-report/
+packages/harness/desktop-test-results/
+packages/harness/desktop-report/
