@@ -79,13 +79,3 @@ export interface Notification {
   instanceId?: string;
   instanceLabel?: string;
 }
-
-export interface SearchPR {
-  id: number;
-  number: number;
-  title: string;
-  url: string;
-  repo: string;
-  updatedAt: string;
-  state?: string;
-}

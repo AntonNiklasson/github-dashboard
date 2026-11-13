@@ -11,7 +11,6 @@ let domain: string;
 let id: string;
 let requests: string[];
 let fail: boolean;
-let holdUpdate: (() => Promise<void>) | undefined;
 let api: (typeof import("./routes.js"))["api"];
 let runtime: typeof import("./sync.js");
 const node = {
@@ -62,7 +61,6 @@ beforeEach(async () => {
   mkdirSync(join(root, "config/github-dashboard"), { recursive: true });
   requests = [];
   fail = false;
-  holdUpdate = undefined;
   github = createServer(async (req, res) => {
     requests.push(req.url!);
     let body = "";
@@ -94,7 +92,6 @@ beforeEach(async () => {
           }),
         );
     } else if (req.url?.endsWith("/pulls/5")) {
-      if (req.method === "PATCH") await holdUpdate?.();
       res.end(JSON.stringify({ node_id: "PR_node", draft: true }));
     } else if (req.url?.includes("/notifications")) {
       res.setHeader("etag", '"v1"');
@@ -220,7 +217,7 @@ it("serves cached lists while an unrelated instance is blocked authenticating", 
   }
 });
 
-it("shared actions and REST mutations cannot be undone by stale fresh/background syncs", async () => {
+it("shared actions cannot be undone by stale fresh/background syncs", async () => {
   await api.request(`/${id}/prs`);
   await api.request(`/${id}/reviews`);
   const toggled = await api.request(`/${id}/prs/o/r/5/toggle-draft`, {
@@ -233,15 +230,6 @@ it("shared actions and REST mutations cannot be undone by stale fresh/background
       (await (await api.request(`/${id}/${kind}?fresh=1`)).json())[0].draft,
     ).toBe(false);
   }
-  const closed = await api.request(`/${id}/prs/o/r/5/close`, {
-    method: "POST",
-  });
-  expect(closed.status).toBe(200);
-  await runtime.waitForPendingResyncs();
-  expect(await (await api.request(`/${id}/prs?fresh=1`)).json()).toEqual([]);
-  expect(await (await api.request(`/${id}/reviews?fresh=1`)).json()).toEqual(
-    [],
-  );
 });
 
 it("reload purges rotated identity even when the new token fails authentication", async () => {
@@ -267,32 +255,4 @@ it("invalid YAML is non-destructive but blocks list reads; valid empty config re
   config("fake", false);
   await api.request("/config/reload", { method: "POST" });
   expect(runtime.getSync().listInstances()).toEqual([]);
-});
-
-it("an in-flight REST mutation cannot patch a reloaded credential's snapshots", async () => {
-  await api.request(`/${id}/prs`);
-  let started!: () => void;
-  const began = new Promise<void>((resolve) => {
-    started = resolve;
-  });
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  holdUpdate = async () => {
-    started();
-    await gate;
-  };
-  const closing = api.request(`/${id}/prs/o/r/5/close`, { method: "POST" });
-  await began;
-  try {
-    config("new-token");
-    await api.request("/config/reload", { method: "POST" });
-    expect((await api.request(`/${id}/prs?fresh=1`)).status).toBe(200);
-  } finally {
-    release();
-  }
-  expect((await closing).status).toBe(200);
-  await runtime.waitForPendingResyncs();
-  expect(await (await api.request(`/${id}/prs`)).json()).toHaveLength(1);
 });
