@@ -26,6 +26,7 @@ export function loadCache() {
     if (existsSync(CACHE_FILE)) {
       const raw = JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
       for (const [key, entry] of Object.entries(raw)) {
+        if (!DEMO && /:(prs|reviews|notifications)$/.test(key)) continue;
         store.set(key, entry as CacheEntry);
       }
       console.log(`Cache loaded: ${store.size} entries`);
@@ -60,24 +61,15 @@ export function setCached(key: string, data: unknown) {
   persistCache();
 }
 
-export function patchCache<T>(key: string, fn: (data: T | null) => T): void {
-  setCached(key, fn(getCached<T>(key)));
-}
-
 export function cacheAge(key: string): number | null {
   const entry = store.get(key);
   if (!entry) return null;
   return Date.now() - new Date(entry.updatedAt).getTime();
 }
 
-// Pull the prefix from every `<id>:prs|reviews|notifications` key. Used by
-// /api/config/reload to find instances whose caches need clearing — including
-// ones that were removed from the new config payload.
-export function cachedInstanceIds(): string[] {
-  const ids = new Set<string>();
-  for (const key of store.keys()) {
-    const match = key.match(/^([^:]+):(prs|reviews|notifications)$/);
-    if (match) ids.add(match[1]);
-  }
-  return Array.from(ids);
+/** Ancillary REST caches only; persistent lists live in the shared engine. */
+export function clearCache() {
+  if (DEMO) return;
+  store.clear();
+  persistCache();
 }

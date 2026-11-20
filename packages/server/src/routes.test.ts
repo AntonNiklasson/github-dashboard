@@ -1,71 +1,75 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { cacheStore, configStub, fetchersStub, mockOctokit } = vi.hoisted(() => {
-  return {
-    cacheStore: new Map<string, unknown>(),
-    configStub: {
-      createConfigFromExample: vi.fn(),
-      exampleConfig: "port: 7100\n",
-      getConfigStatus: vi.fn(),
-      invalidateConfigStatus: vi.fn(),
-      openInDefaultApp: vi.fn(),
-      readConfig: vi.fn<() => Record<string, unknown> | null>(() => null),
-      resolveConfigPath: vi.fn(() => "/test/config.yml"),
-    },
-    fetchersStub: {
-      fetchPrs: vi.fn(),
-      fetchReviews: vi.fn(),
-      fetchNotifications: vi.fn(),
-      latestCheckRunsByName: <T extends { name: string }>(runs: T[]): T[] => {
-        const m = new Map<string, T>();
-        for (const r of runs) m.set(r.name, r);
-        return [...m.values()];
+const { cacheStore, configStub, fetchersStub, mockOctokit, syncStub } =
+  vi.hoisted(() => {
+    return {
+      cacheStore: new Map<string, unknown>(),
+      syncStub: {
+        listData: vi.fn(),
+        recordMutation: vi.fn(),
+        reloadSyncConfiguration: vi.fn().mockResolvedValue(undefined),
+        scheduleResync: vi.fn(),
+        waitForPendingResyncs: vi.fn(),
+        markNotificationDone: vi.fn(),
+        approvePullRequest: vi.fn(),
+        togglePullRequestAutoMerge: vi.fn(),
+        togglePullRequestDraft: vi.fn(),
       },
-    },
-    mockOctokit: {
-      users: { getAuthenticated: vi.fn() },
-      activity: { markThreadAsDone: vi.fn() },
-      pulls: {
-        createReview: vi.fn(),
-        get: vi.fn(),
-        update: vi.fn(),
-        merge: vi.fn(),
-        listFiles: vi.fn(),
-        listCommits: vi.fn(),
-        listReviewComments: vi.fn(),
+      configStub: {
+        createConfigFromExample: vi.fn(),
+        exampleConfig: "port: 7100\n",
+        getConfigStatus: vi.fn(),
+        invalidateConfigStatus: vi.fn(),
+        openInDefaultApp: vi.fn(),
+        readConfig: vi.fn<() => Record<string, unknown> | null>(() => null),
+        resolveConfigPath: vi.fn(() => "/test/config.yml"),
       },
-      issues: { listComments: vi.fn(), createComment: vi.fn() },
-      checks: { listForRef: vi.fn() },
-      repos: { getCombinedStatusForRef: vi.fn() },
-      actions: {
-        listWorkflowRunsForRepo: vi.fn(),
-        reRunWorkflow: vi.fn(),
-        reRunWorkflowFailedJobs: vi.fn(),
+      fetchersStub: {
+        clearRepoSettings: vi.fn(),
+        fetchPrs: vi.fn(),
+        fetchReviews: vi.fn(),
+        fetchNotifications: vi.fn(),
+        latestCheckRunsByName: <T extends { name: string }>(runs: T[]): T[] => {
+          const m = new Map<string, T>();
+          for (const r of runs) m.set(r.name, r);
+          return [...m.values()];
+        },
       },
-      search: { issuesAndPullRequests: vi.fn() },
-      graphql: vi.fn(),
-    },
-  };
-});
+      mockOctokit: {
+        users: { getAuthenticated: vi.fn() },
+        activity: { markThreadAsDone: vi.fn() },
+        pulls: {
+          createReview: vi.fn(),
+          get: vi.fn(),
+          update: vi.fn(),
+          merge: vi.fn(),
+          listFiles: vi.fn(),
+          listCommits: vi.fn(),
+          listReviewComments: vi.fn(),
+        },
+        issues: { listComments: vi.fn(), createComment: vi.fn() },
+        checks: { listForRef: vi.fn() },
+        repos: { getCombinedStatusForRef: vi.fn() },
+        actions: {
+          listWorkflowRunsForRepo: vi.fn(),
+          reRunWorkflow: vi.fn(),
+          reRunWorkflowFailedJobs: vi.fn(),
+        },
+        search: { issuesAndPullRequests: vi.fn() },
+        graphql: vi.fn(),
+      },
+    };
+  });
 
 vi.mock("./cache.js", () => ({
+  clearCache: () => cacheStore.clear(),
   getCached: (key: string) => cacheStore.get(key) ?? null,
   setCached: (key: string, data: unknown) => {
     cacheStore.set(key, data);
   },
-  patchCache: <T>(key: string, fn: (data: T | null) => T) => {
-    cacheStore.set(key, fn((cacheStore.get(key) ?? null) as T | null));
-  },
-  cachedInstanceIds: () => {
-    const ids = new Set<string>();
-    for (const key of cacheStore.keys()) {
-      const m = key.match(/^([^:]+):(prs|reviews|notifications)$/);
-      if (m) ids.add(m[1]);
-    }
-    return Array.from(ids);
-  },
 }));
 
+vi.mock("./sync.js", () => ({ ...syncStub, getSync: () => syncStub }));
 vi.mock("./config.js", () => configStub);
 vi.mock("./fetchers.js", () => fetchersStub);
 
@@ -207,178 +211,77 @@ describe("POST /config/create", () => {
 });
 
 describe("POST /config/reload", () => {
-  it("invalidates cached status, clears data caches when ready, and returns the new status", async () => {
-    configStub.getConfigStatus.mockResolvedValue({
-      kind: "ready",
-      instances: [
-        {
-          id: "github",
-          label: "gh",
-          baseUrl: "https://api.github.com",
-          token: "SECRET",
-          username: "alice",
-        },
-      ],
-    });
-    cacheStore.set("github:prs", [{ id: 1 }]);
-    cacheStore.set("github:reviews", [{ id: 2 }]);
-    cacheStore.set("github:notifications", [{ id: 3 }]);
-    const res = await call("/config/reload", { method: "POST" });
-    expect(res.status).toBe(200);
-    expect(configStub.invalidateConfigStatus).toHaveBeenCalled();
-    expect(cacheStore.get("github:prs")).toBeNull();
-    expect(cacheStore.get("github:reviews")).toBeNull();
-    expect(cacheStore.get("github:notifications")).toBeNull();
-    const body = await res.json();
-    expect(body.status).toEqual({
-      kind: "ready",
-      instances: [{ id: "github", label: "gh", username: "alice" }],
-    });
-    expect(JSON.stringify(body)).not.toContain("SECRET");
-  });
-
-  it("clears caches for instances no longer in the new payload", async () => {
-    configStub.getConfigStatus.mockResolvedValue({
-      kind: "ready",
-      instances: [
-        {
-          id: "github",
-          label: "gh",
-          baseUrl: "https://api.github.com",
-          token: "T",
-          username: "alice",
-        },
-      ],
-    });
-    cacheStore.set("ghe:prs", [{ id: 9 }]);
-    cacheStore.set("ghe:reviews", [{ id: 10 }]);
-    cacheStore.set("ghe:notifications", [{ id: 11 }]);
-    await call("/config/reload", { method: "POST" });
-    expect(cacheStore.get("ghe:prs")).toBeNull();
-    expect(cacheStore.get("ghe:reviews")).toBeNull();
-    expect(cacheStore.get("ghe:notifications")).toBeNull();
-  });
-
-  it("leaves caches alone when reloading into an error state", async () => {
+  it("invalidates diagnostics, ancillary caches and reconciles even when auth fails", async () => {
     configStub.getConfigStatus.mockResolvedValue({
       kind: "error",
-      errors: [{ kind: "missing_tokens" }],
+      errors: [{ kind: "auth", domain: "github.com", message: "Rejected" }],
     });
-    cacheStore.set("github:prs", [{ id: 1 }]);
+    cacheStore.set("github:repo-settings:o/r", { autoMergeAllowed: true });
     const res = await call("/config/reload", { method: "POST" });
     expect(res.status).toBe(200);
-    expect(cacheStore.get("github:prs")).toEqual([{ id: 1 }]);
-    const body = await res.json();
-    expect(body.status.errors[0].kind).toBe("missing_tokens");
+    expect(configStub.invalidateConfigStatus).toHaveBeenCalledOnce();
+    expect(fetchersStub.clearRepoSettings).toHaveBeenCalledOnce();
+    expect(cacheStore.size).toBe(0);
+    expect(syncStub.reloadSyncConfiguration).toHaveBeenCalledOnce();
   });
 });
 
-describe("caching behavior on GET /:instanceId/prs", () => {
-  it("returns cached data without calling the fetcher", async () => {
-    cacheStore.set("github:prs", [{ cached: true }]);
-    const res = await call("/github/prs");
-    const body = await res.json();
-    expect(body).toEqual([{ cached: true }]);
-    expect(fetchersStub.fetchPrs).not.toHaveBeenCalled();
+for (const kind of ["prs", "reviews", "notifications"]) {
+  it(`GET /:instanceId/${kind} uses shared list data and forwards fresh`, async () => {
+    const rich = [
+      {
+        id: "PR_node",
+        body: "body",
+        labels: ["bug"],
+        autoMergeAllowed: true,
+        commentCount: 3,
+      },
+    ];
+    syncStub.listData.mockResolvedValue(rich);
+    const res = await call(`/github/${kind}?fresh=1`);
+    expect(await res.json()).toEqual(rich);
+    expect(syncStub.listData).toHaveBeenCalledWith("github", kind, true);
   });
+}
 
-  it("calls fetcher and caches the result when cache is empty", async () => {
-    fetchersStub.fetchPrs.mockResolvedValue([{ fresh: true }]);
-    const res = await call("/github/prs");
-    const body = await res.json();
-    expect(body).toEqual([{ fresh: true }]);
-    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
-    expect(cacheStore.get("github:prs")).toEqual([{ fresh: true }]);
+it("DELETE notification uses shared action then schedules a refresh", async () => {
+  const res = await call("/github/notifications/42", { method: "DELETE" });
+  expect(res.status).toBe(200);
+  expect(syncStub.markNotificationDone).toHaveBeenCalledWith({
+    instanceId: "github",
+    id: "42",
   });
-
-  it("?fresh=1 bypasses cache even when populated", async () => {
-    cacheStore.set("github:prs", [{ stale: true }]);
-    fetchersStub.fetchPrs.mockResolvedValue([{ fresh: true }]);
-    const res = await call("/github/prs?fresh=1");
-    const body = await res.json();
-    expect(body).toEqual([{ fresh: true }]);
-    expect(fetchersStub.fetchPrs).toHaveBeenCalledOnce();
-  });
+  expect(syncStub.scheduleResync).toHaveBeenCalledWith("github", [
+    "notifications",
+  ]);
 });
 
-describe("DELETE /:instanceId/notifications/:threadId", () => {
-  it("calls markThreadAsDone, optimistically updates cache, and resyncs", async () => {
-    cacheStore.set("github:notifications", [{ id: "42" }, { id: "99" }]);
-    fetchersStub.fetchNotifications.mockResolvedValue([{ id: "99" }]);
-    mockOctokit.activity.markThreadAsDone.mockResolvedValue({});
-    const res = await call("/github/notifications/42", { method: "DELETE" });
-    expect(res.status).toBe(200);
-    expect(mockOctokit.activity.markThreadAsDone).toHaveBeenCalledWith({
-      thread_id: 42,
-    });
-    await waitForPendingResyncs();
-    expect(fetchersStub.fetchNotifications).toHaveBeenCalledWith("github");
-    expect(cacheStore.get("github:notifications")).toEqual([{ id: "99" }]);
+it("approval uses shared action and refreshes both lists", async () => {
+  const res = await call("/github/prs/o/r/5/approve", { method: "POST" });
+  expect(res.status).toBe(200);
+  expect(syncStub.approvePullRequest).toHaveBeenCalledWith({
+    instanceId: "github",
+    repo: "o/r",
+    number: 5,
   });
+  expect(syncStub.scheduleResync).toHaveBeenCalledWith("github", [
+    "prs",
+    "reviews",
+  ]);
 });
 
-describe("POST /:instanceId/prs/:owner/:repo/:prNumber/approve", () => {
-  it("creates an APPROVE review and resyncs prs + reviews", async () => {
-    cacheStore.set("github:prs", [{ id: 1 }]);
-    cacheStore.set("github:reviews", [{ id: 2 }]);
-    fetchersStub.fetchPrs.mockResolvedValue([{ id: 1, approved: true }]);
-    fetchersStub.fetchReviews.mockResolvedValue([]);
-    mockOctokit.pulls.createReview.mockResolvedValue({});
-    const res = await call("/github/prs/o/r/5/approve", { method: "POST" });
-    expect(res.status).toBe(200);
-    expect(mockOctokit.pulls.createReview).toHaveBeenCalledWith({
-      owner: "o",
-      repo: "r",
-      pull_number: 5,
-      event: "APPROVE",
-    });
-    await waitForPendingResyncs();
-    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
-    expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
-    expect(cacheStore.get("github:prs")).toEqual([{ id: 1, approved: true }]);
-    expect(cacheStore.get("github:reviews")).toEqual([]);
+it("auto-merge preserves action result and the GUI's 422 error contract", async () => {
+  syncStub.togglePullRequestAutoMerge.mockResolvedValueOnce({
+    autoMerge: true,
   });
-});
-
-describe("POST /:instanceId/prs/:owner/:repo/:prNumber/auto-merge", () => {
-  it("enables auto-merge when currently off and returns new state", async () => {
-    mockOctokit.pulls.get.mockResolvedValue({
-      data: { auto_merge: null, node_id: "PR_123" },
-    });
-    mockOctokit.graphql.mockResolvedValue({});
-    const res = await call("/github/prs/o/r/5/auto-merge", { method: "POST" });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, autoMerge: true });
-    expect(mockOctokit.graphql).toHaveBeenCalledWith(
-      expect.stringContaining("enablePullRequestAutoMerge"),
-      { id: "PR_123" },
-    );
-  });
-
-  it("disables auto-merge when currently on", async () => {
-    mockOctokit.pulls.get.mockResolvedValue({
-      data: { auto_merge: { enabled_at: "x" }, node_id: "PR_123" },
-    });
-    mockOctokit.graphql.mockResolvedValue({});
-    const res = await call("/github/prs/o/r/5/auto-merge", { method: "POST" });
-    expect(await res.json()).toEqual({ ok: true, autoMerge: false });
-    expect(mockOctokit.graphql).toHaveBeenCalledWith(
-      expect.stringContaining("disablePullRequestAutoMerge"),
-      { id: "PR_123" },
-    );
-  });
-
-  it("returns 422 with auto_merge_not_allowed when repo disallows it", async () => {
-    mockOctokit.pulls.get.mockResolvedValue({
-      data: { auto_merge: null, node_id: "PR_123" },
-    });
-    mockOctokit.graphql.mockRejectedValue(
-      new Error("Auto merge is not allowed for this repository"),
-    );
-    const res = await call("/github/prs/o/r/5/auto-merge", { method: "POST" });
-    expect(res.status).toBe(422);
-    expect(await res.json()).toEqual({ error: "auto_merge_not_allowed" });
-  });
+  const res = await call("/github/prs/o/r/5/auto-merge", { method: "POST" });
+  expect(await res.json()).toEqual({ ok: true, autoMerge: true });
+  syncStub.togglePullRequestAutoMerge.mockRejectedValueOnce(
+    new Error("auto-merge is not allowed for this repository"),
+  );
+  const failed = await call("/github/prs/o/r/5/auto-merge", { method: "POST" });
+  expect(failed.status).toBe(422);
+  expect(await failed.json()).toEqual({ error: "auto_merge_not_allowed" });
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
@@ -395,8 +298,22 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
       merge_method: "squash",
     });
     await waitForPendingResyncs();
-    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
-    expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
+    expect(syncStub.scheduleResync).toHaveBeenCalledWith("github", [
+      "prs",
+      "reviews",
+    ]);
+    expect(syncStub.recordMutation).toHaveBeenCalledWith(
+      "github",
+      {
+        kind: "removed",
+        repo: "o/r",
+        number: 5,
+      },
+      expect.objectContaining({
+        token: "t",
+        baseUrl: "https://api.github.com",
+      }),
+    );
   });
 
   it("forwards GitHub's full error message (joining non-empty lines) when merge is rejected", async () => {
@@ -418,39 +335,6 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/merge", () => {
         "Repository rule violations found — A conversation must be resolved before this pull request can be merged.",
     });
   });
-
-  it("removes the merged PR from cached prs/reviews even when GitHub still reports it as open", async () => {
-    cacheStore.set("github:prs", [
-      { id: 1, repo: "o/r", number: 5, title: "x" },
-      { id: 2, repo: "o/r", number: 9, title: "other" },
-    ]);
-    cacheStore.set("github:reviews", [
-      { id: 11, repo: "o/r", number: 5, title: "x" },
-      { id: 12, repo: "o/r", number: 7, title: "other" },
-    ]);
-    mockOctokit.pulls.merge.mockResolvedValue({});
-
-    // Simulate GitHub eventual consistency: search index still returns the PR.
-    fetchersStub.fetchPrs.mockResolvedValue([
-      { id: 1, repo: "o/r", number: 5, title: "x" },
-      { id: 2, repo: "o/r", number: 9, title: "other" },
-    ]);
-    fetchersStub.fetchReviews.mockResolvedValue([
-      { id: 11, repo: "o/r", number: 5, title: "x" },
-      { id: 12, repo: "o/r", number: 7, title: "other" },
-    ]);
-
-    const res = await call("/github/prs/o/r/5/merge", { method: "POST" });
-    expect(res.status).toBe(200);
-    await waitForPendingResyncs();
-
-    const prs = cacheStore.get("github:prs") as Array<{ number: number }>;
-    const reviews = cacheStore.get("github:reviews") as Array<{
-      number: number;
-    }>;
-    expect(prs.map((p) => p.number)).toEqual([9]);
-    expect(reviews.map((r) => r.number)).toEqual([7]);
-  });
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
@@ -469,38 +353,22 @@ describe("POST /:instanceId/prs/:owner/:repo/:prNumber/close", () => {
       state: "closed",
     });
     await waitForPendingResyncs();
-    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
-    expect(fetchersStub.fetchReviews).toHaveBeenCalledWith("github");
-  });
-
-  it("removes the closed PR from cached prs/reviews even when GitHub still reports it as open", async () => {
-    cacheStore.set("github:prs", [
-      { id: 1, repo: "o/r", number: 5, title: "x" },
-      { id: 2, repo: "o/r", number: 9, title: "other" },
+    expect(syncStub.scheduleResync).toHaveBeenCalledWith("github", [
+      "prs",
+      "reviews",
     ]);
-    cacheStore.set("github:reviews", [
-      { id: 11, repo: "o/r", number: 5, title: "x" },
-    ]);
-    mockOctokit.pulls.update.mockResolvedValue({});
-
-    fetchersStub.fetchPrs.mockResolvedValue([
-      { id: 1, repo: "o/r", number: 5, title: "x" },
-      { id: 2, repo: "o/r", number: 9, title: "other" },
-    ]);
-    fetchersStub.fetchReviews.mockResolvedValue([
-      { id: 11, repo: "o/r", number: 5, title: "x" },
-    ]);
-
-    const res = await call("/github/prs/o/r/5/close", { method: "POST" });
-    expect(res.status).toBe(200);
-    await waitForPendingResyncs();
-
-    const prs = cacheStore.get("github:prs") as Array<{ number: number }>;
-    const reviews = cacheStore.get("github:reviews") as Array<{
-      number: number;
-    }>;
-    expect(prs.map((p) => p.number)).toEqual([9]);
-    expect(reviews.map((r) => r.number)).toEqual([]);
+    expect(syncStub.recordMutation).toHaveBeenCalledWith(
+      "github",
+      {
+        kind: "removed",
+        repo: "o/r",
+        number: 5,
+      },
+      expect.objectContaining({
+        token: "t",
+        baseUrl: "https://api.github.com",
+      }),
+    );
   });
 });
 
@@ -536,73 +404,39 @@ describe("PATCH /:instanceId/prs/:owner/:repo/:prNumber", () => {
       title: "new title",
     });
     await waitForPendingResyncs();
-    expect(fetchersStub.fetchPrs).toHaveBeenCalledWith("github");
-    expect(cacheStore.get("github:prs")).toEqual([
-      { id: 1, title: "new title" },
+    expect(syncStub.scheduleResync).toHaveBeenCalledWith("github", [
+      "prs",
+      "reviews",
     ]);
+    expect(syncStub.recordMutation).toHaveBeenCalledWith(
+      "github",
+      {
+        kind: "patch",
+        repo: "o/r",
+        number: 5,
+        patch: { title: "new title" },
+      },
+      expect.objectContaining({
+        token: "t",
+        baseUrl: "https://api.github.com",
+      }),
+    );
   });
 });
 
-describe("POST /:instanceId/prs/:owner/:repo/:prNumber/toggle-draft", () => {
-  it("marks a draft PR as ready for review", async () => {
-    mockOctokit.pulls.get.mockResolvedValue({
-      data: { draft: true, node_id: "PR_1" },
-    });
-    mockOctokit.graphql.mockResolvedValue({});
-    const res = await call("/github/prs/o/r/5/toggle-draft", {
-      method: "POST",
-    });
-    expect(await res.json()).toEqual({ ok: true, draft: false });
-    expect(mockOctokit.graphql).toHaveBeenCalledWith(
-      expect.stringContaining("markPullRequestReadyForReview"),
-      { id: "PR_1" },
-    );
+it("draft toggle returns shared action result and refreshes both lists", async () => {
+  syncStub.togglePullRequestDraft.mockResolvedValueOnce({ draft: false });
+  const res = await call("/github/prs/o/r/5/toggle-draft", { method: "POST" });
+  expect(await res.json()).toEqual({ ok: true, draft: false });
+  expect(syncStub.togglePullRequestDraft).toHaveBeenCalledWith({
+    instanceId: "github",
+    repo: "o/r",
+    number: 5,
   });
-
-  it("converts a ready PR to draft", async () => {
-    mockOctokit.pulls.get.mockResolvedValue({
-      data: { draft: false, node_id: "PR_1" },
-    });
-    mockOctokit.graphql.mockResolvedValue({});
-    const res = await call("/github/prs/o/r/5/toggle-draft", {
-      method: "POST",
-    });
-    expect(await res.json()).toEqual({ ok: true, draft: true });
-    expect(mockOctokit.graphql).toHaveBeenCalledWith(
-      expect.stringContaining("convertPullRequestToDraft"),
-      { id: "PR_1" },
-    );
-  });
-
-  it("flips draft on the cached PR even when GitHub still reports the old draft state", async () => {
-    cacheStore.set("github:prs", [
-      { id: 1, repo: "o/r", number: 5, title: "x", draft: true },
-      { id: 2, repo: "o/r", number: 9, title: "other", draft: false },
-    ]);
-    mockOctokit.pulls.get.mockResolvedValue({
-      data: { draft: true, node_id: "PR_1" },
-    });
-    mockOctokit.graphql.mockResolvedValue({});
-
-    // GitHub eventual consistency: still says draft=true.
-    fetchersStub.fetchPrs.mockResolvedValue([
-      { id: 1, repo: "o/r", number: 5, title: "x", draft: true },
-      { id: 2, repo: "o/r", number: 9, title: "other", draft: false },
-    ]);
-
-    const res = await call("/github/prs/o/r/5/toggle-draft", {
-      method: "POST",
-    });
-    expect(res.status).toBe(200);
-    await waitForPendingResyncs();
-
-    const prs = cacheStore.get("github:prs") as Array<{
-      number: number;
-      draft: boolean;
-    }>;
-    expect(prs.find((p) => p.number === 5)?.draft).toBe(false);
-    expect(prs.find((p) => p.number === 9)?.draft).toBe(false);
-  });
+  expect(syncStub.scheduleResync).toHaveBeenCalledWith("github", [
+    "prs",
+    "reviews",
+  ]);
 });
 
 describe("POST /:instanceId/prs/:owner/:repo/:prNumber/rerun-ci", () => {

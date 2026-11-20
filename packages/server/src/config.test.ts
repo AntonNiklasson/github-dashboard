@@ -468,3 +468,57 @@ describe("invalidateConfigStatus", () => {
     expect(again.kind).toBe("ready");
   });
 });
+
+describe("shared sync configuration", () => {
+  it("loads raw credentials without authentication, and accepts valid empty configuration", async () => {
+    const { loadSyncInstances, resolveConfigPath } = await freshConfig();
+    const fs = await fsMock();
+    fs.__store.set(
+      resolveConfigPath(),
+      "instances:\n  - domain: https://ghe.example.com/api/v3\n    token: rejected-token\n    label: Work\n",
+    );
+    expect(loadSyncInstances()).toEqual([
+      {
+        id: "ghe-example-com",
+        label: "Work",
+        token: "rejected-token",
+        baseUrl: "https://ghe.example.com/api/v3",
+      },
+    ]);
+    fs.__store.set(resolveConfigPath(), "instances: []\n");
+    expect(loadSyncInstances()).toEqual([]);
+    fs.__store.set(resolveConfigPath(), "instances: [");
+    expect(() => loadSyncInstances()).toThrow(
+      "Invalid or missing configuration",
+    );
+  });
+
+  it("a pre-reload auth probe cannot overwrite the reloaded status", async () => {
+    const { getConfigStatus, invalidateConfigStatus, resolveConfigPath } =
+      await freshConfig();
+    const fs = await fsMock();
+    fs.__store.set(
+      resolveConfigPath(),
+      "instances:\n  - domain: github.com\n    token: old-token\n",
+    );
+    let release!: (value: { data: { login: string } }) => void;
+    class DelayedOctokit {
+      users = {
+        getAuthenticated: () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      };
+    }
+    await withOctokit(DelayedOctokit, async () => {
+      const old = getConfigStatus();
+      invalidateConfigStatus();
+      fs.__store.set(resolveConfigPath(), "instances: []\n");
+      const reloaded = await getConfigStatus();
+      expect(reloaded.kind).toBe("error");
+      release({ data: { login: "old-user" } });
+      expect((await old).kind).toBe("ready");
+      expect(await getConfigStatus()).toEqual(reloaded);
+    });
+  });
+});

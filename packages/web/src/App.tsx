@@ -666,7 +666,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const [actionMenu, setActionMenu] = useState<FocusedItem | null>(null);
   const [copyMenu, setCopyMenu] = useState<CopyTarget | null>(null);
   const [panelItem, setPanelItem] = useState<FocusedItem | null>(null);
-  const [togglingDraftId, setTogglingDraftId] = useState<number | null>(null);
+  const [togglingDraftId, setTogglingDraftId] = useState<PR["id"] | null>(null);
   const [editingPrNumber, setEditingPrNumber] = useState<number | null>(null);
   const [commentingPr, setCommentingPr] = useState<CommentingPr | null>(null);
   const [commentLoading, setCommentLoading] = useState(false);

@@ -16,3 +16,5 @@ export {
   type PullRequestDiff,
   type ReviewLineRange,
 } from "./providers/github/reviewDiff.js";
+
+export type { CacheMutation, PullRequestPatch } from "./cache/store.js";

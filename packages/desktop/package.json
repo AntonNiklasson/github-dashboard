@@ -13,7 +13,8 @@
     "package:dir": "electron-builder --dir"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "better-sqlite3": "^12.4.1"
   },
   "devDependencies": {
     "server": "workspace:*",
@@ -30,10 +31,6 @@
       "package.json"
     ],
     "extraResources": [
-      {
-        "from": "dist/server.mjs",
-        "to": "server.mjs"
-      },
       {
         "from": "../web/dist",
         "to": "web"
@@ -67,6 +64,10 @@
           ]
         }
       ]
-    }
+    },
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "beforeBuild": "scripts/prepare-native.cjs"
   }
 }

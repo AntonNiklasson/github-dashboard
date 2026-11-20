@@ -5,7 +5,7 @@ export interface Instance {
 }
 
 export interface PR {
-  id: number;
+  id: number | string;
   number: number;
   title: string;
   body: string;
@@ -38,7 +38,7 @@ export interface PR {
 }
 
 export interface ReviewRequest {
-  id: number;
+  id: number | string;
   number: number;
   title: string;
   body: string;
@@ -49,7 +49,7 @@ export interface ReviewRequest {
   author: string;
   authorAvatar: string;
   draft: boolean;
-  merged: boolean;
+  merged?: boolean;
   ciStatus: string;
   inMergeQueue: boolean;
   autoMerge: boolean;
@@ -70,7 +70,7 @@ export interface ReviewRequest {
 export interface Notification {
   id: string;
   title: string;
-  type: string;
+  type: string | null;
   reason: string;
   repo: string;
   updatedAt: string;

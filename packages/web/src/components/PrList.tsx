@@ -8,7 +8,7 @@ interface Props {
   prs: PR[];
   focusIndex: number;
   isFocusedSection: boolean;
-  togglingDraftId?: number;
+  togglingDraftId?: PR["id"];
   editingPrNumber?: number;
   onSaveTitle?: (prNumber: number, title: string) => void;
 }

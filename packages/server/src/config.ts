@@ -354,10 +354,12 @@ async function resolveStatus(): Promise<ConfigStatus> {
     : { kind: "ready", instances };
 }
 
+let configGeneration = 0;
 let cachedStatus: ConfigStatus | null = null;
 let inFlight: Promise<ConfigStatus> | null = null;
 
 export function invalidateConfigStatus(): void {
+  configGeneration++;
   cachedStatus = null;
   inFlight = null;
 }
@@ -365,12 +367,27 @@ export function invalidateConfigStatus(): void {
 export async function getConfigStatus(): Promise<ConfigStatus> {
   if (cachedStatus) return cachedStatus;
   if (inFlight) return inFlight;
+  const generation = configGeneration;
   inFlight = resolveStatus().then((status) => {
-    cachedStatus = status;
-    inFlight = null;
+    if (generation === configGeneration) {
+      cachedStatus = status;
+      inFlight = null;
+    }
     return status;
   });
   return inFlight;
+}
+
+/** Raw valid configuration for engine reconciliation, independent of auth. */
+export function loadSyncInstances(): Omit<GitHubInstance, "username">[] {
+  const config = readConfig();
+  if (!config) throw new Error("Invalid or missing configuration");
+  return (config.instances ?? []).map((entry) => ({
+    id: instanceIdFromDomain(entry.domain),
+    label: entry.label || entry.domain,
+    baseUrl: domainToApiBase(entry.domain),
+    token: entry.token,
+  }));
 }
 
 export async function getInstances(): Promise<GitHubInstance[]> {

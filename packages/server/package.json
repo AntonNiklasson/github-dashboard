@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --conditions=development src/index.ts",
     "build": "tsgo",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run"
@@ -13,7 +13,8 @@
     "@octokit/rest": "^22.0.1",
     "hono": "^4.7.6",
     "yaml": "^2.8.3",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "sync": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
