@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gauge } from "lucide-react";
+import { Gauge, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, type SyncBudget } from "../api";
 import type { Instance } from "../types";
@@ -91,20 +91,29 @@ export function SyncHealth({ instances }: { instances: Instance[] }) {
                       <div className="flex items-center justify-between gap-3">
                         <span className="flex items-center gap-1.5">
                           <span
-                            className={`size-1.5 rounded-full ${STATUS_DOT[entry.status]}`}
+                            className={`size-1.5 rounded-full ${STATUS_DOT[entry.status]} ${entry.status === "syncing" ? "animate-pulse" : ""}`}
                             aria-hidden
                           />
                           {KIND_LABEL[entry.kind]}
                         </span>
-                        <span className="text-muted-foreground tabular-nums">
-                          {entry.lastSuccessAt
-                            ? relativeTime(Date.parse(entry.lastSuccessAt), now)
-                            : "never synced"}
+                        <span className="flex items-center gap-1 text-muted-foreground tabular-nums">
+                          {entry.status === "syncing" ? (
+                            <>
+                              <Loader2
+                                className="size-3 animate-spin"
+                                aria-hidden
+                              />
+                              syncing
+                            </>
+                          ) : entry.lastSuccessAt ? (
+                            relativeTime(Date.parse(entry.lastSuccessAt), now)
+                          ) : (
+                            "never synced"
+                          )}
                         </span>
                       </div>
                       {(entry.status === "failed" ||
-                        entry.status === "skipped" ||
-                        entry.status === "syncing") && (
+                        entry.status === "skipped") && (
                         <p className="mt-0.5 pl-3 text-muted-foreground">
                           {STATUS_LABEL[entry.status]}
                           {entry.reason && <> · {entry.reason}</>}
