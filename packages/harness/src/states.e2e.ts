@@ -20,6 +20,7 @@ test("renders conflict, review-request membership, approval and empty states", a
       await fetch(`${scenario.url}/api/${scenario.instanceId}/reviews?fresh=1`);
       await scenario.syncPrs();
       await page.goto(scenario.url);
+      await page.getByRole("tab", { name: /My Work/ }).click();
       if (phase === "empty") {
         await expect(
           page.getByText("No open PRs", { exact: true }),
@@ -38,6 +39,7 @@ test("renders conflict, review-request membership, approval and empty states", a
             card.getByText("Changes requested", { exact: true }),
           ).toBeVisible();
       }
+      await page.getByRole("tab", { name: /Reviews/ }).click();
       await expect(
         page
           .getByRole("listitem")
