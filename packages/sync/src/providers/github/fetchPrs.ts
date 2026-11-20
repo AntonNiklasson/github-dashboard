@@ -14,6 +14,7 @@ export async function fetchAuthoredPrs(instance: GitHubInstance) {
     data: nodes.map(normalizePr),
     metadata: {
       remaining: data.rateLimit.remaining,
+      limit: data.rateLimit.limit,
       resetAt: data.rateLimit.resetAt,
     },
   };

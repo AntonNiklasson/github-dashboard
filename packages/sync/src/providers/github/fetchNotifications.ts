@@ -114,8 +114,10 @@ export async function fetchNotifications(
 function headersMetadata(headers: Record<string, string>): Metadata {
   const remaining = headers["x-ratelimit-remaining"];
   const reset = headers["x-ratelimit-reset"];
+  const limit = headers["x-ratelimit-limit"];
   return {
     remaining: remaining === undefined ? null : Number(remaining),
+    limit: limit === undefined ? null : Number(limit),
     resetAt:
       reset === undefined ? null : new Date(Number(reset) * 1000).toISOString(),
   };

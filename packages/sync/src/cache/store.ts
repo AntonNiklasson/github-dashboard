@@ -38,7 +38,16 @@ export interface SyncHealth {
 export interface Metadata {
   etag?: string | null;
   remaining?: number | null;
+  limit?: number | null;
   resetAt?: string | null;
+}
+
+export interface Budget {
+  instanceId: string;
+  resource: string;
+  remaining: number;
+  limit: number | null;
+  resetAt: string | null;
 }
 export function createStore(db: Cache) {
   const listInstances = db.prepare(
@@ -70,12 +79,23 @@ export function createStore(db: Cache) {
     "SELECT * FROM budgets WHERE instance_id = ? AND resource = ?",
   );
   const saveBudget =
-    db.prepare(`INSERT INTO budgets VALUES (?,?,?,?) ON CONFLICT(instance_id,resource)
-    DO UPDATE SET remaining=excluded.remaining,reset_at=excluded.reset_at`);
+    db.prepare(`INSERT INTO budgets (instance_id,resource,remaining,reset_at,limit_total)
+    VALUES (?,?,?,?,?) ON CONFLICT(instance_id,resource)
+    DO UPDATE SET remaining=excluded.remaining,reset_at=excluded.reset_at,
+    limit_total=COALESCE(excluded.limit_total,budgets.limit_total)`);
+  const listBudgets = db.prepare(
+    "SELECT * FROM budgets ORDER BY instance_id, resource",
+  );
 
   function writeBudget(id: string, resource: string, metadata: Metadata) {
     if (metadata.remaining === undefined || metadata.remaining === null) return;
-    saveBudget.run(id, resource, metadata.remaining, metadata.resetAt ?? null);
+    saveBudget.run(
+      id,
+      resource,
+      metadata.remaining,
+      metadata.resetAt ?? null,
+      metadata.limit ?? null,
+    );
   }
   function recordBudget(
     id: string,
@@ -357,6 +377,22 @@ export function createStore(db: Cache) {
         | { remaining: number | null; reset_at: string | null }
         | undefined,
     recordBudget,
+    listBudgets: (): Budget[] =>
+      (
+        listBudgets.all() as Array<{
+          instance_id: string;
+          resource: string;
+          remaining: number;
+          reset_at: string | null;
+          limit_total: number | null;
+        }>
+      ).map((row) => ({
+        instanceId: row.instance_id,
+        resource: row.resource,
+        remaining: row.remaining,
+        limit: row.limit_total,
+        resetAt: row.reset_at,
+      })),
     save(
       id: string,
       kind: Kind,

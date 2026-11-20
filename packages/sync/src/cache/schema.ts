@@ -1,4 +1,4 @@
-export const CACHE_SCHEMA_VERSION = 4;
+export const CACHE_SCHEMA_VERSION = 5;
 export const SYNC_HEALTH_DDL = `
 CREATE TABLE IF NOT EXISTS sync_health (
  instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS mutation_guards (
 );
 CREATE TABLE IF NOT EXISTS budgets (
  instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
- resource TEXT NOT NULL, remaining INTEGER, reset_at TEXT,
+ resource TEXT NOT NULL, remaining INTEGER, reset_at TEXT, limit_total INTEGER,
  PRIMARY KEY(instance_id,resource)
 );
 `;
