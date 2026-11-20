@@ -37,6 +37,7 @@ import {
 } from "./sort";
 import {
   type Section,
+  activeSectionAtom,
   useAllAuthoredPrs,
   useAllNotifications,
   useAllReviewRequests,
@@ -214,9 +215,10 @@ export function App() {
             IS_ELECTRON && "pl-20",
           )}
         >
+          {!showWelcome && <SectionTabs />}
           <div
             role="tablist"
-            className="inline-flex items-center gap-0.5 rounded-md bg-[oklch(0.94_0_0)] p-0.5 dark:bg-[oklch(0.22_0_0)] [-webkit-app-region:no-drag]"
+            className="ml-auto inline-flex items-center gap-0.5 rounded-md bg-[oklch(0.94_0_0)] p-0.5 dark:bg-[oklch(0.22_0_0)] [-webkit-app-region:no-drag]"
           >
             {tabs.map((tab) => {
               const active = activeTab === tab.id;
@@ -248,7 +250,7 @@ export function App() {
               );
             })}
           </div>
-          <div className="ml-auto flex items-center gap-4 [-webkit-app-region:no-drag]">
+          <div className="flex items-center gap-4 [-webkit-app-region:no-drag]">
             {!showWelcome && <SyncHealth instances={visibleInstances} />}
             {updateAvailable && (
               <Button
@@ -838,100 +840,106 @@ function Dashboard({ source }: { source: DashboardSource }) {
   }, [queryClient]);
 
   return (
-    <div className="grid h-full grid-cols-[2fr_2fr_1fr] overflow-hidden">
-      <Column
-        section="prs"
-        label="My work"
-        count={sortedPrs.length}
-        isActive={nav.activeSection === "prs"}
-        isFetching={prs.isFetching}
-        onActivate={() => {
-          nav.setActiveSection("prs");
-          nav.setFocusIndex(0);
-        }}
-        right={
-          <SortControl
-            fields={PR_SORT_FIELDS}
-            value={prSort}
-            onChange={setPrSort}
-          />
-        }
-      >
-        {prs.isLoading ? (
-          <Skeleton />
-        ) : prs.error ? (
-          <ErrorMessage message={prs.error.message} />
-        ) : (
-          <PrList
-            prs={sortedPrs}
-            focusIndex={nav.focusIndex}
-            isFocusedSection={nav.activeSection === "prs"}
-            togglingDraftId={togglingDraftId ?? undefined}
-          />
-        )}
-      </Column>
+    <div className="flex h-full flex-col overflow-hidden">
+      {nav.activeSection === "prs" && (
+        <Column
+          section="prs"
+          label="My work"
+          count={sortedPrs.length}
+          isActive={nav.activeSection === "prs"}
+          isFetching={prs.isFetching}
+          onActivate={() => {
+            nav.setActiveSection("prs");
+            nav.setFocusIndex(0);
+          }}
+          right={
+            <SortControl
+              fields={PR_SORT_FIELDS}
+              value={prSort}
+              onChange={setPrSort}
+            />
+          }
+        >
+          {prs.isLoading ? (
+            <Skeleton />
+          ) : prs.error ? (
+            <ErrorMessage message={prs.error.message} />
+          ) : (
+            <PrList
+              prs={sortedPrs}
+              focusIndex={nav.focusIndex}
+              isFocusedSection={nav.activeSection === "prs"}
+              togglingDraftId={togglingDraftId ?? undefined}
+            />
+          )}
+        </Column>
+      )}
 
-      <Column
-        section="reviews"
-        label="Reviews"
-        count={itemCounts.reviews}
-        isActive={nav.activeSection === "reviews"}
-        isFetching={reviews.isFetching}
-        onActivate={() => {
-          nav.setActiveSection("reviews");
-          nav.setFocusIndex(0);
-        }}
-        right={
-          <SortControl
-            fields={REVIEW_SORT_FIELDS}
-            value={reviewSort}
-            onChange={setReviewSort}
-          />
-        }
-      >
-        {reviews.isLoading ? (
-          <Skeleton />
-        ) : reviews.error ? (
-          <ErrorMessage message={reviews.error.message} />
-        ) : (
-          <ReviewList
-            reviews={filteredReviews}
-            focusIndex={nav.focusIndex}
-            isFocusedSection={nav.activeSection === "reviews"}
-          />
-        )}
-      </Column>
+      {nav.activeSection === "reviews" && (
+        <Column
+          section="reviews"
+          label="Reviews"
+          count={itemCounts.reviews}
+          isActive={nav.activeSection === "reviews"}
+          isFetching={reviews.isFetching}
+          onActivate={() => {
+            nav.setActiveSection("reviews");
+            nav.setFocusIndex(0);
+          }}
+          right={
+            <SortControl
+              fields={REVIEW_SORT_FIELDS}
+              value={reviewSort}
+              onChange={setReviewSort}
+            />
+          }
+        >
+          {reviews.isLoading ? (
+            <Skeleton />
+          ) : reviews.error ? (
+            <ErrorMessage message={reviews.error.message} />
+          ) : (
+            <ReviewList
+              reviews={filteredReviews}
+              focusIndex={nav.focusIndex}
+              isFocusedSection={nav.activeSection === "reviews"}
+            />
+          )}
+        </Column>
+      )}
 
-      <Column
-        section="notifications"
-        label="Notifications"
-        count={itemCounts.notifications}
-        isActive={nav.activeSection === "notifications"}
-        isFetching={notifications.isFetching}
-        onActivate={() => {
-          nav.setActiveSection("notifications");
-          nav.setFocusIndex(0);
-        }}
-        right={
-          <SortControl
-            fields={NOTIFICATION_SORT_FIELDS}
-            value={notificationSort}
-            onChange={setNotificationSort}
-          />
-        }
-      >
-        {notifications.isLoading ? (
-          <Skeleton />
-        ) : notifications.error ? (
-          <ErrorMessage message={notifications.error.message} />
-        ) : (
-          <NotificationList
-            notifications={sortedNotifications}
-            focusIndex={nav.focusIndex}
-            isFocusedSection={nav.activeSection === "notifications"}
-          />
-        )}
-      </Column>
+      {nav.activeSection === "notifications" && (
+        <Column
+          section="notifications"
+          label="Notifications"
+          count={itemCounts.notifications}
+          isActive={nav.activeSection === "notifications"}
+          isFetching={notifications.isFetching}
+          onActivate={() => {
+            nav.setActiveSection("notifications");
+            nav.setFocusIndex(0);
+          }}
+          right={
+            <SortControl
+              fields={NOTIFICATION_SORT_FIELDS}
+              value={notificationSort}
+              onChange={setNotificationSort}
+            />
+          }
+        >
+          {notifications.isLoading ? (
+            <Skeleton />
+          ) : notifications.error ? (
+            <ErrorMessage message={notifications.error.message} />
+          ) : (
+            <NotificationList
+              notifications={sortedNotifications}
+              focusIndex={nav.focusIndex}
+              isFocusedSection={nav.activeSection === "notifications"}
+            />
+          )}
+        </Column>
+      )}
 
       {actionMenu && (
         <ActionMenu
@@ -1072,7 +1080,7 @@ function Column({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden border-r last:border-r-0">
+    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden">
       <div className="shrink-0 px-4 pt-4 pb-2">
         <SectionHeader
           section={section}
@@ -1087,6 +1095,42 @@ function Column({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-4 scroll-pt-2 scroll-pb-2">
         {children}
       </div>
+    </div>
+  );
+}
+
+const SECTION_TABS: { id: Section; label: string }[] = [
+  { id: "prs", label: "My Work" },
+  { id: "reviews", label: "Reviews" },
+  { id: "notifications", label: "Notifications" },
+];
+
+function SectionTabs() {
+  const [active, setActive] = useAtom(activeSectionAtom);
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Sections"
+      className="inline-flex items-center gap-0.5 [-webkit-app-region:no-drag]"
+    >
+      {SECTION_TABS.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={active === tab.id}
+          onClick={() => setActive(tab.id)}
+          className={cn(
+            "inline-flex h-7 items-center rounded-md px-3 text-sm font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            active === tab.id
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
     </div>
   );
 }
