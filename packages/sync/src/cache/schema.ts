@@ -1,7 +1,14 @@
-export const CACHE_SCHEMA_VERSION = 3;
+export const CACHE_SCHEMA_VERSION = 4;
+export const SYNC_HEALTH_DDL = `
+CREATE TABLE IF NOT EXISTS sync_health (
+ instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL, attempted_at TEXT NOT NULL, status TEXT NOT NULL,
+ reason TEXT, retry_at TEXT, PRIMARY KEY(instance_id,kind)
+);`;
 export const SCHEMA_DDL = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
+${SYNC_HEALTH_DDL}
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS instances (
  id TEXT PRIMARY KEY, label TEXT NOT NULL, base_url TEXT NOT NULL,

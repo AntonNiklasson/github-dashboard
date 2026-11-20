@@ -19,6 +19,7 @@ import { NotificationList } from "./components/NotificationList";
 import { PrList } from "./components/PrList";
 import { ReviewList } from "./components/ReviewList";
 import { SectionHeader } from "./components/SectionHeader";
+import { SyncHealth } from "./components/SyncHealth";
 import { Welcome } from "./components/Welcome";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { Skeleton } from "./components/Skeleton";
@@ -275,6 +276,15 @@ export function App() {
             </a>
           </div>
         </div>
+        {!showWelcome && (
+          <SyncHealth
+            instances={
+              activeTab === "all"
+                ? instances
+                : instances.filter((instance) => instance.id === activeTab)
+            }
+          />
+        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-hidden">
