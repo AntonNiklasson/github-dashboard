@@ -28,7 +28,8 @@ const sections: { title: string; shortcuts: [string, string][] }[] = [
   {
     title: "Actions",
     shortcuts: [
-      ["Enter / Space", "Open detail panel"],
+      ["Space", "Expand row"],
+      ["Enter", "Open detail panel"],
       [".", "Action menu"],
       ["y", "Copy menu"],
       ["d", "Toggle draft"],

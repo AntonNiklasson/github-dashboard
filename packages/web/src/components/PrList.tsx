@@ -8,6 +8,7 @@ interface Props {
   prs: PR[];
   focusIndex: number;
   isFocusedSection: boolean;
+  expandedUrl?: string | null;
   togglingDraftId?: PR["id"];
 }
 
@@ -16,6 +17,7 @@ export function PrList({
   focusIndex,
   isFocusedSection,
   togglingDraftId,
+  expandedUrl,
 }: Props) {
   if (prs.length === 0) {
     return (
@@ -26,7 +28,7 @@ export function PrList({
   }
 
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-1.5">
       {prs.map((pr, i) => {
         const focused = isFocusedSection && focusIndex === i;
         return (
@@ -55,6 +57,7 @@ export function PrList({
               conflict={pr.mergeable === false}
               unresolvedThreadCount={pr.unresolvedThreadCount}
               focused={focused}
+              expanded={expandedUrl === pr.url}
               instanceId={pr.instanceId}
               instanceLabel={pr.instanceLabel}
             />

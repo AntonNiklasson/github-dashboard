@@ -1,4 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { atom, useAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { Instance, Notification, PR, ReviewRequest } from "./types";
@@ -167,11 +169,18 @@ export function useAllNotifications(instances: Instance[]) {
 
 export type Section = "prs" | "reviews" | "notifications";
 
+export const sectionCountsAtom = atom<Partial<Record<Section, number>>>({});
+
+export const activeSectionAtom = atomWithStorage<Section>(
+  "activeSection",
+  "prs",
+);
+
 export function useKeyboardNav(
   sections: Section[],
   itemCounts: Record<Section, number>,
 ) {
-  const [activeSection, setActiveSection] = useState<Section>(sections[0]);
+  const [activeSection, setActiveSection] = useAtom(activeSectionAtom);
   const [focusIndex, setFocusIndex] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
 
