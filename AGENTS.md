@@ -10,9 +10,11 @@ Close the loop before declaring done. Available tools:
 - `pnpm test` — vitest in both packages
 - `pnpm lint` — oxlint
 - `pnpm fmt:check` — oxfmt
+- `pnpm test:e2e` — browser scenario through the built web app, real API, sync engine, and temporary SQLite cache. Install Chromium once with `pnpm --filter harness exec playwright install chromium`. Failure traces, screenshots, and diagnostics go to `packages/harness/test-results/` and `playwright-report/`.
+- `pnpm scenario` — interactive isolated board; enter `queued`, `queue-failed`, `offline`, or `in-flight` to drive upstream transitions. See `packages/harness/README.md`.
 - `pnpm dev:web` — runs server + web concurrently (long-running; start in background). For agent work prefer this over `pnpm dev`, which also spawns an Electron window. Stdout/stderr is tee'd to `.logs/server.log` and `.logs/web.log` — tail or read these to inspect output. Logs reset on each start; accumulate across hot reloads within a session.
 
-For UI/UX changes, type-checks aren't enough — drive the app via the **Playwright MCP** (`.mcp.json`):
+For UI/UX changes, type-checks aren't enough — run `pnpm test:e2e` for repeatable scenarios. For interactive exploration, drive the app via the **Playwright MCP** (`.mcp.json`):
 
 - `browser_navigate` to `http://localhost:7200`
 - `browser_snapshot` for the accessibility tree (preferred over screenshots for assertions)
@@ -30,3 +32,7 @@ A config file with valid tokens already exists at `~/.config/github-dashboard/co
 Things `oxfmt`/`oxlint` won't catch but we still care about:
 
 - **Blank lines around React hook calls.** Separate `useEffect`, `useMemo`, `useCallback`, etc. from surrounding code and from each other with a blank line above and below. Multi-statement hook bodies are easier to scan when they aren't visually fused to neighboring lines.
+
+## Review size
+
+Prefer small, focused commits and stacked PRs over large implementations. Keep verification infrastructure and product behavior changes in separate layers, each independently verifiable.

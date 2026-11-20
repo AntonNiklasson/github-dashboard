@@ -9,3 +9,5 @@ pnpm-debug.log*
 .claude/settings.local.json
 .playwright-mcp/
 packages/desktop/release/
+packages/harness/test-results/
+packages/harness/playwright-report/
