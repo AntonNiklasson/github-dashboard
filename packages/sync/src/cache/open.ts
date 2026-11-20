@@ -26,11 +26,18 @@ export function openCache(): OpenCacheResult {
     )
     .get();
   let stored = hasMeta ? readSchemaVersion(db) : null;
-  // Health is additive: preserve v3 snapshots and mutation guards.
-  if (stored === 3 && CACHE_SCHEMA_VERSION === 4) {
-    db.transaction(() => {
-      db.exec(SYNC_HEALTH_DDL);
-      writeSchemaVersion(db, CACHE_SCHEMA_VERSION);
+  // v4 (health) and v5 (budget limit) are additive: preserve v3+
+  // snapshots and mutation guards.
+  if (stored === 3 || stored === 4) {
+    const current = db;
+    current.transaction(() => {
+      current.exec(SYNC_HEALTH_DDL);
+      const columns = current
+        .prepare("SELECT name FROM pragma_table_info('budgets')")
+        .all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "limit_total"))
+        current.exec("ALTER TABLE budgets ADD COLUMN limit_total INTEGER");
+      writeSchemaVersion(current, CACHE_SCHEMA_VERSION);
     })();
     stored = CACHE_SCHEMA_VERSION;
   }

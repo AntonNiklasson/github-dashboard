@@ -43,7 +43,31 @@ export interface SyncHealthEntry {
   retryAt: string | null;
 }
 
+export interface SyncBudget {
+  instanceId: string;
+  resource: string;
+  remaining: number;
+  limit: number | null;
+  resetAt: string | null;
+}
+
+export interface SyncSettings {
+  intervalMs: number;
+  presets: number[];
+}
+
 export const api = {
+  syncSettings: () => fetchJson<SyncSettings>("/api/sync/settings"),
+  setSyncInterval: async (intervalMs: number): Promise<SyncSettings> => {
+    const res = await fetch("/api/sync/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intervalMs }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+  syncBudgets: () => fetchJson<SyncBudget[]>("/api/sync/budgets"),
   syncHealth: () => fetchJson<SyncHealthEntry[]>("/api/sync/health"),
   getConfig: () => fetchJson<ConfigResponse>("/api/config"),
   createConfig: async () => {

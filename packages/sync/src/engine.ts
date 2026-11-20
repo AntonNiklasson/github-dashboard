@@ -318,6 +318,7 @@ export function createSync(options: SyncOptions = {}) {
       return reconcileConfiguration().then(() => {});
     },
     getSyncState: store.state,
+    getBudgets: store.listBudgets,
     getHealth: (): SyncHealth[] =>
       store
         .listInstances()
@@ -381,6 +382,9 @@ function errorMetadata(err: unknown): Metadata | null {
   if (!headers?.["x-ratelimit-remaining"]) return null;
   return {
     remaining: Number(headers["x-ratelimit-remaining"]),
+    limit: headers["x-ratelimit-limit"]
+      ? Number(headers["x-ratelimit-limit"])
+      : null,
     resetAt: headers["x-ratelimit-reset"]
       ? new Date(Number(headers["x-ratelimit-reset"]) * 1000).toISOString()
       : null,

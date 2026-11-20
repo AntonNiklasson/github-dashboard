@@ -82,6 +82,7 @@ export const SEARCH_PRS = /* GraphQL */ `
     }
     rateLimit {
       cost
+      limit
       remaining
       resetAt
     }
@@ -90,6 +91,7 @@ export const SEARCH_PRS = /* GraphQL */ `
 
 export interface RateLimitInfo {
   cost: number;
+  limit: number;
   remaining: number;
   resetAt: string;
 }
@@ -160,6 +162,7 @@ export const SEARCH_REVIEWS = /* GraphQL */ `
     }
     rateLimit {
       cost
+      limit
       remaining
       resetAt
     }

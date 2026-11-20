@@ -91,9 +91,7 @@ test("packaged Electron loads SQLite, persists across restart, and closes its em
       await expect(
         page.getByRole("img", { name: "In merge queue", exact: true }),
       ).toBeVisible();
-      await expect(
-        page.getByLabel("Sync status: Up to date", { exact: true }),
-      ).toBeVisible();
+      await expect(page.getByLabel(/^Sync status: Synced /)).toBeVisible();
       expect(await persisted(application, cacheFile)).toMatchObject([
         { number: 101, inMergeQueue: true },
       ]);

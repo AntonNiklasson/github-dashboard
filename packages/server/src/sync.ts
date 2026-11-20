@@ -1,8 +1,9 @@
 import { createSync, type SyncKind } from "sync";
 import { getCached } from "./cache.js";
 import { loadSyncInstances } from "./config.js";
+import { readSettings, writeSettings } from "./settings.js";
 
-const SYNC_INTERVAL = 30_000;
+let syncInterval: number | undefined;
 export type ResyncKey = SyncKind;
 const ALL_KEYS: ResyncKey[] = ["prs", "reviews", "notifications"];
 let runtime: ReturnType<typeof createSync> | undefined;
@@ -37,7 +38,7 @@ export async function listData(
         (!state?.last_run_at && f.status === "skipped"),
     );
     if (failure) throw new Error(failure.reason ?? "Sync failed");
-  } else if (Date.now() - Date.parse(state.last_run_at) >= SYNC_INTERVAL) {
+  } else if (Date.now() - Date.parse(state.last_run_at) >= getSyncInterval()) {
     scheduleResync(instanceId, [kind]);
   }
   return kind === "notifications"
@@ -90,15 +91,30 @@ async function syncAll() {
   }
 }
 
+export function getSyncInterval(): number {
+  return (syncInterval ??= readSettings().syncIntervalMs);
+}
+
+export function setSyncInterval(ms: number) {
+  syncInterval = ms;
+  writeSettings({ ...readSettings(), syncIntervalMs: ms });
+  // Restart the timer so the new cadence applies now, not after one old tick.
+  if (interval) {
+    stopSyncPolling();
+    startSync();
+  }
+}
+
+function tick() {
+  if (pending.has("all")) return;
+  const work = syncAll().finally(() => pending.delete("all"));
+  pending.set("all", work);
+}
+
 export function startSync() {
   if (stopped || interval || process.env.DEMO === "1") return;
-  const tick = () => {
-    if (pending.has("all")) return;
-    const work = syncAll().finally(() => pending.delete("all"));
-    pending.set("all", work);
-  };
   tick();
-  interval = setInterval(tick, SYNC_INTERVAL);
+  interval = setInterval(tick, getSyncInterval());
   interval.unref();
 }
 
