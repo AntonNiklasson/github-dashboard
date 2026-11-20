@@ -63,15 +63,35 @@ export function createStore(db: Cache) {
     db.prepare(`INSERT INTO budgets VALUES (?,?,?,?) ON CONFLICT(instance_id,resource)
     DO UPDATE SET remaining=excluded.remaining,reset_at=excluded.reset_at`);
 
-  function recordBudget(id: string, resource: string, metadata: Metadata) {
-    if (metadata.remaining !== undefined && metadata.remaining !== null) {
-      saveBudget.run(
-        id,
-        resource,
-        metadata.remaining,
-        metadata.resetAt ?? null,
-      );
-    }
+  function writeBudget(id: string, resource: string, metadata: Metadata) {
+    if (metadata.remaining === undefined || metadata.remaining === null) return;
+    saveBudget.run(id, resource, metadata.remaining, metadata.resetAt ?? null);
+  }
+  function recordBudget(
+    id: string,
+    resource: string,
+    metadata: Metadata,
+    identity?: { credentialKey: string; username: string },
+  ) {
+    if (metadata.remaining === undefined || metadata.remaining === null) return;
+    db.transaction(() => {
+      // A rate-limit error can arrive after another runtime rotated or
+      // removed this identity. Never publish the old credential's budget:
+      // it would throttle the replacement token, and a removed identity
+      // would violate the foreign key and abort the cycle.
+      if (identity) {
+        const current = oldInstance.get(id) as
+          | { credential_key: string; username: string }
+          | undefined;
+        if (
+          !current ||
+          current.credential_key !== identity.credentialKey ||
+          current.username !== identity.username
+        )
+          return;
+      }
+      writeBudget(id, resource, metadata);
+    })();
   }
   // Guards live beside snapshots so another process/in-flight fetch cannot
   // resurrect stale search-index data after a successful write.
@@ -334,7 +354,7 @@ export function createStore(db: Cache) {
           hasNotificationGuard.get(id, Date.now())
         )
           clearNotificationEtag.run(id);
-        recordBudget(
+        writeBudget(
           id,
           kind === "notifications" ? "rest" : "graphql",
           metadata,

@@ -121,6 +121,9 @@ export function createSync(options: SyncOptions = {}) {
         continue;
       }
       const target = { ...instance, username };
+      // Fetches can race a config reload. Budget errors and saved data must
+      // carry the credentials that produced them.
+      const identity = { credentialKey: credentialKey(instance), username };
       for (const kind of kinds) {
         const resource = kind === "notifications" ? "rest" : "graphql";
         const budget = store.budget(instance.id, resource);
@@ -175,7 +178,8 @@ export function createSync(options: SyncOptions = {}) {
           });
         } catch (err) {
           const metadata = errorMetadata(err);
-          if (metadata) store.recordBudget(instance.id, resource, metadata);
+          if (metadata)
+            store.recordBudget(instance.id, resource, metadata, identity);
           fetches.push({
             kind,
             status: "failed",
@@ -197,14 +201,23 @@ export function createSync(options: SyncOptions = {}) {
   function sync(request: SyncRequest = {}): Promise<SyncResult> {
     return enqueue(() => cycle(request));
   }
+  function configuredInstance(instanceId: string): Promise<GitHubInstance>;
+  function configuredInstance(
+    instanceId: string,
+    options: { optional: true },
+  ): Promise<GitHubInstance | undefined>;
   async function configuredInstance(
     instanceId: string,
-  ): Promise<GitHubInstance> {
+    { optional = false }: { optional?: boolean } = {},
+  ): Promise<GitHubInstance | undefined> {
     const configured = await reconcileConfiguration();
     const instance = configured.find(
       (candidate) => candidate.id === instanceId,
     );
-    if (!instance) throw new Error(`unknown instance: ${instanceId}`);
+    if (!instance) {
+      if (optional) return undefined;
+      throw new Error(`unknown instance: ${instanceId}`);
+    }
     return instance;
   }
   function getPullRequestDiff(request: {
@@ -288,7 +301,18 @@ export function createSync(options: SyncOptions = {}) {
       expectedIdentity?: Pick<GitHubInstance, "baseUrl" | "token">,
     ) =>
       enqueue(async () => {
-        const instance = await configuredInstance(instanceId);
+        const instance = await configuredInstance(instanceId, {
+          optional: true,
+        });
+        // REST routes record the cache patch after GitHub already accepted
+        // the write. The captured identity can be removed or rotated during
+        // that window; the patch belongs to an identity that no longer
+        // matches, so drop it instead of failing an already-successful
+        // action.
+        if (!instance) {
+          if (expectedIdentity) return;
+          throw new Error(`unknown instance: ${instanceId}`);
+        }
         const key = credentialKey(instance);
         // Detailed REST actions may finish after a config reload. Their cache
         // patches belong only to the identity that performed the remote write.
