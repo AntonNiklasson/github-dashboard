@@ -545,6 +545,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
   const [actionMenu, setActionMenu] = useState<FocusedItem | null>(null);
   const [copyMenu, setCopyMenu] = useState<CopyTarget | null>(null);
   const [panelItem, setPanelItem] = useState<FocusedItem | null>(null);
+  const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
   const [togglingDraftId, setTogglingDraftId] = useState<PR["id"] | null>(null);
   const actionMenuTimerRef = useRef<number | null>(null);
 
@@ -698,7 +699,14 @@ function Dashboard({ source }: { source: DashboardSource }) {
         if (item?.url) window.open(item.url, "_blank");
         e.preventDefault();
       } else if (
-        (e.key === "Enter" || e.key === " ") &&
+        e.key === " " &&
+        (activeSection === "prs" || activeSection === "reviews")
+      ) {
+        if (item?.url)
+          setExpandedUrl((cur) => (cur === item.url ? null : item.url));
+        e.preventDefault();
+      } else if (
+        e.key === "Enter" &&
         (activeSection === "prs" || activeSection === "reviews")
       ) {
         if (item) openPanel(item);
@@ -867,6 +875,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
               focusIndex={nav.focusIndex}
               isFocusedSection={nav.activeSection === "prs"}
               togglingDraftId={togglingDraftId ?? undefined}
+              expandedUrl={expandedUrl}
             />
           )}
         </Column>
@@ -891,6 +900,7 @@ function Dashboard({ source }: { source: DashboardSource }) {
               reviews={filteredReviews}
               focusIndex={nav.focusIndex}
               isFocusedSection={nav.activeSection === "reviews"}
+              expandedUrl={expandedUrl}
             />
           )}
         </Column>

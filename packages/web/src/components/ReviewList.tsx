@@ -8,9 +8,15 @@ interface Props {
   reviews: ReviewRequest[];
   focusIndex: number;
   isFocusedSection: boolean;
+  expandedUrl?: string | null;
 }
 
-export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
+export function ReviewList({
+  reviews,
+  focusIndex,
+  isFocusedSection,
+  expandedUrl,
+}: Props) {
   if (reviews.length === 0) {
     return (
       <p className="py-4 text-center text-muted-foreground">
@@ -20,7 +26,7 @@ export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
   }
 
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-1.5">
       {reviews.map((pr, i) => {
         const focused = isFocusedSection && focusIndex === i;
         return (
@@ -30,6 +36,7 @@ export function ReviewList({ reviews, focusIndex, isFocusedSection }: Props) {
               mergeStatus={toMergeStatus(pr)}
               conflict={pr.mergeable === false}
               focused={focused}
+              expanded={expandedUrl === pr.url}
             />
           </FocusLi>
         );
