@@ -198,11 +198,6 @@ export function PrCard({
           )}
           {!merged && (
             <div className="mt-1.5 flex flex-wrap items-center gap-4 text-muted-foreground">
-              {conflict && (
-                <Pill icon={TriangleAlert} tone="red">
-                  conflict
-                </Pill>
-              )}
               <span className="flex items-center gap-0.5 font-mono">
                 <Text size="small" className="text-green-600">
                   +{additions}
@@ -240,6 +235,11 @@ export function PrCard({
             return (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {ci && <StatusBadge status={ci} />}
+                {!merged && conflict && (
+                  <Pill icon={TriangleAlert} tone="red">
+                    conflict
+                  </Pill>
+                )}
                 {!merged && autoMerge && (
                   <Pill icon={Rocket} tone="green">
                     auto-merge
