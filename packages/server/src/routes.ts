@@ -8,9 +8,12 @@ import {
   readConfig,
   resolveConfigPath,
 } from "./config.js";
+import { isSyncIntervalPreset, SYNC_INTERVAL_PRESETS } from "./settings.js";
 import {
   getSync,
+  getSyncInterval,
   listData,
+  setSyncInterval,
   reloadSyncConfiguration,
   scheduleResync,
 } from "./sync.js";
@@ -73,6 +76,30 @@ api.get("/sync/health", async (c) => {
   const engine = getSync();
   await engine.reconcileConfiguration();
   return c.json(engine.getHealth());
+});
+
+api.get("/sync/settings", (c) =>
+  c.json({ intervalMs: getSyncInterval(), presets: SYNC_INTERVAL_PRESETS }),
+);
+
+api.put("/sync/settings", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    intervalMs?: unknown;
+  } | null;
+  if (!isSyncIntervalPreset(body?.intervalMs))
+    return c.json({ error: "intervalMs must be a preset" }, 400);
+  setSyncInterval(body.intervalMs);
+  return c.json({
+    intervalMs: getSyncInterval(),
+    presets: SYNC_INTERVAL_PRESETS,
+  });
+});
+
+api.get("/sync/budgets", async (c) => {
+  if (process.env.DEMO === "1") return c.json([]);
+  const engine = getSync();
+  await engine.reconcileConfiguration();
+  return c.json(engine.getBudgets());
 });
 
 // Authored PRs with CI + review status
