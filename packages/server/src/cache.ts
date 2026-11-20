@@ -1,75 +1,23 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-const DEMO = process.env.DEMO === "1";
-
-function resolveCacheDir(): string {
-  if (DEMO) return resolve(import.meta.dirname, "../../../.cache-demo");
-  if (process.env.GHD_DATA_DIR)
-    return resolve(process.env.GHD_DATA_DIR, ".cache");
-  return resolve(import.meta.dirname, "../../../.cache");
-}
-
-const CACHE_DIR = resolveCacheDir();
-const CACHE_FILE = resolve(CACHE_DIR, "data.json");
-
-interface CacheEntry {
-  data: unknown;
-  updatedAt: string;
-}
-
-const store = new Map<string, CacheEntry>();
-
-// Load from disk on startup
+// Read-only demo fixtures. Live data is owned exclusively by the sync engine.
+const store = new Map<string, { data: unknown }>();
 export function loadCache() {
+  if (process.env.DEMO !== "1") return;
+  const path = resolve(import.meta.dirname, "../../../.cache-demo/data.json");
   try {
-    if (existsSync(CACHE_FILE)) {
-      const raw = JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
-      for (const [key, entry] of Object.entries(raw)) {
-        if (!DEMO && /:(prs|reviews|notifications)$/.test(key)) continue;
-        store.set(key, entry as CacheEntry);
+    if (existsSync(path)) {
+      const entries = JSON.parse(readFileSync(path, "utf-8"));
+      for (const [key, entry] of Object.entries(entries)) {
+        store.set(key, entry as { data: unknown });
       }
-      console.log(`Cache loaded: ${store.size} entries`);
     }
   } catch {
-    console.log("No existing cache found, starting fresh");
-  }
-}
-
-function persistCache() {
-  if (DEMO) return;
-  try {
-    mkdirSync(CACHE_DIR, { recursive: true });
-    const obj: Record<string, CacheEntry> = {};
-    for (const [key, entry] of store) {
-      obj[key] = entry;
-    }
-    writeFileSync(CACHE_FILE, JSON.stringify(obj));
-  } catch (err) {
-    console.error("Failed to persist cache:", err);
+    console.log("Could not load demo fixtures");
   }
 }
 
 export function getCached<T>(key: string): T | null {
-  const entry = store.get(key);
-  if (!entry) return null;
-  return entry.data as T;
-}
-
-export function setCached(key: string, data: unknown) {
-  store.set(key, { data, updatedAt: new Date().toISOString() });
-  persistCache();
-}
-
-export function cacheAge(key: string): number | null {
-  const entry = store.get(key);
-  if (!entry) return null;
-  return Date.now() - new Date(entry.updatedAt).getTime();
-}
-
-/** Ancillary REST caches only; persistent lists live in the shared engine. */
-export function clearCache() {
-  if (DEMO) return;
-  store.clear();
-  persistCache();
+  return (store.get(key)?.data as T) ?? null;
 }

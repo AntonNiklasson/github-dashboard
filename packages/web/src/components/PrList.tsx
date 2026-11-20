@@ -9,8 +9,6 @@ interface Props {
   focusIndex: number;
   isFocusedSection: boolean;
   togglingDraftId?: PR["id"];
-  editingPrNumber?: number;
-  onSaveTitle?: (prNumber: number, title: string) => void;
 }
 
 export function PrList({
@@ -18,8 +16,6 @@ export function PrList({
   focusIndex,
   isFocusedSection,
   togglingDraftId,
-  editingPrNumber,
-  onSaveTitle,
 }: Props) {
   if (prs.length === 0) {
     return (
@@ -61,8 +57,6 @@ export function PrList({
               focused={focused}
               instanceId={pr.instanceId}
               instanceLabel={pr.instanceLabel}
-              editing={editingPrNumber === pr.number}
-              onSaveTitle={(title) => onSaveTitle?.(pr.number, title)}
             />
           </FocusLi>
         );

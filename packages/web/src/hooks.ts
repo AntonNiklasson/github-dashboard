@@ -165,22 +165,6 @@ export function useAllNotifications(instances: Instance[]) {
   return { data, isLoading, isFetching, error, refetchAll };
 }
 
-export function useSearchPrs(instanceId: string, query: string) {
-  return useQuery({
-    queryKey: ["search-prs", instanceId, query],
-    queryFn: () => api.searchPrs(instanceId, query),
-    enabled: !!instanceId && query.length >= 2,
-  });
-}
-
-export function useColleaguePrs(instanceId: string, username: string) {
-  return useQuery({
-    queryKey: ["user-prs", instanceId, username],
-    queryFn: () => api.userPrs(instanceId, username) as Promise<PR[]>,
-    enabled: !!instanceId && username.length >= 2,
-  });
-}
-
 export type Section = "prs" | "reviews" | "notifications";
 
 export function useKeyboardNav(
