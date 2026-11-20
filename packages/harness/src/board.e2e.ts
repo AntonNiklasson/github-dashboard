@@ -80,9 +80,7 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     await expect(card.getByText("passing", { exact: true })).toBeVisible();
     await expect(card).toHaveCount(1);
     expect(await scenario.persistedPrs()).toHaveLength(1);
-    await expect(
-      page.getByLabel("Sync status: Up to date", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByLabel(/^Sync status: Synced /)).toBeVisible();
     await captureState(page, testInfo, "recovered");
     expect(errors).toEqual([]);
     expect(apiResponses.length).toBeGreaterThan(3);

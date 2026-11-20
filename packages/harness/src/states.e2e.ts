@@ -99,8 +99,8 @@ test("shows a rate-limit pause and clears it after the budget resets", async ({
       { exact: true },
     );
     await expect(paused).toBeVisible();
-    await paused.click();
-    await expect(page.getByText(/Retry after/).first()).toBeVisible();
+    await paused.hover();
+    await expect(page.getByText(/retry (in|soon)/).first()).toBeVisible();
     await captureState(page, testInfo, "rate-limit-pause");
     scenario.setPhase("in-flight");
     await expect
@@ -117,9 +117,7 @@ test("shows a rate-limit pause and clears it after the budget resets", async ({
       )
       .toBe("updated");
     await page.reload();
-    await expect(
-      page.getByLabel("Sync status: Up to date", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByLabel(/^Sync status: Synced /)).toBeVisible();
   } finally {
     await scenario.close();
   }
