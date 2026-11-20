@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsgo --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "scenario": "tsx --conditions=development src/run.ts"
   },
   "dependencies": {
     "sync": "workspace:*"
