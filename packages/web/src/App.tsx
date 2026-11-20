@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { ArrowUpCircle, Loader2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -18,7 +18,6 @@ import { ErrorMessage } from "./components/ErrorMessage";
 import { NotificationList } from "./components/NotificationList";
 import { PrList } from "./components/PrList";
 import { ReviewList } from "./components/ReviewList";
-import { SectionHeader } from "./components/SectionHeader";
 import { RateLimits, SyncHealth } from "./components/SyncHealth";
 import { Welcome } from "./components/Welcome";
 import { ShortcutHelp } from "./components/ShortcutHelp";
@@ -38,6 +37,7 @@ import {
 import {
   type Section,
   activeSectionAtom,
+  sectionCountsAtom,
   useAllAuthoredPrs,
   useAllNotifications,
   useAllReviewRequests,
@@ -536,6 +536,12 @@ function Dashboard({ source }: { source: DashboardSource }) {
   };
 
   const nav = useKeyboardNav(sections, itemCounts);
+  const setSectionCounts = useSetAtom(sectionCountsAtom);
+
+  useEffect(() => {
+    setSectionCounts(itemCounts);
+  }, [itemCounts.prs, itemCounts.reviews, itemCounts.notifications]);
+
   const [actionMenu, setActionMenu] = useState<FocusedItem | null>(null);
   const [copyMenu, setCopyMenu] = useState<CopyTarget | null>(null);
   const [panelItem, setPanelItem] = useState<FocusedItem | null>(null);
@@ -843,15 +849,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
     <div className="flex h-full flex-col overflow-hidden">
       {nav.activeSection === "prs" && (
         <Column
-          section="prs"
-          label="My work"
-          count={sortedPrs.length}
-          isActive={nav.activeSection === "prs"}
-          isFetching={prs.isFetching}
-          onActivate={() => {
-            nav.setActiveSection("prs");
-            nav.setFocusIndex(0);
-          }}
           right={
             <SortControl
               fields={PR_SORT_FIELDS}
@@ -877,15 +874,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
 
       {nav.activeSection === "reviews" && (
         <Column
-          section="reviews"
-          label="Reviews"
-          count={itemCounts.reviews}
-          isActive={nav.activeSection === "reviews"}
-          isFetching={reviews.isFetching}
-          onActivate={() => {
-            nav.setActiveSection("reviews");
-            nav.setFocusIndex(0);
-          }}
           right={
             <SortControl
               fields={REVIEW_SORT_FIELDS}
@@ -910,15 +898,6 @@ function Dashboard({ source }: { source: DashboardSource }) {
 
       {nav.activeSection === "notifications" && (
         <Column
-          section="notifications"
-          label="Notifications"
-          count={itemCounts.notifications}
-          isActive={nav.activeSection === "notifications"}
-          isFetching={notifications.isFetching}
-          onActivate={() => {
-            nav.setActiveSection("notifications");
-            nav.setFocusIndex(0);
-          }}
           right={
             <SortControl
               fields={NOTIFICATION_SORT_FIELDS}
@@ -1061,37 +1040,17 @@ function getFocusedItem(
 }
 
 function Column({
-  section,
-  label,
-  count,
-  isActive,
-  isFetching,
-  onActivate,
   right,
   children,
 }: {
-  section: Section;
-  label: string;
-  count: number;
-  isActive: boolean;
-  isFetching: boolean;
-  onActivate: () => void;
   right?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden">
-      <div className="shrink-0 px-4 pt-4 pb-2">
-        <SectionHeader
-          section={section}
-          label={label}
-          count={count}
-          isActive={isActive}
-          isFetching={isFetching}
-          onClick={onActivate}
-          right={right}
-        />
-      </div>
+    <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden">
+      {right && (
+        <div className="flex shrink-0 justify-end px-4 pt-3 pb-1">{right}</div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-4 scroll-pt-2 scroll-pb-2">
         {children}
       </div>
@@ -1107,6 +1066,7 @@ const SECTION_TABS: { id: Section; label: string }[] = [
 
 function SectionTabs() {
   const [active, setActive] = useAtom(activeSectionAtom);
+  const counts = useAtomValue(sectionCountsAtom);
 
   return (
     <div
@@ -1129,6 +1089,11 @@ function SectionTabs() {
           )}
         >
           {tab.label}
+          {counts[tab.id] != null && (
+            <span className="ml-1.5 text-xs font-medium text-muted-foreground tabular-nums">
+              {counts[tab.id]}
+            </span>
+          )}
         </button>
       ))}
     </div>

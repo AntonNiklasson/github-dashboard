@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useAtom } from "jotai";
+import { atom, useAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
@@ -168,6 +168,8 @@ export function useAllNotifications(instances: Instance[]) {
 }
 
 export type Section = "prs" | "reviews" | "notifications";
+
+export const sectionCountsAtom = atom<Partial<Record<Section, number>>>({});
 
 export const activeSectionAtom = atomWithStorage<Section>(
   "activeSection",
