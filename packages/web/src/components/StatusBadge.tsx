@@ -1,4 +1,4 @@
-import { CheckCircle, Loader2, XCircle } from "lucide-react";
+import { CheckCircle, XCircle } from "lucide-react";
 import { Pill } from "./Pill";
 
 export type CiStatus = "success" | "failure" | "pending";
@@ -26,8 +26,15 @@ export function StatusBadge({ status }: { status: CiStatus }) {
       );
     case "pending":
       return (
-        <Pill icon={Loader2} iconClassName="animate-spin" tone="amber">
-          pending
+        <Pill tone="amber">
+          <span
+            className="relative flex size-3 items-center justify-center"
+            aria-hidden
+          >
+            <span className="absolute inline-flex size-2 animate-ping rounded-full bg-amber-500 opacity-75 [animation-duration:2s]" />
+            <span className="relative inline-flex size-1.5 rounded-full bg-amber-500" />
+          </span>
+          running checks
         </Pill>
       );
   }

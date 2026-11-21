@@ -46,7 +46,9 @@ test("polls queue entry, queue failure, and recovery through the real sync engin
     await expect(
       card.getByRole("img", { name: "In merge queue", exact: true }),
     ).toBeVisible();
-    await expect(card.getByText("pending", { exact: true })).toBeVisible();
+    await expect(
+      card.getByText("running checks", { exact: true }),
+    ).toBeVisible();
     await expect(card).toHaveCount(1);
 
     await captureState(page, testInfo, "queued");
